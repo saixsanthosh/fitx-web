@@ -11,7 +11,7 @@ import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv } from "./helpers/fakes.mjs";
-import { serverActionForms } from "./helpers/jsx-scan.mjs";
+import { moduleLoader, resetForms } from "./helpers/jsx-scan.mjs";
 import { sealedRedirect } from "./helpers/notices.mjs";
 import { importTypeScriptModule } from "./helpers/typescript-module.mjs";
 
@@ -331,26 +331,89 @@ test("Add operator keeps the username and role as typed, never the password", as
   assert.match(css, /\.member-form > :is\(\.form-error, \.form-saved\) \{ grid-column: 1 \/ -1; \}/, "the answer has a row of its own");
 });
 
-test("no Admin form that a Server Action handles itself takes typed text, but the Users search", async () => {
-  // The check that would have found these forms: React resets a form whose action is the Server Action itself, so a
-  // refusal that redirects loses what was typed. Made-up shapes first: a plain form with a reason and a note is found;
-  // a kept form (useActionState and keepTyped) and a plain form of choices are not.
-  const plain = 'import { save } from "./actions"; export const F = () => <form action={save}><input name="reason" required /><textarea name="note" /><input type="password" name="secret" /><input type="hidden" name="id" /></form>;';
-  assert.deepEqual(serverActionForms(plain, "plain.tsx").map((form) => [form.action, form.typed]), [["save", ["reason", "note"]]]);
-  const kept = 'import { save } from "./actions"; export function F() { const [state, action] = useActionState(save, IDLE); return <form action={action} onSubmit={keepTyped(action)}><input name="reason" /></form>; }';
-  assert.deepEqual(serverActionForms(kept, "kept.tsx"), []);
-  const choices = 'import { save } from "@/app/(control)/things/actions"; export const F = () => <form action={save}><select name="role" /><input type="checkbox" name="confirm" /><input type="text" name="username" readOnly hidden /></form>;';
-  assert.deepEqual(serverActionForms(choices, "choices.tsx").map((form) => form.typed), [[]]);
-  // The member page's old Suspend / Lift form chose its action: found too.
-  const either = 'import { lift, suspend } from "../actions"; export const F = ({ on }) => <form action={on ? lift : suspend}><label>Reason<input name="reason" /></label></form>;';
-  assert.deepEqual(serverActionForms(either, "either.tsx").map((form) => [form.action, form.typed]), [["lift or suspend", ["reason"]]]);
-
+/** admin/src's .ts and .tsx files by their src-relative names. */
+async function adminSources() {
   const SRC = new URL("../src/", import.meta.url);
+  const files = {};
+  for (const name of await readdir(SRC, { recursive: true })) if (/\.tsx?$/.test(name)) files[name] = await readFile(new URL(name, SRC), "utf8");
+  return files;
+}
+
+// The check that would have found these forms: React runs a form's action itself and then resets the form, so a
+// refusal loses what was typed. It read only the <input> and <textarea> written inside a form whose action was
+// imported from an actions module (review finding admin-63-guard-blind-to-child-fields): a field drawn by a component
+// (<Reason />), by a helper or a constant, or passed in as children, and every useActionState form without keepTyped,
+// went unseen. resetForms (tests/helpers/jsx-scan.mjs) reads the forms React resets as React decides it, and each
+// field where it is drawn from.
+test("the scan finds every form React resets and reads each field where it is drawn from (made-up forms)", async () => {
+  const shapes = {
+    // A plain form with a reason and a note: found; a password and a hidden input are not kept anyway.
+    "components/shape/plain.tsx": 'import { save } from "./actions"; export const F = () => <form action={save}><input name="reason" required /><textarea name="note" /><input type="password" name="secret" /><input type="hidden" name="id" /></form>;',
+    // A kept form (useActionState and keepTyped, read from its own module): not reset.
+    "components/shape/kept.tsx": 'import { useActionState } from "react"; import { keepTyped } from "@/components/content/keep-typed"; import { save } from "./actions"; export function F() { const [state, action] = useActionState(save, IDLE); return <form action={action} onSubmit={keepTyped(action)}><input name="reason" /></form>; }',
+    // Choices, and a read-only hidden field: nothing typed.
+    "components/shape/choices.tsx": 'import { save } from "@/app/(control)/things/actions"; export const F = () => <form action={save}><select name="role" /><input type="checkbox" name="confirm" /><input type="text" name="username" readOnly hidden /></form>;',
+    // The member page's old Suspend / Lift form chose its action.
+    "components/shape/either.tsx": 'import { lift, suspend } from "../actions"; export const F = ({ on }) => <form action={on ? lift : suspend}><label>Reason<input name="reason" /></label></form>;',
+    // The finding's shape: the field drawn by a component of the same file.
+    "components/shape/child.tsx": 'import { save } from "./actions"; function Reason() { return <label>Reason<input name="reason" required /></label>; } export const F = () => <form action={save}><Reason /></form>;',
+    // A component of another module, which draws its field through a component of its own.
+    "components/shape/note-field.tsx": 'import type { ReactNode } from "react"; function Labelled({ label, children }: { label: string; children: ReactNode }) { return <label>{label}{children}</label>; } export function NoteField() { return <Labelled label="Note"><textarea name="note" /></Labelled>; }',
+    "components/shape/imported.tsx": 'import { save } from "./actions"; import { NoteField } from "./note-field"; export const F = () => <form action={save}><NoteField /></form>;',
+    // A helper, a constant and a map's renderer.
+    "components/shape/helpers.tsx": 'import { save } from "./actions"; const note = <textarea name="note" />; function reasonField() { return <input name="reason" />; } function row(name: string) { return <input key={name} name={name} type="email" />; } export const F = ({ names }: { names: string[] }) => <form action={save}>{reasonField()}{note}{names.map(row)}</form>;',
+    // What the component's caller writes: its children, a render prop, a prop of a type of the same file. Text is not.
+    "components/shape/slots.tsx": 'import type { ReactNode } from "react"; import { save } from "./actions"; type Props = { extra: ReactNode; title: string; children: ReactNode; fields: () => ReactNode }; export function Shell({ extra, title, children, fields }: Props) { return <form action={save}><h2>{title}</h2>{children}{fields()}{extra}<button>Send</button></form>; }',
+    // A component from a package that may draw fields; an icon and a link do not.
+    "components/shape/packages.tsx": 'import Link from "next/link"; import { Send } from "lucide-react"; import { TextField } from "some-ui"; import { save } from "./actions"; export const F = () => <form action={save}><TextField name="reason" /><Send aria-hidden="true" /><Link href="/help">Help</Link></form>;',
+    // The Next docs' useActionState form, without keepTyped: React resets it after every answer.
+    "components/shape/signup.tsx": '"use client"; import { useActionState } from "react"; import { createUser } from "./actions"; export function Signup() { const [state, formAction, pending] = useActionState(createUser, { message: "" }); return <form action={formAction}><input name="email" type="email" /><p>{state.message}</p><button aria-disabled={pending}>Sign up</button></form>; }',
+    // The same, with the field the answer gives back and a controlled field: both keep their text through the reset.
+    "components/shape/given-back.tsx": 'import { useActionState, useState } from "react"; import { createUser } from "./actions"; export function Signup() { const [state, formAction] = useActionState(createUser, { email: "" }); const [name, setName] = useState(""); return <form action={formAction}><input name="email" type="email" defaultValue={state.email} /><input name="name" value={name} onChange={(event) => setName(event.target.value)} /></form>; }',
+    // A handler that prevents the default first takes the submit over; one that prevents it only sometimes does not.
+    "components/shape/handlers.tsx": 'import { startTransition, useActionState } from "react"; import { save } from "./actions"; export function F({ ready }: { ready: boolean }) { const [state, action] = useActionState(save, IDLE); function submit(event) { event.preventDefault(); startTransition(() => action(new FormData(event.currentTarget))); } return <><form action={action} onSubmit={submit}><input name="title" /></form><form action={action} onSubmit={(event) => { if (!ready) event.preventDefault(); }}><input name="title" /></form></>; }',
+    // A bound action through a constant and a button's formAction are functions too; an address is not.
+    "components/shape/bound.tsx": 'import { saveFood } from "./actions"; export function F({ id }: { id: string }) { const save = saveFood.bind(null, id); return <><form action={save}><input name="name" /></form><form><textarea name="note" /><button formAction={saveFood}>Save</button></form><form action="/search"><input name="q" type="search" /></form></>; }',
+    // Data the component around the form is given (an object, a label, a count): no field.
+    "components/shape/data.tsx": 'import { save } from "./actions"; type Target = { reportId?: string }; function Hidden({ target }: { target: Target }) { return target.reportId ? <input type="hidden" name="reportId" value={target.reportId} /> : null; } export function F({ target, label, count }: { target: Target; label: string; count: number }) { return <form action={save}><Hidden target={target} /><button>{label} ({count})</button></form>; }',
+  };
+  const load = moduleLoader({ ...(await adminSources()), ...shapes });
+  const scan = (name) => resetForms(shapes[name], name, load).map(({ action, typed, unread }) => ({ action, typed, unread }));
+  const form = (action, typed = [], unread = []) => ({ action, typed, unread });
+  assert.deepEqual(scan("components/shape/plain.tsx"), [form("save", ["reason", "note"])]);
+  assert.deepEqual(scan("components/shape/kept.tsx"), []);
+  assert.deepEqual(scan("components/shape/choices.tsx"), [form("save")]);
+  assert.deepEqual(scan("components/shape/either.tsx"), [form("on ? lift : suspend", ["reason"])]);
+  assert.deepEqual(scan("components/shape/child.tsx"), [form("save", ["reason"])]);
+  assert.deepEqual(scan("components/shape/imported.tsx"), [form("save", ["note"])]);
+  assert.deepEqual(scan("components/shape/helpers.tsx"), [form("save", ["reason", "note", "name"])]);
+  assert.deepEqual(scan("components/shape/slots.tsx"), [form("save", [], ["{children}", "{fields}", "{extra}"])]);
+  assert.deepEqual(scan("components/shape/packages.tsx"), [form("save", [], ["<TextField>"])]);
+  assert.deepEqual(scan("components/shape/signup.tsx"), [form("useActionState(createUser)", ["email"])]);
+  assert.deepEqual(scan("components/shape/given-back.tsx"), [form("useActionState(createUser)")]);
+  assert.deepEqual(scan("components/shape/handlers.tsx"), [form("useActionState(save)", ["title"])]);
+  assert.deepEqual(scan("components/shape/bound.tsx"), [form("save", ["name"]), form("saveFood", ["note"])]);
+  assert.deepEqual(scan("components/shape/data.tsx"), [form("save")]);
+});
+
+test("no Admin form that React resets takes typed text it would lose, but the Users search", async () => {
+  const files = await adminSources();
+  const load = moduleLoader(files);
   const typed = [];
-  for (const name of await readdir(SRC, { recursive: true })) {
+  const unread = [];
+  let forms = 0;
+  for (const [name, source] of Object.entries(files)) {
     if (!name.endsWith(".tsx")) continue;
-    for (const form of serverActionForms(await readFile(new URL(name, SRC), "utf8"), name)) if (form.typed.length) typed.push(`${name}: ${form.action} (${form.typed.join(", ")})`);
+    for (const found of resetForms(source, name, load)) {
+      forms += 1;
+      if (found.typed.length) typed.push(`${name}: ${found.action} (${found.typed.join(", ")})`);
+      if (found.unread.length) unread.push(`${name}:${found.line}: ${found.unread.join(", ")}`);
+    }
   }
+  assert.deepEqual(unread, [], "the scan reads every field of every form React resets");
   // The Users search always goes to its results, with the text back in the box from its sealed token.
   assert.deepEqual(typed, ["app/(control)/users/page.tsx: searchUsers (q)"]);
+  // The plain forms of buttons and choices (sign out, Suspend from Explore, Change role, …) and sign-in, whose answer
+  // gives the username back and which empties the password on purpose: a scan that found none could not pass.
+  assert.ok(forms >= 25, `${forms} forms React resets`);
 });
