@@ -103,7 +103,7 @@ const PLACES: ReadonlyArray<{ name: string; file: string; hook: RegExp; buttons:
   {
     name: "Workouts: Workouts unavailable, and the equipment or programme alert (one at a time, the same id)",
     file: "src/app/(dashboard)/workouts/page.tsx",
-    hook: /const reloadPhase: ReloadPhase = loading \? "loading" : error \|\| equipmentLoadFailed \|\| programmeLoadFailed \? "failed" : "ready";\n\s+const retrying = useRetryFocus\(reloadPhase, WORKOUTS_FOCUS, \{ keepScroll: true \}\);/,
+    hook: /const reloadPhase: ReloadPhase = loading \? "loading" : error \|\| equipmentLoadFailed \|\| programmeLoadFailed \? "failed" : "ready";\n\s+const retrying = useRetryFocus\(reloadPhase, WORKOUTS_FOCUS\);/,
     buttons: [
       /<button id=\{WORKOUTS_FOCUS\.retry\} type="button" aria-describedby="workouts-load-problem" className="fitx-button fitx-button-secondary" onClick=\{\(\) => \{ retrying\(\); setLoading\(true\); void load\(\); \}\}>Try again<\/button>/,
       /<button id=\{WORKOUTS_FOCUS\.retry\} type="button" aria-describedby="workouts-lists-problem" onClick=\{\(\) => \{ retrying\(\); setLoading\(true\); void load\(\); \}\} className="fitx-alert-action">Try again<\/button>/,
@@ -114,7 +114,7 @@ const PLACES: ReadonlyArray<{ name: string; file: string; hook: RegExp; buttons:
   {
     name: "Programme unavailable",
     file: "src/app/(dashboard)/workouts/programme/page.tsx",
-    hook: /const reloadPhase: ReloadPhase = state === "loading" \? "loading" : state === "error" \? "failed" : "ready";\n\s+const retrying = useRetryFocus\(reloadPhase, PROGRAMME_FOCUS, \{ keepScroll: true \}\);/,
+    hook: /const reloadPhase: ReloadPhase = state === "loading" \? "loading" : state === "error" \? "failed" : "ready";\n\s+const retrying = useRetryFocus\(reloadPhase, PROGRAMME_FOCUS\);/,
     buttons: [/<button id=\{PROGRAMME_FOCUS\.retry\} type="button" aria-describedby="programme-load-problem" className="fitx-button fitx-button-secondary" onClick=\{\(\) => \{ retrying\(\); setState\("loading"\); void load\(\); \}\}>Try again<\/button>/],
     heading: /const PROGRAMME_FOCUS = \{ heading: "programme-page-title", retry: "programme-retry" \};/,
     problem: [/descriptionId="programme-load-problem"/],
@@ -122,7 +122,7 @@ const PLACES: ReadonlyArray<{ name: string; file: string; hook: RegExp; buttons:
   {
     name: "History unavailable",
     file: "src/components/session/WorkoutHistoryScreen.tsx",
-    hook: /const retrying = useRetryFocus\(state\.status === "error" \? "failed" : state\.status, HISTORY_FOCUS, \{ keepScroll: true \}\);/,
+    hook: /const retrying = useRetryFocus\(state\.status === "error" \? "failed" : state\.status, HISTORY_FOCUS\);/,
     buttons: [/<button id=\{HISTORY_FOCUS\.retry\} type="button" aria-describedby="workout-history-problem" onClick=\{\(\) => \{ retrying\(\); setState\(\{ status: "loading" \}\); void load\(\); \}\} className="fitx-button">Try again<\/button>/],
     heading: /<PageHeader title="Workout history" meta="[^"]+" titleId=\{HISTORY_FOCUS\.heading\} \/>/,
     problem: [/descriptionId="workout-history-problem"/],
@@ -130,7 +130,7 @@ const PLACES: ReadonlyArray<{ name: string; file: string; hook: RegExp; buttons:
   {
     name: "Workout record unavailable",
     file: "src/components/session/SessionRecordScreen.tsx",
-    hook: /const retrying = useRetryFocus\(!current \? "loading" : "error" in current && current\.error === "failed" \? "failed" : "ready", RECORD_FOCUS, \{ keepScroll: true \}\);/,
+    hook: /const retrying = useRetryFocus\(!current \? "loading" : "error" in current && current\.error === "failed" \? "failed" : "ready", RECORD_FOCUS\);/,
     buttons: [/\{current\.error === "failed" && <button id=\{RECORD_FOCUS\.retry\} type="button" aria-describedby="workout-record-problem" onClick=\{\(\) => \{ retrying\(\); setLoaded\(null\); void load\(\); \}\} className="fitx-button">Try again<\/button>\}/],
     heading: /<PageHeader title="Workout record" titleId=\{RECORD_FOCUS\.heading\} \/>/,
     problem: [/descriptionId="workout-record-problem"/],

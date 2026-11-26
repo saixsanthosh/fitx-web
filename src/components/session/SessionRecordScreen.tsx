@@ -66,7 +66,8 @@ export function SessionRecordScreen({ id }: { id: string }) {
   const current = loaded?.id === id ? loaded : null;
   // Try again swaps "Workout record unavailable" for loading, taking the button with it: once the record has loaded (or
   // the address turned out to name none), the page's h1 takes focus, or the new Try again when it failed again (D5).
-  const retrying = useRetryFocus(!current ? "loading" : "error" in current && current.error === "failed" ? "failed" : "ready", RECORD_FOCUS, { keepScroll: true });
+  // The page was replaced, so it is shown from its h1.
+  const retrying = useRetryFocus(!current ? "loading" : "error" in current && current.error === "failed" ? "failed" : "ready", RECORD_FOCUS);
   // Every state has one main heading (bug 94): "Workout record" until the workout's own name can be shown.
   if (!current) return <RecordState><div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary motion-reduce:animate-none">Loading the workout record…</div></RecordState>;
   if ("error" in current) {

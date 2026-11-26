@@ -482,9 +482,10 @@ export default function WorkoutsPage() {
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   // Try again (Workouts unavailable, or the lists' alert) reloads the whole page, taking the button with it: once the
-  // reload ends, focus goes to the page's h1, or to the new Try again when something still could not load (D5).
+  // reload ends, focus goes to the page's h1, or to the new Try again when something still could not load (D5). The
+  // page was replaced, so it is shown from its h1.
   const reloadPhase: ReloadPhase = loading ? "loading" : error || equipmentLoadFailed || programmeLoadFailed ? "failed" : "ready";
-  const retrying = useRetryFocus(reloadPhase, WORKOUTS_FOCUS, { keepScroll: true });
+  const retrying = useRetryFocus(reloadPhase, WORKOUTS_FOCUS);
 
   // "Later" on the first-time setup holds on this device until the member opens the setup themselves.
   useEffect(() => {

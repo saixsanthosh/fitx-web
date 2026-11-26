@@ -73,8 +73,8 @@ export function WorkoutHistoryScreen() {
   }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
   // Try again swaps History unavailable for loading, taking the button with it: once the list has loaded, the page's h1
-  // takes focus, or the new Try again when it failed again (D5).
-  const retrying = useRetryFocus(state.status === "error" ? "failed" : state.status, HISTORY_FOCUS, { keepScroll: true });
+  // takes focus, or the new Try again when it failed again (D5). The page was replaced, so it is shown from its h1.
+  const retrying = useRetryFocus(state.status === "error" ? "failed" : state.status, HISTORY_FOCUS);
 
   async function loadMore() {
     if (state.status !== "ready" || state.nextOffset === null || loadingMore) return;

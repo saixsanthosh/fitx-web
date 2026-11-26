@@ -162,9 +162,9 @@ export default function ProgrammeJourneyPage() {
     heading.focus();
   }, [weekFocus, view, loaded]);
   // Try again replaces the unavailable state with loading, taking the button with it: once the load ends, the page's h1
-  // takes focus, or the new Try again when it failed again (D5).
+  // takes focus, or the new Try again when it failed again (D5). The page was replaced, so it is shown from its h1.
   const reloadPhase: ReloadPhase = state === "loading" ? "loading" : state === "error" ? "failed" : "ready";
-  const retrying = useRetryFocus(reloadPhase, PROGRAMME_FOCUS, { keepScroll: true });
+  const retrying = useRetryFocus(reloadPhase, PROGRAMME_FOCUS);
 
   async function begin(planId: string, title: string): Promise<string | null> {
     const supabase = createClient();
