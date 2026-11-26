@@ -9,8 +9,9 @@
 // Made-up IDs, names, addresses and passwords only.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv } from "./helpers/fakes.mjs";
+import { serverActionForms } from "./helpers/jsx-scan.mjs";
 import { sealedRedirect } from "./helpers/notices.mjs";
 import { importTypeScriptModule } from "./helpers/typescript-module.mjs";
 
@@ -328,4 +329,28 @@ test("Add operator keeps the username and role as typed, never the password", as
   assert.match(add, />Add operator<\/BusyButton>/);
   const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
   assert.match(css, /\.member-form > :is\(\.form-error, \.form-saved\) \{ grid-column: 1 \/ -1; \}/, "the answer has a row of its own");
+});
+
+test("no Admin form that a Server Action handles itself takes typed text, but the Users search", async () => {
+  // The check that would have found these forms: React resets a form whose action is the Server Action itself, so a
+  // refusal that redirects loses what was typed. Made-up shapes first: a plain form with a reason and a note is found;
+  // a kept form (useActionState and keepTyped) and a plain form of choices are not.
+  const plain = 'import { save } from "./actions"; export const F = () => <form action={save}><input name="reason" required /><textarea name="note" /><input type="password" name="secret" /><input type="hidden" name="id" /></form>;';
+  assert.deepEqual(serverActionForms(plain, "plain.tsx").map((form) => [form.action, form.typed]), [["save", ["reason", "note"]]]);
+  const kept = 'import { save } from "./actions"; export function F() { const [state, action] = useActionState(save, IDLE); return <form action={action} onSubmit={keepTyped(action)}><input name="reason" /></form>; }';
+  assert.deepEqual(serverActionForms(kept, "kept.tsx"), []);
+  const choices = 'import { save } from "@/app/(control)/things/actions"; export const F = () => <form action={save}><select name="role" /><input type="checkbox" name="confirm" /><input type="text" name="username" readOnly hidden /></form>;';
+  assert.deepEqual(serverActionForms(choices, "choices.tsx").map((form) => form.typed), [[]]);
+  // The member page's old Suspend / Lift form chose its action: found too.
+  const either = 'import { lift, suspend } from "../actions"; export const F = ({ on }) => <form action={on ? lift : suspend}><label>Reason<input name="reason" /></label></form>;';
+  assert.deepEqual(serverActionForms(either, "either.tsx").map((form) => [form.action, form.typed]), [["lift or suspend", ["reason"]]]);
+
+  const SRC = new URL("../src/", import.meta.url);
+  const typed = [];
+  for (const name of await readdir(SRC, { recursive: true })) {
+    if (!name.endsWith(".tsx")) continue;
+    for (const form of serverActionForms(await readFile(new URL(name, SRC), "utf8"), name)) if (form.typed.length) typed.push(`${name}: ${form.action} (${form.typed.join(", ")})`);
+  }
+  // The Users search always goes to its results, with the text back in the box from its sealed token.
+  assert.deepEqual(typed, ["app/(control)/users/page.tsx: searchUsers (q)"]);
 });

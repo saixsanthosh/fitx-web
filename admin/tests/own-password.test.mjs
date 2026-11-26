@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { importTypeScriptModule } from "./helpers/typescript-module.mjs";
 import { fake, resetFakes, rpcCalls, SESSION_STUBS, setTestEnv, tableCalls } from "./helpers/fakes.mjs";
+import { sealedRedirect } from "./helpers/notices.mjs";
 
 // Made-up names and passwords only.
 const CURRENT = "made-up current passphrase";
@@ -12,6 +13,7 @@ const ROOT_HASH = await hashPassword("made-up root passphrase");
 const OPERATOR_HASH = await hashPassword(CURRENT);
 setTestEnv({ FITX_ADMIN_USERNAME: "test-owner", FITX_ADMIN_PASSWORD_HASH: ROOT_HASH });
 const operators = await importTypeScriptModule("src/lib/operators.ts", SESSION_STUBS);
+const account = await importTypeScriptModule("src/app/(control)/account/actions.ts", SESSION_STUBS);
 
 const ACTOR = { id: "00000000-0000-4000-8000-0000000000bb", username: "agent.one", role: "support_agent", isRoot: false, mustChangePassword: false, permissions: [] };
 const ROW = { id: ACTOR.id, username: ACTOR.username, role: ACTOR.role, is_active: true, is_root: false, password_hash: OPERATOR_HASH, must_change_password: false };
@@ -112,4 +114,31 @@ test("the root, a weak or unchanged new password never reach the limits", async 
   assert.deepEqual(await change(CURRENT, "short"), { ok: false, error: "weak_password" });
   assert.deepEqual(await change(NEXT, NEXT), { ok: false, error: "same_password" });
   assert.equal(rpcCalls("fitx_admin_login_check").length, 0);
+});
+
+test("a refusal the Account page has no words for reads as a failure, and is logged, never as no notice at all", async () => {
+  // The database's refusals are mapped for every kind of operator change; a permission refusal comes back as
+  // "forbidden", which the Account page has no words for (found by tests/notice-routes.test.mjs).
+  database();
+  const handler = fake.handler;
+  fake.handler = (call) => (call.rpc === "fitx_admin_op_set_operator_password" ? { data: null, error: { code: "42501", message: "permission denied" } } : handler(call));
+  fake.operator = ACTOR;
+  const form = new FormData();
+  form.set("current_password", CURRENT);
+  form.set("next_password", NEXT);
+  form.set("confirm_password", NEXT);
+  const warnings = [];
+  const original = console.warn;
+  console.warn = (...args) => warnings.push(args.join(" "));
+  const url = await account.changePassword(form).then(() => null, (error) => error.url).finally(() => { console.warn = original; });
+  assert.deepEqual(sealedRedirect(url, ACTOR.id, "state"), { path: "/account", notice: { code: "failed", count: null } });
+  assert.ok(warnings.some((line) => line.includes("account.change_password") && line.includes("refused as forbidden")), warnings.join("\n"));
+  // The refusals it has words for keep them.
+  fake.handler = handler;
+  const wrong = new FormData();
+  wrong.set("current_password", "made-up wrong guess");
+  wrong.set("next_password", NEXT);
+  wrong.set("confirm_password", NEXT);
+  const refused = await account.changePassword(wrong).then(() => null, (error) => error.url);
+  assert.deepEqual(sealedRedirect(refused, ACTOR.id, "state").notice, { code: "wrong_password", count: null });
 });
