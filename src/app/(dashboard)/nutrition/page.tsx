@@ -43,7 +43,8 @@ import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleM
 import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
-import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
+import { FoodPhotoError, photoNotSavedText, photoRetryText, signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
+import { askFoodSearch, unansweredText } from "@/lib/food/food-request";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
 import { dayReadProblem, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
@@ -146,6 +147,8 @@ export default function NutritionPage() {
   const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
   /** The browse list, kept so the sheet can go back to its start view without asking again. */
   const [browse, setBrowse] = useState<BrowseList | null>(null);
+  /** Why the browse list didn't come (said where it would be, with Try again); `attempt` makes a repeat read out again. */
+  const [browseProblem, setBrowseProblem] = useState<{ text: string; attempt: number } | null>(null);
   /** Add to log was pressed with an amount that can't be logged: its problem shows next to the amount while it lasts. */
   const [amountTried, setAmountTried] = useState(false);
   /** The meal the open Log food adds to; set each time it opens (mealForOpen). */
@@ -500,13 +503,18 @@ export default function NutritionPage() {
         document.getElementById(target)?.focus();
       }, 60);
     };
+    // A lookup that failed says why in FITX's words (never the browser's "Failed to fetch"), with no answer shown.
+    const failed = (message: string) => {
+      setBarcodeMiss(null); setError(message);
+      refocus(focusAfterRetry({ found: false, miss: null }));
+    };
     // Trying the same barcode again keeps its answer on screen (and its Try again button under the focus) until the new one.
     setBusy(true); setError(""); setNotice(""); setBarcodeMiss((miss) => (miss?.code === checked.code ? miss : null));
     try {
-      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
+      const answer = await askFoodSearch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, { kind: "barcode", code: checked.code }, SEARCH_FETCH);
       if (!current()) return;
-      if (!response.ok) throw new Error(data.error || "Barcode lookup failed.");
+      if (!answer.ok) { failed(answer.message); return; }
+      const data = answer.data;
       setResults(data.foods || []);
       setSources(data.sources || []);
       setSearchMode("barcode");
@@ -516,19 +524,15 @@ export default function NutritionPage() {
         // The barcode controls make way for the product: its amount takes the focus.
         window.setTimeout(() => document.getElementById("log-portion-amount")?.focus({ preventScroll: true }), 60);
       } else if (data.barcodeStatus === "invalid") {
-        setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit"));
-        refocus(focusAfterRetry({ found: false, miss: null }));
+        failed(data.error || barcodeProblem("check-digit"));
       } else {
         // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
         const miss = barcodeMissFor(data.barcodeStatus, checked.code, data.productName);
         setSelected(null); setBarcodeMiss(miss);
         refocus(focusAfterRetry({ found: false, miss }));
       }
-    } catch (cause) {
-      if (current()) {
-        setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed.");
-        refocus(focusAfterRetry({ found: false, miss: null }));
-      }
+    } catch {
+      if (current()) failed(unansweredText({ kind: "barcode", code: checked.code }));
     }
     finally { setBusy(false); }
   }, [chooseFood]);
@@ -546,16 +550,17 @@ export default function NutritionPage() {
 
   const browseFoods = useCallback(async () => {
     setSearchingFoods(true);
+    // Why it didn't come is said where the list would be, with Try again, never as the page's message (which would
+    // hide the day's own, with its Try again, in an outage).
+    const failed = (text: string) => setBrowseProblem((old) => ({ text, attempt: (old?.attempt ?? 0) + 1 }));
     try {
-      const response = await fetch("/api/foods/search?browse=1", SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
-      if (!response.ok) throw new Error(data.error || "Food search failed.");
+      const answer = await askFoodSearch("/api/foods/search?browse=1", { kind: "browse" }, SEARCH_FETCH);
+      if (!answer.ok) { failed(answer.message); return; }
       // Listed whenever the sheet shows its start view (listedFoods), never over a search typed meanwhile.
-      setBrowse({ foods: data.foods || [], sources: data.sources || [] });
-    } catch (cause) {
-      // Never over a message already shown: in an auth outage the day's own (with Try again) says what to do.
-      const message = cause instanceof Error ? cause.message : "Food search is temporarily unavailable.";
-      setError((current) => current || message);
+      setBrowse({ foods: answer.data.foods || [], sources: answer.data.sources || [] });
+      setBrowseProblem(null);
+    } catch {
+      failed(unansweredText({ kind: "browse" }));
     }
     finally { setSearchingFoods(false); }
   }, []);
@@ -643,10 +648,11 @@ export default function NutritionPage() {
     }
     setSearchingFoods(true); setError(""); setNotice(""); setPickHint(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
+      const answer = await askFoodSearch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, { kind: "search" }, SEARCH_FETCH);
       if (!current()) return;
-      if (!response.ok) throw new Error(data.error || "Food search failed.");
+      // In FITX's words: FITX couldn't be reached, the search isn't working just now, or FITX's own refusal.
+      if (!answer.ok) { setError(answer.message); return; }
+      const data = answer.data;
       const found = (data.foods || []).map(withPhoto);
       setResults(found);
       setSources(data.sources || []);
@@ -673,7 +679,7 @@ export default function NutritionPage() {
         setAmountPrompt(null);
         setPickHint(outcome.hint);
       }
-    } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+    } catch { if (current()) setError(unansweredText({ kind: "search" })); }
     finally { if (current()) setSearchingFoods(false); }
   }
 
@@ -1005,10 +1011,12 @@ export default function NutritionPage() {
       try {
         const path = await uploadFoodPhoto(supabase, userId, row.id, photo, row.image_path ?? null);
         const updated = await supabase.from("custom_foods").update({ image_path: path }).eq("id", row.id).eq("user_id", userId);
-        if (updated.error) throw new Error("not saved");
+        // Status 0: the save never reached FITX.
+        if (updated.error) throw new FoodPhotoError(photoRetryText(updated.status === 0));
         photoUrl = (await signedPhotoUrls(supabase, [path])).get(path) ?? null;
       } catch (cause) {
-        photoProblem = ` The photo was not saved: ${cause instanceof Error ? cause.message : "please try again"}`;
+        // FITX's reason (a photo it can't read, a failed upload), never a browser's own words.
+        photoProblem = ` ${photoNotSavedText(cause)}`;
       }
     }
     setBusy(false);
@@ -1249,6 +1257,13 @@ export default function NutritionPage() {
 
   const foodList = (
     <div aria-live="polite" className={styles.foodResults}>
+      {/* Where the common foods would be: why they didn't come, with Try again, which stays (unavailable) while it asks. */}
+      {showBrowse && !browse && browseProblem && <div className={ui.callout}>
+        <p key={browseProblem.attempt}>{browseProblem.text}</p>
+        <div className={ui.toolbar}>
+          <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={searchingFoods || undefined} onClick={() => { if (!searchingFoods) void browseFoods(); }}>Try again</button>
+        </div>
+      </div>}
       {searchingFoods ? <p className={styles.loading}>Loading foods…</p> : <>
         {unsourced && <div className={ui.callout}>
           <p><strong>{unsourced.label}</strong> has no sourced values in FITX yet, so nothing is guessed.{shownResults.length > 0 ? " These only contain the word." : ""}</p>
@@ -1264,7 +1279,8 @@ export default function NutritionPage() {
             <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} card={foodCardKey("recent", food.id, food.source)} onSelect={(chosen) => chooseFood(chosen, lastQuery, foodCardKey("recent", chosen.id, chosen.source))}/>
           </div>)}
         </>}
-        {showBrowse && <p className={styles.listLabel}>Common foods</p>}
+        {/* Only over the list itself: when it didn't come, the message above says so instead of a label over nothing. */}
+        {showBrowse && browse && <p className={styles.listLabel}>Common foods</p>}
         {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered from labels by its community.</p>}
         {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>No exact match. Closest spellings:</p>}
         {shownResults.map((food, index) => <div key={`${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>

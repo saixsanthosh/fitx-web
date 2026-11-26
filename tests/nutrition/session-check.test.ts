@@ -76,7 +76,9 @@ test("the day, Add to log, the water buttons and History check the session this 
   assert.match(page, /\{said\.retry && <button type="button" [^>]*onClick=\{\(\) => \{ if \(!loading\) retryLoad\(\); \}\}>\{loading \? "Loading…" : "Try again"\}<\/button>\}/);
   const retry = page.slice(page.indexOf("function retryLoad("), page.indexOf("function showStart("));
   assert.match(retry, /focusIfLost\.current = \["#meals-title", "#routines-title", "\[data-food-add\]", "#history-title"\];\s*void load\(\);\s*void refreshRecent\(\);\s*if \(!browse\) void browseFoods\(\);/, "the button goes once the day is in: the focus moves on; Recent and the food list are read again too");
-  assert.match(page.slice(page.indexOf("const browseFoods = useCallback("), page.indexOf("function retryLoad(")), /setError\(\(current\) => current \|\| message\);/, "the food list's failure never hides the day's message and its Try again");
+  const browse = page.slice(page.indexOf("const browseFoods = useCallback("), page.indexOf("function retryLoad("));
+  assert.doesNotMatch(browse, /setError\(/, "the food list's failure never hides the day's message and its Try again (request-failures.test.ts)");
+  assert.match(browse, /setBrowseProblem\(/);
   const history = read("src/components/nutrition/NutritionHistory.tsx");
   assert.ok(!history.includes("Sign in to see your history."));
   assert.match(history, /if \(!user\) \{ setProblem\(sessionProblem\(state, "history"\)\); setRows\(null\); return; \}/);
