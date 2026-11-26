@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, type ReactNode } from "react";
 import { ArrowRight, ChevronRight, ListChecks } from "lucide-react";
 import { ExerciseThumb } from "@/components/exercises/ExerciseThumb";
+import { swapAdvice } from "@/app/(dashboard)/workouts/_lib/today-equipment";
 import { todayStart, type ActiveWorkout } from "@/app/(dashboard)/workouts/_lib/today-start";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -53,6 +54,8 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
   // A re-plan that fixes the day takes "Re-plan this day" away: if it had focus, Start takes it (D5).
   const startRef = useRef<HTMLButtonElement>(null);
   const canReplan = Boolean(gap?.onReplan);
+  // Without Re-plan this day, where the exercises can really be swapped (Details has no Swap of its own).
+  const advice = swapAdvice({ canReplan, start: start.kind });
   const hadReplan = useRef(canReplan);
   useEffect(() => {
     if (hadReplan.current && !canReplan && (!document.activeElement || document.activeElement === document.body)) startRef.current?.focus();
@@ -107,7 +110,7 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
       {more > 0 && <p className={styles.more}>and {more} more</p>}
       {gap && (
         <div className="mx-4 mt-3 rounded-lg border border-fitx-warning/50 bg-fitx-surface px-3 py-2.5 text-sm sm:mx-5">
-          {gap.message && <p className="m-0 text-fitx-text">{gap.message}{gap.onReplan ? "" : " Open Details to swap them."}</p>}
+          {gap.message && <p className="m-0 text-fitx-text">{gap.message}{advice ? ` ${advice}` : ""}</p>}
           {gap.onReplan && (
             <button type="button" onClick={() => { if (!gap.replanning) gap.onReplan?.(); }} aria-disabled={gap.replanning || undefined}
               className="fitx-button fitx-button-secondary mt-2 min-h-11 px-3 text-sm aria-disabled:opacity-60">{gap.replanning ? "Re-planning…" : "Re-plan this day"}</button>

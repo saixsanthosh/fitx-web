@@ -6,6 +6,7 @@
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { missingEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
+import type { TodayStart } from "./today-start";
 
 export type EquipmentGaps = { count: number; missing: string[] };
 
@@ -29,6 +30,20 @@ export function equipmentGapMessage(gaps: EquipmentGaps, listName: string, label
   const names = gaps.missing.map((key) => label(key).toLowerCase());
   const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return `${gaps.count === 1 ? "1 exercise needs" : `${gaps.count} exercises need`} ${list}, not on your ${listName} list.`;
+}
+
+/**
+ * What the Today card adds to its equipment warning when it has no "Re-plan this day" (the member's own plan): where
+ * the exercises can really be swapped, for the card's start state (today-start.ts). It used to say "Open Details to
+ * swap them", but Details has no Swap: Swap is in the builder, reached with Details' Edit plan, which Details does not
+ * offer while a workout is in progress (release 3 review). With the card's own workout in progress, the live workout's
+ * Swap works (before the exercise's sets are logged); with another one, the swap waits until that one is finished.
+ */
+export function swapAdvice(input: { canReplan: boolean; start: TodayStart["kind"] }): string {
+  if (input.canReplan) return "";
+  if (input.start === "continue") return "You can swap them in your workout with Swap, before you log their sets.";
+  if (input.start === "other") return "To swap them, finish your workout in progress, then open Details and choose Edit plan.";
+  return "To swap them, open Details and choose Edit plan.";
 }
 
 /**
