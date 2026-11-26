@@ -29,6 +29,7 @@ import { LEVELS, type Level } from "@/lib/training/taxonomy";
 import { modeDirection, readStoredMode, writeStoredMode, type WorkoutMode } from "@/lib/training/workout-mode";
 import { focusHeading, focusLost } from "@/lib/workouts/focus-heading";
 import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import styles from "@/components/exercises/discovery/Library.module.css";
 import { buildVocabulary, highlightRanges, suggestSpelling } from "@/lib/training/search-terms";
 import { rankSubstitutes } from "@/lib/training/substitutions";
@@ -108,17 +109,22 @@ export default function ExerciseLibraryPage() {
   const requestedThumbs = useRef(new Set<string>());
   const [listNote, setListNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [savingList, setSavingList] = useState(false);
-  // Once saved, "Save as my … list" goes (the search's list is the saved one): Edit list, beside it, takes focus (D5).
+  // Once saved, "Save as my … list" goes (the search's list is the saved one), and "Use my saved list" goes with its
+  // press: Edit list, beside them, takes focus, else "Only show what I can do" (D5).
   const editListLink = useRef<HTMLAnchorElement>(null);
+  const doableSwitch = useRef<HTMLButtonElement>(null);
   const [listSaved, setListSaved] = useState(0);
-  useEffect(() => { if (listSaved) editListLink.current?.focus(); }, [listSaved]);
+  useEffect(() => { if (listSaved && focusLost(document)) (editListLink.current ?? doableSwitch.current)?.focus(); }, [listSaved]);
   // Chips, Clear all, recent searches, the search box's ×, the no-results suggestions and "Filter by …" go with their
   // press (D5): where focus goes then is _lib/library-focus.ts's decision, carried out below once the page has
-  // changed.
+  // changed. "Show more exercises" goes once every result is shown: the first card it brought takes focus.
   const [libraryFocus, setLibraryFocus] = useState<{ target: LibraryFocus; seq: number } | null>(null);
   const handledLibraryFocus = useRef(0);
   const focusAfter = (press: LibraryPress) => setLibraryFocus((current) => ({ target: libraryFocusAfter(press), seq: (current?.seq ?? 0) + 1 }));
   const filtersButton = useRef<HTMLButtonElement>(null);
+  const resultsGrid = useRef<HTMLDivElement>(null);
+  const [moreFocus, setMoreFocus] = useState<{ shown: string[]; seq: number } | null>(null);
+  const handledMoreFocus = useRef(0);
 
   // Links from earlier versions (?equipment=, ?location=, a single ?muscle=full_body) are rewritten once.
   useEffect(() => {
@@ -288,9 +294,18 @@ export default function ExerciseLibraryPage() {
     const marked = (root: ParentNode | null, attribute: string, value: string) => findMarked(root?.querySelectorAll<HTMLElement>(`[${attribute}]`) ?? [], attribute, value);
     const control = target.to === "filters" ? filtersButton.current
       : target.to === "chip" ? marked(document, LIBRARY_MARKS.chip, target.id)
-        : marked(document, LIBRARY_MARKS.recent, target.term);
+        : target.to === "recent" ? marked(document, LIBRARY_MARKS.recent, target.term)
+          : marked(resultsGrid.current, LIBRARY_MARKS.card, target.id)?.querySelector<HTMLElement>("button[aria-pressed]");
     control?.focus();
   }, [libraryFocus, updating, result, catalogue.status]);
+  useEffect(() => {
+    if (!moreFocus || moreFocus.seq === handledMoreFocus.current || !result) return;
+    handledMoreFocus.current = moreFocus.seq;
+    const ids = visible.map((item) => item.exercise.id);
+    const target = focusAfterShowMore({ more: ids.length < result.items.length, shown: moreFocus.shown, added: addedIds(moreFocus.shown, ids) });
+    if (!target || target === "button" || !focusLost(document)) return;
+    findMarked(resultsGrid.current?.querySelectorAll<HTMLElement>(`[${LIBRARY_MARKS.card}]`) ?? [], LIBRARY_MARKS.card, target)?.querySelector<HTMLElement>("h3 a")?.focus();
+  }, [moreFocus, visible, result]);
   // Try again swaps its alert for loading, taking the button with it (D5). Once the member's details have loaded the
   // page's h1 takes focus; once the library has, the results heading (when the results are worked out). When it failed
   // again, the new Try again does. The page stays where it is for touch.
@@ -307,7 +322,11 @@ export default function ExerciseLibraryPage() {
       highlight={item.match?.matched.length ? highlightRanges(item.exercise.name, item.match.matched) : undefined}
       saved={savedSet.has(item.exercise.id)}
       canSave={Boolean(userId) && saved.ready}
-      onToggleSave={() => void toggle(item.exercise.id)}
+      onToggleSave={() => {
+        // In the Saved view a card the member unsaves leaves the list, bookmark and all: the next card's takes focus.
+        if (view.saved && savedSet.has(item.exercise.id)) focusAfter({ control: "unsave-card", cards: visible.map((entry) => entry.exercise.id), id: item.exercise.id });
+        void toggle(item.exercise.id);
+      }}
       alternative={alternatives.get(item.exercise.id) ?? null}
       listName={listName}
       onOpen={rememberCurrentSearch}
@@ -407,7 +426,7 @@ export default function ExerciseLibraryPage() {
           <div className="grid gap-4">
             <EquipmentGrid value={account.status === "ready" ? haveKeys : null} onChange={setHave} context={state.context} disabled={account.status !== "ready"} />
             <div className="flex flex-col gap-3 border-t border-fitx-divider pt-3 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" role="switch" aria-checked={state.doable} disabled={!owned} onClick={() => update({ doable: !state.doable })}
+              <button ref={doableSwitch} type="button" role="switch" aria-checked={state.doable} disabled={!owned} onClick={() => update({ doable: !state.doable })}
                 className="flex min-h-11 items-center gap-3 rounded-lg px-1 text-left text-sm font-medium text-fitx-text disabled:opacity-60">
                 <span aria-hidden="true" className={`relative h-6 w-11 shrink-0 rounded-full transition-colors motion-reduce:transition-none ${state.doable ? "bg-fitx-primary" : "bg-fitx-track"}`}>
                   <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-fitx-surface shadow-sm transition-transform motion-reduce:transition-none ${state.doable ? "translate-x-[22px]" : "translate-x-0.5"}`} />
@@ -420,7 +439,7 @@ export default function ExerciseLibraryPage() {
                     {savingList ? "Saving…" : `Save as my ${contextName} list`}
                   </button>
                 )}
-                {state.have && <button type="button" onClick={() => update({ have: null })} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
+                {state.have && <button type="button" onClick={() => { update({ have: null }); setListSaved((value) => value + 1); }} className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-fitx-primary-text underline underline-offset-4">{list?.saved ? "Use my saved list" : "Use the starting list"}</button>}
                 {!state.have && account.status === "ready" && account.profiles.available && (
                   <Link ref={editListLink} href={`/workouts?equipment=${state.context}`} className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-fitx-primary-text underline underline-offset-4">Edit list</Link>
                 )}
@@ -514,7 +533,7 @@ export default function ExerciseLibraryPage() {
         ) : (
           <>
             {/* Keyed by the filters (not the search text), so the cards rise in again when a category or filter changes. */}
-            <div key={filterKey} className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 motion-reduce:transition-none xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
+            <div key={filterKey} ref={resultsGrid} className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 motion-reduce:transition-none xl:grid-cols-4 ${updating ? "opacity-60" : ""}`}>
               {visible.map((item, index) => (
                 <Fragment key={item.exercise.id}>
                   {result.assistFrom === index && (
@@ -527,7 +546,10 @@ export default function ExerciseLibraryPage() {
             <div className="flex flex-col items-center gap-2 pt-2">
               <p className="m-0 text-xs text-fitx-text-secondary">{visible.length.toLocaleString()} of {result.items.length.toLocaleString()}</p>
               {visible.length < result.items.length && (
-                <button type="button" className="fitx-button fitx-button-secondary min-h-11" onClick={() => setLimit({ key: viewKey, count: shownCount + PAGE_SIZE })}>Show more exercises</button>
+                <button type="button" className="fitx-button fitx-button-secondary min-h-11" onClick={() => {
+                  setMoreFocus((current) => ({ shown: visible.map((item) => item.exercise.id), seq: (current?.seq ?? 0) + 1 }));
+                  setLimit({ key: viewKey, count: shownCount + PAGE_SIZE });
+                }}>Show more exercises</button>
               )}
             </div>
           </>

@@ -11,7 +11,8 @@
  * - the last recent search: the Filters button, which stays where it was (the results don't change);
  * - Clear all, Clear recent, the search box's ×, a recent search run again, Show all exercises, Clear search and
  *   filters, a "Try one change" or "Did you mean" suggestion and "Filter by …": the results heading (tabIndex -1),
- *   once the new results show, so the new count is read.
+ *   once the new results show, so the new count is read;
+ * - a card's bookmark in the Saved view (the card leaves the list): the next card's bookmark, else the results heading.
  * A filter section's Clear hands focus to that section's first option (FilterPanel does it itself). Pure.
  */
 
@@ -19,14 +20,16 @@
 export type LibraryPress =
   | { control: "remove-chip"; chips: readonly string[]; id: string }
   | { control: "forget-recent"; recent: readonly string[]; term: string }
+  | { control: "unsave-card"; cards: readonly string[]; id: string }
   | { control: "clear-all" | "clear-recent" | "clear-search" | "pick-recent" | "show-all" | "clear-search-and-filters" | "relax" | "spelling" | "word-filter" };
 
-/** Where focus goes: the results heading, a filter chip, a recent search's × or the Filters button. */
+/** Where focus goes: the results heading, a filter chip, a recent search's ×, the Filters button or a card's bookmark. */
 export type LibraryFocus =
   | { to: "results" }
   | { to: "chip"; id: string }
   | { to: "recent"; term: string }
-  | { to: "filters" };
+  | { to: "filters" }
+  | { to: "card-save"; id: string };
 
 /** The control after the removed one in `order`, else the one before it; null when it was the only one (or not there). */
 export function neighbourAfterRemoval(order: readonly string[], removed: string): string | null {
@@ -45,6 +48,10 @@ export function libraryFocusAfter(press: LibraryPress): LibraryFocus {
       const next = neighbourAfterRemoval(press.recent, press.term);
       return next ? { to: "recent", term: next } : { to: "filters" };
     }
+    case "unsave-card": {
+      const next = neighbourAfterRemoval(press.cards, press.id);
+      return next ? { to: "card-save", id: next } : { to: "results" };
+    }
     default:
       return { to: "results" };
   }
@@ -56,7 +63,7 @@ export function waitsForResults(target: LibraryFocus): boolean {
 }
 
 /** The data attributes that mark the controls focus can go to (the values are member-typed text, so not selectors). */
-export const LIBRARY_MARKS = { chip: "data-filter-chip", recent: "data-recent-forget" } as const;
+export const LIBRARY_MARKS = { chip: "data-filter-chip", recent: "data-recent-forget", card: "data-exercise-card" } as const;
 
 /** The first node whose `attribute` is exactly `value`. */
 export function findMarked<T extends { getAttribute(name: string): string | null }>(nodes: Iterable<T>, attribute: string, value: string): T | null {

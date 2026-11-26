@@ -85,7 +85,7 @@ export function ExerciseResultCard({ item, thumbnail, highlight, saved, canSave,
   const shownKit = equipment.length ? equipment.slice(0, 3) : ["none"];
   const style = { "--rise-delay": `${Math.min(index % 24, 8) * 40}ms` } as CSSProperties;
   return (
-    <article style={style} className={`${styles.card} group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface transition-colors hover:border-fitx-primary/40 motion-reduce:transition-none`}>
+    <article style={style} data-exercise-card={exercise.id} className={`${styles.card} group relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-fitx-border bg-fitx-surface transition-colors hover:border-fitx-primary/40 motion-reduce:transition-none`}>
       <Link href={href} tabIndex={-1} aria-hidden="true" onClick={onOpen} className="block">
         <ExerciseCover exerciseId={exercise.id} name={exercise.name} src={thumbnail || undefined} sourceRef={exercise.source_ref} equipment={equipment}
           sizes={COVER_SIZES} eager={index < 4} className={styles.cover} imageClassName={styles.photo} />

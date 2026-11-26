@@ -14,6 +14,7 @@ const page = source("src/app/(dashboard)/exercises/page.tsx");
 const searchField = source("src/components/exercises/discovery/SearchField.tsx");
 const activeFilters = source("src/components/exercises/discovery/ActiveFilters.tsx");
 const filterPanel = source("src/components/exercises/discovery/FilterPanel.tsx");
+const card = source("src/components/exercises/discovery/ExerciseResultCard.tsx");
 
 describe("the neighbour of a removed control", () => {
   test("the next one, else the one before, else none", () => {
@@ -29,6 +30,7 @@ describe("the neighbour of a removed control", () => {
 describe("where focus goes after each control that goes with its press", () => {
   const chips = ["muscle:chest", "uses:barbell", "doable:"];
   const recent = ["bench press", "squat", "“curl”"];
+  const cards = ["Barbell_Curl", "Hammer_Curl"];
 
   test("a filter chip: its neighbour; the last chip: the results heading (the results change)", () => {
     assert.deepEqual(libraryFocusAfter({ control: "remove-chip", chips, id: "uses:barbell" }), { to: "chip", id: "doable:" });
@@ -42,6 +44,11 @@ describe("where focus goes after each control that goes with its press", () => {
     assert.deepEqual(libraryFocusAfter({ control: "forget-recent", recent: ["squat"], term: "squat" }), { to: "filters" });
   });
 
+  test("a card unsaved in the Saved view leaves the list: the next card's bookmark, else the results heading", () => {
+    assert.deepEqual(libraryFocusAfter({ control: "unsave-card", cards, id: "Barbell_Curl" }), { to: "card-save", id: "Hammer_Curl" });
+    assert.deepEqual(libraryFocusAfter({ control: "unsave-card", cards: ["Barbell_Curl"], id: "Barbell_Curl" }), { to: "results" });
+  });
+
   test("Clear all, Clear recent, the search box's ×, a recent search run again, the no-results buttons and suggestions and 'Filter by …': the results heading", () => {
     const toResults: LibraryPress["control"][] = ["clear-all", "clear-recent", "clear-search", "pick-recent", "show-all", "clear-search-and-filters", "relax", "spelling", "word-filter"];
     for (const control of toResults) assert.deepEqual(libraryFocusAfter({ control } as LibraryPress), { to: "results" }, control);
@@ -49,7 +56,7 @@ describe("where focus goes after each control that goes with its press", () => {
 
   test("only the results heading waits for the new results (it says the new count); a neighbour is already there", () => {
     assert.equal(waitsForResults({ to: "results" }), true);
-    for (const target of [{ to: "chip", id: "a" }, { to: "recent", term: "a" }, { to: "filters" }] as const) assert.equal(waitsForResults(target), false);
+    for (const target of [{ to: "chip", id: "a" }, { to: "recent", term: "a" }, { to: "filters" }, { to: "card-save", id: "a" }] as const) assert.equal(waitsForResults(target), false);
   });
 
   test("never the search box: no target is the box, and nothing in the library focuses it", () => {
@@ -75,9 +82,11 @@ describe("the controls are marked and report their press", () => {
     assert.equal(LIBRARY_MARKS.recent, "data-recent-forget");
   });
 
-  test("each filter chip is marked with its id", () => {
+  test("each filter chip is marked with its id; each result card with its exercise", () => {
     assert.match(activeFilters, /aria-label=\{`Remove filter: \$\{chip\.kind\} \$\{chip\.label\}`\}\n\s+data-filter-chip=\{chip\.id\}/);
     assert.equal(LIBRARY_MARKS.chip, "data-filter-chip");
+    assert.match(card, /<article style=\{style\} data-exercise-card=\{exercise\.id\} /);
+    assert.equal(LIBRARY_MARKS.card, "data-exercise-card");
   });
 
   test("a filter section's Clear hands focus to that section's first option once the section is cleared", () => {
@@ -102,7 +111,8 @@ describe("the library page carries the decision out", () => {
     assert.match(page, /onSpelling=\{\(text\) => \{ update\(\{ q: text \}\); focusAfter\(\{ control: "spelling" \}\); \}\}/);
     assert.match(page, /navigate\(facet === "environment" && haveKeys \? \{ \.\.\.next, have: \[\.\.\.haveKeys\] \} : next\);\n\s+focusAfter\(\{ control: "relax" \}\);/);
     assert.match(page, /onClick=\{\(\) => \{ navigate\(wordFilter\.next\); focusAfter\(\{ control: "word-filter" \}\); \}\}/);
-    for (const control of ["clear-search", "pick-recent", "forget-recent", "clear-recent", "remove-chip", "clear-all", "show-all", "clear-search-and-filters", "spelling", "relax", "word-filter"]) assert.match(page, press(control), control);
+    assert.match(page, /if \(view\.saved && savedSet\.has\(item\.exercise\.id\)\) focusAfter\(\{ control: "unsave-card", cards: visible\.map\(\(entry\) => entry\.exercise\.id\), id: item\.exercise\.id \}\);\n\s+void toggle\(item\.exercise\.id\);/);
+    for (const control of ["clear-search", "pick-recent", "forget-recent", "clear-recent", "remove-chip", "clear-all", "show-all", "clear-search-and-filters", "spelling", "relax", "word-filter", "unsave-card"]) assert.match(page, press(control), control);
   });
 
   test("once the page has changed: the results heading after the new results show; else the neighbour, if focus was lost", () => {
@@ -112,8 +122,23 @@ describe("the library page carries the decision out", () => {
     assert.match(effect, /if \(target\.to === "results"\) \{ focusHeading\(document, RESULTS_TITLE, \{ keepScroll: true \}\); return; \}\n\s+if \(!focusLost\(document\)\) return;/);
     assert.match(effect, /target\.to === "filters" \? filtersButton\.current/);
     assert.match(effect, /target\.to === "chip" \? marked\(document, LIBRARY_MARKS\.chip, target\.id\)/);
-    assert.match(effect, /: marked\(document, LIBRARY_MARKS\.recent, target\.term\);/);
+    assert.match(effect, /target\.to === "recent" \? marked\(document, LIBRARY_MARKS\.recent, target\.term\)/);
+    assert.match(effect, /marked\(resultsGrid\.current, LIBRARY_MARKS\.card, target\.id\)\?\.querySelector<HTMLElement>\("button\[aria-pressed\]"\)/);
     assert.match(page, /<button ref=\{filtersButton\} type="button" aria-expanded=\{filtersOpen\} aria-controls="exercise-filters"/);
+    assert.match(page, /<div key=\{filterKey\} ref=\{resultsGrid\} className=/);
     // focusHeading moves nothing when the member has put focus somewhere that is still there (tests/workouts).
+  });
+
+  test("'Show more exercises' keeps focus while there is more; once it goes, the first card it brought takes focus", () => {
+    assert.match(page, /setMoreFocus\(\(current\) => \(\{ shown: visible\.map\(\(item\) => item\.exercise\.id\), seq: \(current\?\.seq \?\? 0\) \+ 1 \}\)\);\n\s+setLimit\(\{ key: viewKey, count: shownCount \+ PAGE_SIZE \}\);/);
+    assert.match(page, /const target = focusAfterShowMore\(\{ more: ids\.length < result\.items\.length, shown: moreFocus\.shown, added: addedIds\(moreFocus\.shown, ids\) \}\);\n\s+if \(!target \|\| target === "button" \|\| !focusLost\(document\)\) return;/);
+    assert.match(page, /LIBRARY_MARKS\.card, target\)\?\.querySelector<HTMLElement>\("h3 a"\)\?\.focus\(\);/);
+    assert.match(card, /<h3 className="[^"]+">\n\s+\{\/\*[^]*?\*\/\}\n\s+<Link href=\{href\} onClick=\{onOpen\}/, "the card's one Tab stop to open it is the link in its h3");
+  });
+
+  test("'Use my saved list' goes with its press, as Save as my list does: Edit list takes focus, else 'Only show what I can do'", () => {
+    assert.match(page, /onClick=\{\(\) => \{ update\(\{ have: null \}\); setListSaved\(\(value\) => value \+ 1\); \}\}/);
+    assert.match(page, /useEffect\(\(\) => \{ if \(listSaved && focusLost\(document\)\) \(editListLink\.current \?\? doableSwitch\.current\)\?\.focus\(\); \}, \[listSaved\]\);/);
+    assert.match(page, /<button ref=\{doableSwitch\} type="button" role="switch"/);
   });
 });
