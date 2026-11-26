@@ -17,13 +17,15 @@ export default async function ControlLayout({ children }: Readonly<{ children: R
     hasPermission(operator, "support.view") && working ? getSupportUnread() : Promise.resolve(null),
     hasPermission(operator, "explore.view") && working ? getExploreWaiting() : Promise.resolve(null),
   ]);
+  // The badges, each stamped with when it was asked for. This layout is drawn alongside the page and kept between
+  // pages, so a page that changes a count or reads it afresh tells the menu itself (components/section-counts.tsx).
   const counts = { ...(unread ? { "/support": unread } : {}), ...(waiting ? { "/explore": waiting } : {}) };
   return (
     <AdminShell
       username={operator.username}
       role={operator.role}
       pages={allowedPages(operator.role)}
-      counts={Object.keys(counts).length ? counts : undefined}
+      counts={counts}
       theme={parseAdminTheme(store.get(ADMIN_THEME_COOKIE)?.value)}
     >
       {children}

@@ -4,10 +4,11 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ModuleState } from "@/components/module-state";
 import { PendingButton } from "@/components/pending-button";
+import { SectionCountReport } from "@/components/section-counts";
 import { ReplyForm } from "@/components/support/reply-form";
 import { SUPPORT_NOTICES } from "@/components/support/support-notices";
 import { requireAdmin } from "@/lib/admin-auth";
-import { getSupportThread, markSupportRead } from "@/lib/data/support";
+import { getSupportThread, getSupportUnread, markSupportRead } from "@/lib/data/support";
 import { can } from "@/lib/roles";
 import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
@@ -34,13 +35,16 @@ export default async function SupportRequestPage({ params, searchParams }: { par
   if (result.state !== "ready") return <div className="page-stack">{back}<ModuleState state={result.state} migration={MIGRATIONS.support} /></div>;
 
   const thread = result.thread;
-  // Opening the request marks it read (the database audits it when it was unread).
-  await markSupportRead(thread.id);
+  // Opening the request marks it read (the database audits it when it was unread). The menu's Support badge was counted
+  // alongside this page (before the mark) or on an earlier page, so when this marked the request read, the unread count
+  // is read again after the mark and given to the menu.
+  const unread = (await markSupportRead(thread.id)) ? await getSupportUnread() : null;
   const message = noticeWords(SUPPORT_NOTICES, pageNotice(notice, actor.id));
   const mayReply = can(actor.role, "support.reply");
 
   return (
     <div className="page-stack">
+      {unread && <SectionCountReport href="/support" count={unread.count} at={unread.at} />}
       {back}
       <div className="page-heading-row"><div><p className="eyebrow">{SUPPORT_CATEGORY_LABELS[thread.category] ?? thread.category}</p><h1 className="break-anywhere">{thread.subject}</h1><p className="page-lede">From {thread.requesterEmail ?? "an account"} · {formatIstDateTime(thread.createdAt)}{thread.pagePath ? ` · sent from ${thread.pagePath}` : ""}</p></div></div>
       {message && <p className={`inline-notice ${message.tone === "success" ? "notice-success" : "notice-error"}`} role="status">{message.text}</p>}

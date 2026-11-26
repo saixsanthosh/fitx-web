@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Notice, PageHead, consoleStyles as ui } from "@/components/console/ui";
 import { ModuleState } from "@/components/module-state";
+import { SectionCountReport } from "@/components/section-counts";
 import styles from "@/components/support/support.module.css";
 import { requireAdmin } from "@/lib/admin-auth";
 import { listSupportRequests, parseSupportFilters, type SupportFilters } from "@/lib/data/support";
@@ -63,6 +64,8 @@ export default async function SupportPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="page-stack">
+      {/* The menu's badge says what this inbox says, also when the operator came here from another page. */}
+      {result.state === "ready" && <SectionCountReport href="/support" count={result.inbox.unread} at={result.countedAt} />}
       <PageHead
         eyebrow="Support"
         title="Inbox"

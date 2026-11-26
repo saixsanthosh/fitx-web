@@ -22,6 +22,7 @@ import {
 } from "@/lib/explore-rules";
 import { logServerError } from "@/lib/log";
 import { isMissingSchema } from "@/lib/schema";
+import type { StampedCount } from "@/lib/section-counts";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 
 // Admin's reads of Explore (members' reports, accounts, communities, challenges and the Free-plan meter), all with the
@@ -74,17 +75,21 @@ async function exploreNames(admin: AdminClient, ids: Array<string | null | undef
 
 // ---------------------------------------------------------------------------------------------------------------- Queue
 
-/** Open and in-review reports, for the navigation badge; null when unknown (never 0 for "could not count"). */
-export async function getExploreWaiting(): Promise<number | null> {
+/**
+ * Open and in-review reports, for the navigation badge: null when unknown (never 0 for "could not count"), with the
+ * server time the count was asked for, taken before it is read (lib/section-counts.ts).
+ */
+export async function getExploreWaiting(): Promise<StampedCount> {
   await requireAdmin("explore.view");
+  const at = Date.now();
   const base = await ready();
-  if (!("admin" in base)) return null;
+  if (!("admin" in base)) return { count: null, at };
   const { count, error } = await base.admin.from("social_reports").select("id", { count: "exact", head: true }).in("status", ["open", "reviewing"]);
   if (error) {
     logServerError("data.explore_waiting", error);
-    return null;
+    return { count: null, at };
   }
-  return count ?? null;
+  return { count: count ?? null, at };
 }
 
 export type QueueRow = {
