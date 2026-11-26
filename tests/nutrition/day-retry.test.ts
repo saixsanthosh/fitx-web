@@ -42,7 +42,7 @@ test("the day's failure is its own message, kept while the day stays failed, wit
   assert.match(load, /setFailedKey\(null\);\s*setDayProblem\(null\);/, "once the day is in, its message goes");
   const alert = page.slice(page.indexOf("const dayAlert = "), page.indexOf("const foodList = ("));
   assert.match(alert, /failedKey === dateKey && dayProblem &&/, "shown for as long as this day's load stays failed, on every tab");
-  assert.match(alert, /<p key=\{attempt\}>\{said\.text\}<\/p>/, "a new paragraph per failure: read out again after Try again");
+  assert.match(alert, /<p key=\{attempt\} role="alert">\{said\.text\}<\/p>/, "a new paragraph per failure: read out again after Try again (only the words are the alert since fix round 3f: day-alert-live.test.ts)");
   assert.match(alert, /aria-disabled=\{loading \|\| undefined\} onClick=\{\(\) => \{ if \(!loading\) retryLoad\(\); \}\}>\{loading \? "Loading…" : "Try again"\}/, "unavailable, not removed or disabled, while the day is read");
   assert.match(page, /<\/nav>\s*\{dayAlert\}\s*\{!logOpen && messages\}/, "under the tabs, beside the page's other messages");
   const messages = page.slice(page.indexOf("const messages = <>"), page.indexOf("const dayAlert = "));

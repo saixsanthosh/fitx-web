@@ -1272,14 +1272,16 @@ export default function NutritionPage() {
   </>;
 
   /**
-   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. A new paragraph per failure,
-   * so a Try again that fails again is read out again; the button is the same one, unavailable while the day is read.
+   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. Only the words are the alert:
+   * a new paragraph per failure, so a Try again that fails again is read out again. The buttons sit outside it, so Try
+   * again's "Loading…" while the day is read changes nothing in the alert and never reads the old failure out again
+   * (fix round 3f). The button is the same one throughout, unavailable while the day is read.
    */
   const dayAlert = failedKey === dateKey && dayProblem && (() => {
     const { problem, attempt } = dayProblem;
     const said = typeof problem === "string" ? { text: problem, signIn: false, retry: false } : problem;
-    return <div role="alert" className={styles.alert}>
-      <p key={attempt}>{said.text}</p>
+    return <div className={styles.alert}>
+      <p key={attempt} role="alert">{said.text}</p>
       {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2">
         {said.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
         {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-xs ${ui.actionBusy}`} aria-disabled={loading || undefined} onClick={() => { if (!loading) retryLoad(); }}>{loading ? "Loading…" : "Try again"}</button>}
