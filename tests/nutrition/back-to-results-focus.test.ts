@@ -1,10 +1,11 @@
 // Fix round 3c, the browser re-check's side note on bug 54 (nutrition-b): after a press on "Back to results" in Log
 // food, the keyboard focus fell to the page body. The Add to log panel and the list take each other's place in the
 // sheet, so the control pressed goes with what it was in: Back to results with the panel, a food of the list (or the
-// search box, an example, "Search packaged") with the list. Now the chosen food's amount takes the focus, and back on
-// the list the food just left does (else the search box, or the barcode box after a lookup), only when it fell to the
-// page. The same mistake in the panel itself: "Use 150 g" (and "1 teaspoon (5 g)") took their own question away, with
-// the focus; the amount they set takes it now.
+// search box, an example, "Search packaged") with the list. Now the panel's heading takes the focus (not the amount
+// box, which would open a phone's keyboard at every tap on a food), and back on the list the food just left does (a
+// food the search picked is its result), else the search box, or the barcode box after a lookup; only when it fell to
+// the page. The same mistake in the panel itself: "Use 150 g" (and "1 teaspoon (5 g)") took their own question away,
+// with the focus; the amount they set takes it now.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -19,9 +20,9 @@ test("each entry of the sheet's lists has its own name, also a food that is both
   assert.equal(foodCardKey("frequent", "usda:171287"), "frequent:usda:171287");
 });
 
-test("the panel gives the focus to the food's amount; the list to the food just left, else the search or barcode box", () => {
-  assert.deepEqual(swapFocusTargets({ panel: true, mode: "search", from: "recent:FITX:idli" }), ["#log-portion-amount"]);
-  assert.deepEqual(swapFocusTargets({ panel: true, mode: "barcode", from: null }), ["#log-portion-amount"], "a scanned product: its amount");
+test("the panel gives the focus to its heading; the list to the food just left, else the search or barcode box", () => {
+  assert.deepEqual(swapFocusTargets({ panel: true, mode: "search", from: "recent:FITX:idli" }), ["#add-title"], "a heading: no keyboard opens on a phone");
+  assert.deepEqual(swapFocusTargets({ panel: true, mode: "barcode", from: null }), ["#add-title"], "a scanned product: its amount takes it just after, as before");
   assert.deepEqual(swapFocusTargets({ panel: false, mode: "search", from: "result:FITX:roti" }), ['[data-food-card="result:FITX:roti"]', "#log-search"], "Back to results: the food just left, else the search box");
   assert.deepEqual(swapFocusTargets({ panel: false, mode: "search", from: null }), ["#log-search"], "a food a search picked, or one opened from My foods: the search box");
   assert.deepEqual(swapFocusTargets({ panel: false, mode: "barcode", from: "recent:FITX:idli" }), ["#barcode-number"], "back from a scanned product: the barcode box");
@@ -37,6 +38,10 @@ test("the page moves the focus only when it fell to the page, after the panel an
   assert.match(effect, /swapFocusTargets\(\{ panel: Boolean\(selected\), mode: logMode, from: chosenFrom\.current \}, CSS\.escape\)/);
   assert.match(effect, /\}, \[logOpen, selected, logMode, lastSearch, searchMode, searchingFoods\]\);/, "the panel, the list, and an answer that takes an example or Packaged away");
   assert.match(page, /<input id="log-search" ref=\{searchInput\}/, "the search box can be found");
+  assert.match(page, /<h3 id="add-title" tabIndex=\{-1\} className=\{styles\.addTitle\}>Add to log<\/h3>/, "the panel's heading takes the focus from script only");
+  assert.match(page, /chooseFood\(outcome\.food, typed, foodCardKey\("result", outcome\.food\.id, outcome\.food\.source\)\);/, "a food the search picked: Back to results returns to its result");
+  const lookup = page.slice(page.indexOf("const lookupBarcode = useCallback("), page.indexOf("const onBarcodeDetected"));
+  assert.match(lookup, /window\.setTimeout\(\(\) => document\.getElementById\("log-portion-amount"\)\?\.focus\(\{ preventScroll: true \}\), 60\);/, "a found barcode still puts the focus on its amount (bug 57)");
   assert.match(page, /chosenFrom\.current = from;\s*setSelected\(food\);/, "every choice records where it came from (null when not from a list)");
   const showStart = page.slice(page.indexOf("function showStart("), page.indexOf("function resetLogSheet("));
   assert.match(showStart, /chosenFrom\.current = null;/, "the start view is a new list: an entry of the old one is never focused");

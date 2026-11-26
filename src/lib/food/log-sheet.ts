@@ -123,12 +123,13 @@ export function foodCardKey(list: FoodCardList, id: string, source = ""): string
  * Where the focus goes when the Add to log panel and the list take each other's place in the open sheet (D5), as
  * selectors, the first one found taking it. The control pressed goes with what it was in (a food in the list, the
  * search box or example whose search picked a food, Back to results, a button the new answer no longer offers), so the
- * focus would fall to the page. With the panel open: the food's amount. Back on the list: the food just left, when it
- * was picked from the list (`from`, its data-food-card); else the search box; after a barcode lookup, the barcode box.
- * `escape` makes `from` safe inside the selector (CSS.escape in the page).
+ * focus would fall to the page. With the panel open: its heading, "Add to log" (not the amount box, so a phone doesn't
+ * open its keyboard over the panel each time a food is tapped). Back on the list: the food just left, when it was
+ * picked from the list or by the search (`from`, its data-food-card); else the search box; after a barcode lookup, the
+ * barcode box. `escape` makes `from` safe inside the selector (CSS.escape in the page).
  */
 export function swapFocusTargets(view: { panel: boolean; mode: "search" | "barcode"; from: string | null }, escape: (value: string) => string = (value) => value): string[] {
-  if (view.panel) return ["#log-portion-amount"];
+  if (view.panel) return ["#add-title"];
   if (view.mode === "barcode") return ["#barcode-number"];
   return [...(view.from ? [`[data-food-card="${escape(view.from)}"]`] : []), "#log-search"];
 }

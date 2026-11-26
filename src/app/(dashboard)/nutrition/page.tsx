@@ -670,7 +670,8 @@ export default function NutritionPage() {
       // Select the food that is clearly meant, or ask which one (keeping the amount, or saying why it can't be used).
       const outcome = searchOutcome(typed, found, data.pick, dietFilter, packaged, data.passedOver);
       if (outcome.kind === "pick") {
-        chooseFood(outcome.food, typed);
+        // Picked from the results it lists: Back to results returns to that result.
+        chooseFood(outcome.food, typed, foodCardKey("result", outcome.food.id, outcome.food.source));
         // The member's own food of that name couldn't weigh the amount typed: say which food is selected instead.
         if (outcome.note) setNotice(outcome.note);
       } else if (outcome.kind === "choose") {
@@ -873,8 +874,8 @@ export default function NutritionPage() {
   }, [logOpen, logFocus]);
   // The Add to log panel and the list take each other's place in the sheet, and a search's answer can take away what
   // was pressed (an example, Packaged), so the control that had the focus goes and it would fall to the page (D5): the
-  // chosen food's amount takes it, or, back on the list, the food just left (else the search or barcode box). Only
-  // when it fell: a control that is still there keeps it.
+  // panel's heading takes it, or, back on the list, the food just left (else the search or barcode box). Only when it
+  // fell: a control that is still there keeps it (a found barcode's amount, focused just after, as before).
   useEffect(() => {
     if (!logOpen || !focusFellToPage(document.activeElement, document.body)) return;
     for (const selector of swapFocusTargets({ panel: Boolean(selected), mode: logMode, from: chosenFrom.current }, CSS.escape)) {
@@ -1351,7 +1352,8 @@ export default function NutritionPage() {
             <section className={styles.addPanel} aria-labelledby="add-title">
               <div className={styles.addHead}>
                 <button type="button" onClick={() => { setSelected(null); setAmountPrompt(null); setAmountTried(false); setNotice(""); }} className={styles.back} aria-label="Back to results"><ChevronLeft size={18} aria-hidden="true"/></button>
-                <h3 id="add-title" className={styles.addTitle}>Add to log</h3>
+                {/* Focusable from script only: the panel takes the focus here when it replaces the list (swapFocusTargets). */}
+                <h3 id="add-title" tabIndex={-1} className={styles.addTitle}>Add to log</h3>
               </div>
               {detailFor(selected)}
               <div className={styles.addActions}>
