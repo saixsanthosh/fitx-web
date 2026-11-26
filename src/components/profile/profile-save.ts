@@ -72,6 +72,14 @@ export function waitWithin(work: () => PromiseLike<unknown>, ms: number = PROFIL
   return loadWithinLimit(work, ms);
 }
 
+/**
+ * Profile's page state once loading has gone on past PROFILE_TIME_LIMIT_MS.reload (`overdue`): a load that failed, with
+ * Try again, until the profile comes. The shared profile's own load (UserContextProvider) has no limit of its own.
+ */
+export function statusAfterWait<S extends string>(status: S, overdue: boolean): S | "error" {
+  return status === "loading" && overdue ? "error" : status;
+}
+
 /** A section's status line after a save (ProfileParts SectionNotice). */
 export type SavedNotice = { tone: "saved" | "note"; text: string };
 

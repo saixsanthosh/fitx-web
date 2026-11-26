@@ -19,6 +19,7 @@ import {
   logWeighInOnce,
   noticeAfterReload,
   saveWithin,
+  statusAfterWait,
   waitWithin,
 } from "@/components/profile/profile-save";
 import { markNutritionSetupAnswered, markWorkoutSetupAnswered, savePreferences, updateProfileRow } from "@/lib/domain/user-context";
@@ -298,6 +299,22 @@ describe("the reload after a save waits only so long", () => {
     assert.equal(headerNotice("photo", false), "Photo updated. Reload the page to see it.");
     assert.equal(headerNotice("removed", false), "Photo removed. Reload the page to see the change.");
     for (const { notShown } of Object.values(HEADER_SAVED)) assert.match(notShown, /\. Reload the page to see (it|the change)\.$/);
+  });
+});
+
+describe("Profile's own load waits only so long too", () => {
+  test("still loading past the reload's limit is a load that failed, with Try again; any other state is shown as it is", () => {
+    assert.equal(statusAfterWait("loading", true), "error");
+    assert.equal(statusAfterWait("loading", false), "loading");
+    for (const status of ["ready", "signed_out", "unavailable", "error"] as const) assert.equal(statusAfterWait(status, true), status);
+  });
+
+  test("Profile counts the wait for the shared profile and for its own check alike, and stops counting once it ends", () => {
+    const view = read("ProfileView.tsx");
+    assert.match(view, /function useOverdue\(waiting: boolean, ms: number\): boolean \{\s*const \[overdue, setOverdue\] = useState\(false\);\s*useEffect\(\(\) => \{\s*if \(!waiting\) return;\s*const timer = window\.setTimeout\(\(\) => setOverdue\(true\), ms\);\s*return \(\) => \{\s*window\.clearTimeout\(timer\);\s*setOverdue\(false\);\s*\};\s*\}, \[waiting, ms\]\);\s*return waiting && overdue;/);
+    assert.match(view, /const loaded = shared \? confirmSignedOut\(shared\.status, own\) : local\.status;\s*const overdue = useOverdue\(loaded === "loading", PROFILE_TIME_LIMIT_MS\.reload\);/);
+    assert.match(view, /return \{ status: statusAfterWait\(status, overdue\), data: shared\.data, avatarUrl: shared\.avatarUrl, reload: reloadShared \};/);
+    assert.match(view, /return \{ \.\.\.local, status: statusAfterWait\(local\.status, overdue\), reload: loadLocal \};/);
   });
 });
 

@@ -10,7 +10,7 @@ import { checkSession, confirmSignedOut, type SessionState } from "@/components/
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
 import { PHOTO_HEADER_BYTES, PHOTO_LINK_TIMED_OUT, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto, signedUrlWithin, uploadLimitMs } from "@/components/profile/photo-file";
-import { NAME_SAVE, PHOTO_REMOVE, headerNotice, noticeAfterReload, saveWithin, waitWithin } from "@/components/profile/profile-save";
+import { NAME_SAVE, PHOTO_REMOVE, PROFILE_TIME_LIMIT_MS, headerNotice, noticeAfterReload, saveWithin, statusAfterWait, waitWithin } from "@/components/profile/profile-save";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
 import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
@@ -73,6 +73,20 @@ export function profileTargets(data: UserContextData): NutritionTargets | null {
   return targetsFor(data.profile, data.preferences, data.currentWeightKg);
 }
 
+/** True once `waiting` has lasted `ms` without a break, and false again as soon as it ends. */
+function useOverdue(waiting: boolean, ms: number): boolean {
+  const [overdue, setOverdue] = useState(false);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setTimeout(() => setOverdue(true), ms);
+    return () => {
+      window.clearTimeout(timer);
+      setOverdue(false);
+    };
+  }, [waiting, ms]);
+  return waiting && overdue;
+}
+
 /**
  * The shared user context when the dashboard layout provides one, otherwise the page's own copy, so
  * Profile works either way and a save is seen by every screen that reads the context.
@@ -123,11 +137,15 @@ function useProfileData() {
     if (shared) return;
     void Promise.resolve().then(loadLocal);
   }, [shared, loadLocal]);
+  // Neither load has a time limit of its own (the shared one is the provider's): still loading past Profile's reload
+  // limit, the page shows the load as failed, with Try again, until the profile comes (profile-save.ts).
+  const loaded = shared ? confirmSignedOut(shared.status, own) : local.status;
+  const overdue = useOverdue(loaded === "loading", PROFILE_TIME_LIMIT_MS.reload);
   if (shared) {
     const status = confirmSignedOut(shared.status, own);
-    return { status, data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
+    return { status: statusAfterWait(status, overdue), data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
   }
-  return { ...local, reload: loadLocal };
+  return { ...local, status: statusAfterWait(local.status, overdue), reload: loadLocal };
 }
 
 export function ProfileView() {
