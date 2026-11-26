@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import { CalendarClock, CloudOff, Play, RefreshCw } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDuration, kmValue, paceValue, speedValue } from "@/lib/activity/format";
 import { FUTURE_DATE_MARK, startsInFuture } from "@/lib/activity/future";
-import { focusDropped } from "@/lib/activity/focus";
+import { focusDropped, listFocusWitness } from "@/lib/activity/focus";
 import { decodeRoute } from "@/lib/activity/polyline";
 import type { ActivityView } from "@/lib/activity/repository";
-import { focusAfterOlder, focusAfterSessionsRetry, type TimelineEntry } from "@/lib/activity/timeline";
+import { focusAfterOlder, focusAfterReread, focusAfterSessionsRetry, type TimelineEntry } from "@/lib/activity/timeline";
 import type { Sport } from "@/lib/activity/types";
 import { groupByWeek, weekLabel } from "@/lib/activity/weeks";
 import { ActivitySourceBadge } from "./ActivitySourceBadge";
@@ -34,7 +34,7 @@ function Figure({ label, value, unit }: { label: string; value: string; unit?: s
  * One walk, run or ride in the feed: who-when line, title, the sport's figures and the route. One dated after
  * now says so: weekly, monthly and yearly totals leave it out until then (all time and bests count it).
  */
-export function ActivityCard({ activity, now, entryKey }: { activity: ActivityView; now: number | null; entryKey?: string }) {
+export function ActivityCard({ activity, now, entryKey, linkRef }: { activity: ActivityView; now: number | null; entryKey?: string; linkRef?: Ref<HTMLAnchorElement> }) {
   const href = activity.local ? `/activity/local-${activity.clientId}` : `/activity/${activity.id}`;
   const route = decodeRoute(activity.routePolyline);
   const hasRoute = route.some((segment) => segment.length > 1);
@@ -44,6 +44,7 @@ export function ActivityCard({ activity, now, entryKey }: { activity: ActivityVi
     <li>
       <Link
         href={href}
+        ref={linkRef}
         data-feed-entry={entryKey}
         className="group block overflow-hidden rounded-2xl border border-fitx-border bg-fitx-card transition-[border-color,transform] duration-200 hover:border-fitx-primary/40 motion-safe:active:scale-[.995]"
       >
@@ -101,6 +102,11 @@ type FeedListProps = {
   sessionsFailed?: SessionsFailure | null;
   /** Reads them again; false when nothing started. */
   onRetrySessions?: () => boolean;
+  /**
+   * The list's heading (tabIndex -1): focus goes there when what had it went with the list read again, and nothing
+   * like it is drawn again (focusAfterReread).
+   */
+  headingRef?: RefObject<HTMLElement | null>;
 };
 
 /** The entry's link in the list, by its timeline key. */
@@ -113,19 +119,19 @@ function entryLink(list: HTMLElement | null, key: string): HTMLElement | null {
  * one (older activities still show, without the sessions between them). Try again stays focusable while it reads
  * (aria-disabled; D5); a failed try is read out again (the line is drawn anew, as an alert).
  */
-function SessionsProblem({ failed, busy, onRetry }: { failed: SessionsFailure; busy: boolean; onRetry: () => void }) {
+function SessionsProblem({ failed, busy, onRetry, buttonRef }: { failed: SessionsFailure; busy: boolean; onRetry: () => void; buttonRef: Ref<HTMLButtonElement> }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <p key={failed.attempt} role={failed.kind === "older" || failed.attempt > 0 ? "alert" : undefined} className="text-xs text-fitx-text-secondary">
         {failed.kind === "first" ? "Strength sessions couldn’t load here. They’re in Workouts." : "Older strength sessions couldn’t load. They’re in Workouts."}
       </p>
-      <button type="button" onClick={onRetry} aria-disabled={busy || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>
+      <button type="button" onClick={onRetry} aria-disabled={busy || undefined} ref={buttonRef} data-feed-control="sessions" className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>
     </div>
   );
 }
 
 /** The history, newest first, in weeks. */
-export function FeedList({ entries, now, sport, loading, ready, more, loadingMore, moreFailed, onLoadMore, sessionsFailed = null, onRetrySessions }: FeedListProps) {
+export function FeedList({ entries, now, sport, loading, ready, more, loadingMore, moreFailed, onLoadMore, sessionsFailed = null, onRetrySessions, headingRef }: FeedListProps) {
   // "Show older activities" (D5): never disabled while it loads (aria-disabled, a press meanwhile does nothing), so
   // keyboard focus stays on it; it keeps focus while there are more, and once it goes the first entry it brought
   // takes focus, so the member carries on where the older entries start. The strength sessions' Try again goes once
@@ -156,7 +162,46 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
     const shown = keys ? keys.split("\n") : [];
     if (onRetrySessions()) pressed.current = { shown, from: "sessions" };
   }
-  const sessionsLine = sessionsFailed && onRetrySessions ? <SessionsProblem failed={sessionsFailed} busy={loadingMore} onRetry={retrySessions} /> : null;
+
+  // Round 3e (D5): an entry, Show older activities or the sessions' Try again can also go while it has focus without a
+  // press of it: the list read again (back online, Upload now, the figures' Try again; useActivityFeed keeps it on
+  // screen meanwhile, but an entry can still be gone, or a button no longer needed), or drawn from its loading state.
+  // Each is witnessed as it goes (listFocusWitness, one ref for all), and once the list is drawn again and nothing is
+  // being read, focus comes back to it or to what took its place (focusAfterReread), else to the list heading; only
+  // while the page has focus, so focus the member moved stays where it is. A press is handed on by the effect above.
+  const [{ ref: witnessRef, take: wentWithFocus }] = useState(() => listFocusWitness<HTMLElement>());
+  const sessionsButton = useRef<HTMLButtonElement | null>(null);
+  const olderRef = useCallback((element: HTMLButtonElement | null) => {
+    olderButton.current = element;
+    const seen = witnessRef(element);
+    return () => {
+      seen?.();
+      olderButton.current = null;
+    };
+  }, [witnessRef]);
+  const sessionsRef = useCallback((element: HTMLButtonElement | null) => {
+    sessionsButton.current = element;
+    const seen = witnessRef(element);
+    return () => {
+      seen?.();
+      sessionsButton.current = null;
+    };
+  }, [witnessRef]);
+  const settled = useRef<readonly TimelineEntry[]>([]);
+  const sessionsShown = Boolean(sessionsFailed && onRetrySessions);
+  useEffect(() => {
+    if (loading || loadingMore) return;
+    const went = wentWithFocus();
+    const before = settled.current;
+    settled.current = entries;
+    if (!went || !focusDropped(document)) return;
+    const target = focusAfterReread(went, { before, after: entries, more, sessionsShown });
+    if (target === "list") headingRef?.current?.focus();
+    else if (target === "older") olderButton.current?.focus();
+    else if (target === "sessions") sessionsButton.current?.focus();
+    else entryLink(list.current, target)?.focus();
+  });
+  const sessionsLine = sessionsFailed && onRetrySessions ? <SessionsProblem failed={sessionsFailed} busy={loadingMore} onRetry={retrySessions} buttonRef={sessionsRef} /> : null;
 
   if (loading) {
     return (
@@ -189,15 +234,15 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-[.14em] text-fitx-text-secondary">{label}</h3>
             <ul className="grid gap-3 lg:grid-cols-2">
               {group.items.map((entry) => (entry.kind === "activity"
-                ? <ActivityCard key={entry.key} entryKey={entry.key} activity={entry.activity} now={now} />
-                : <StrengthRow key={entry.key} entryKey={entry.key} session={entry.session} />))}
+                ? <ActivityCard key={entry.key} entryKey={entry.key} activity={entry.activity} now={now} linkRef={witnessRef} />
+                : <StrengthRow key={entry.key} entryKey={entry.key} session={entry.session} linkRef={witnessRef} />))}
             </ul>
           </section>
         );
       })}
       {more && (
         <Reveal>
-          <button type="button" onClick={showOlder} aria-disabled={loadingMore || undefined} ref={olderButton} className="fitx-button fitx-button-secondary min-h-11 w-full aria-disabled:cursor-progress aria-disabled:opacity-60">{loadingMore ? "Loading…" : "Show older activities"}</button>
+          <button type="button" onClick={showOlder} aria-disabled={loadingMore || undefined} ref={olderRef} data-feed-control="older" className="fitx-button fitx-button-secondary min-h-11 w-full aria-disabled:cursor-progress aria-disabled:opacity-60">{loadingMore ? "Loading…" : "Show older activities"}</button>
           {moreFailed && <p role="alert" className="mt-2 text-sm text-fitx-danger">Older activities couldn’t load. Check your connection and try again.</p>}
         </Reveal>
       )}

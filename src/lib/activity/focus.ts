@@ -57,6 +57,41 @@ export function focusWitness<T extends WitnessedControl>() {
   };
 }
 
+/** What in Activity's history list had focus as it went: an entry (by its timeline key), or one of the list's buttons. */
+export type ListFocus = { entry: string } | { control: "older" | "sessions" };
+
+/** A control in the history list as `listFocusWitness` sees it: whether it is still on the page, and what it is. */
+export type ListControl = WitnessedControl & { isConnected: boolean; dataset: { feedEntry?: string; feedControl?: string } };
+
+/**
+ * The history list's entries, "Show older activities" and the strength sessions' Try again can go while one has focus,
+ * without a press of it: the list is read again (back online, Upload now, the figures' Try again), drawn from its
+ * loading state, or an entry is gone from the account. One ref serves all of them: each says what it is
+ * (data-feed-entry, or data-feed-control "older" or "sessions"). React takes a removed control's ref away while the
+ * control is still on the page (focusWitness), so the ref's cleanup sees whether it had focus. `take()` says what went
+ * with focus since it was last asked, then forgets it; a control still on the page (its ref only given again, as a
+ * link's is when its address changes) says nothing.
+ */
+export function listFocusWitness<T extends ListControl>() {
+  let went: { element: T; what: ListFocus } | null = null;
+  return {
+    ref: (element: T | null): (() => void) | undefined => {
+      if (!element) return undefined;
+      return () => {
+        if (!hasFocus(element.ownerDocument, element)) return;
+        const { feedEntry, feedControl } = element.dataset;
+        if (feedEntry) went = { element, what: { entry: feedEntry } };
+        else if (feedControl === "older" || feedControl === "sessions") went = { element, what: { control: feedControl } };
+      };
+    },
+    take: (): ListFocus | null => {
+      const had = went;
+      went = null;
+      return had && !had.element.isConnected ? had.what : null;
+    },
+  };
+}
+
 /**
  * Whether focus moves on to what took a control's place once it went: after a press of it, or when it went with focus
  * by itself; either way only while the page has focus, so focus the member moved somewhere else stays put. Without a

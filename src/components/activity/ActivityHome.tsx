@@ -127,7 +127,8 @@ export function ActivityHome() {
       refocusDeleteAll.current = true;
       setConfirmDeleteAll(false);
       setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and their routes were deleted.");
-      await feed.reload(userId);
+      // Read again from the loading state, not in place: what the list showed is gone.
+      await feed.reload(userId, false);
     } finally {
       setDeletingAll(false);
     }
@@ -267,6 +268,7 @@ export function ActivityHome() {
             onLoadMore={feed.loadMore}
             sessionsFailed={feed.sessionsFailed}
             onRetrySessions={feed.retrySessions}
+            headingRef={feedTitleRef}
           />
         </section>
 
