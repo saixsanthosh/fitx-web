@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
+import { checkSession, signInHref } from "@/components/account/session-state";
 import { EmptyState } from "@/components/app/EmptyState";
 import { createClient } from "@/lib/supabase/client";
+import { NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { buildHistory, dateKeyOf, lastDays, type HistoryDay, type HistoryEntry, type HistoryTargets } from "@/lib/domain/nutrition-history";
 import { isEstimateSnapshot } from "@/lib/food/client-data";
 import { unknownAverageNote } from "./history-tiles";
@@ -32,7 +36,7 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
   const [range, setRange] = useState<Range>(7);
   const [rows, setRows] = useState<Row[] | null>(null);
   /** Why the history could not be loaded; the rows stay unknown then, so nothing reads as "nothing logged". */
-  const [problem, setProblem] = useState<{ text: string; retry: boolean } | null>(null);
+  const [problem, setProblem] = useState<SessionProblem | null>(null);
   const [attempt, setAttempt] = useState(0);
   // Today is read once after mount so the server-rendered page never disagrees with the browser's clock.
   const [today, setToday] = useState<Date | null>(null);
@@ -47,15 +51,16 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
     let cancelled = false;
     void (async () => {
       const supabase = createClient();
-      if (!supabase) { setProblem({ text: "History needs a connection to your account.", retry: false }); setRows(null); return; }
-      const { data: auth } = await supabase.auth.getUser();
+      if (!supabase) { setProblem({ text: "History needs a connection to your account.", signIn: false, retry: false }); setRows(null); return; }
+      // Signed out says so, with Sign in; a check that failed (offline, an auth outage) offers Try again instead.
+      const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
       if (cancelled) return;
-      if (!auth.user) { setProblem({ text: "Sign in to see your history.", retry: false }); setRows(null); return; }
+      if (!user) { setProblem(sessionProblem(state, "history")); setRows(null); return; }
       const since = lastDays(today, 30)[0];
       const { data, error } = await supabase.from("meals").select("date,calories,protein,carbs,fat,source,nutrition_snapshot")
-        .eq("user_id", auth.user.id).gte("date", since).lte("date", dateKeyOf(today)).order("date", { ascending: true }).limit(3000);
+        .eq("user_id", user.id).gte("date", since).lte("date", dateKeyOf(today)).order("date", { ascending: true }).limit(3000);
       if (cancelled) return;
-      if (error) { setProblem({ text: "Your history could not be loaded.", retry: true }); setRows(null); return; }
+      if (error) { setProblem({ text: "Your history could not be loaded.", signIn: false, retry: true }); setRows(null); return; }
       setProblem(null);
       setRows((data ?? []) as unknown as Row[]);
     })();
@@ -75,10 +80,18 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
     return buildHistory(entries, lastDays(today, range), targets);
   }, [today, rows, range, targets]);
 
+  /** Reads the history again; the heading takes the focus, since the message and its button go. */
+  function retry() {
+    document.getElementById("history-title")?.focus();
+    setProblem(null);
+    setAttempt((value) => value + 1);
+  }
+
   const header = (
     <div className={styles.head}>
       <div>
-        <h2 id="history-title" className="font-medium">History</h2>
+        {/* Focusable from script only: Try again goes with the message, so the focus comes here. */}
+        <h2 id="history-title" tabIndex={-1} className="font-medium">History</h2>
         <p className="mt-1 text-sm text-fitx-text-secondary">Averages count only the days you logged. A day with nothing logged is a gap, not 0 kcal.</p>
       </div>
       <div className={styles.range} role="group" aria-label="Period">
@@ -94,7 +107,8 @@ export function NutritionHistory({ targets, targetSource, onOpenDay }: { targets
       {problem
         ? <div role="alert" className={styles.alert}>
           <p>{problem.text}</p>
-          {problem.retry && <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-10 px-3 text-xs" onClick={() => { setProblem(null); setAttempt((value) => value + 1); }}>Try again</button>}
+          {problem.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button mt-2 min-h-11 px-4 text-xs">Sign in</Link>}
+          {problem.retry && <button type="button" className="fitx-button fitx-button-secondary mt-2 min-h-11 px-3 text-xs" onClick={retry}>Try again</button>}
         </div>
         : <p className="text-sm text-fitx-text-secondary" role="status">Loading your history…</p>}
     </section>;

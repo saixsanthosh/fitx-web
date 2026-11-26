@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, ListChecks, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
 import { progressGoals } from "@/config/routes";
+import { checkSession, signInHref, type SessionState } from "@/components/account/session-state";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { DayOverview } from "@/components/nutrition/DayOverview";
@@ -44,6 +46,7 @@ import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
+import { noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
@@ -98,6 +101,8 @@ export default function NutritionPage() {
   // The page is prerendered at build time, so the chosen day is named only after hydration (nutritionDayLabels).
   const hydrated = useHydrated();
   const [userId, setUserId] = useState<string | null>(null);
+  /** What the day's last sign-in check said (null until it answers): a save without a member says signed out only on "signed_out". */
+  const [checkedSession, setCheckedSession] = useState<SessionState | null>(null);
   const [capabilities, setCapabilities] = useState<NutritionCapabilities>(NO_CAPABILITIES);
   const [entries, setEntries] = useState<MealEntry[]>([]);
   const [customRows, setCustomRows] = useState<CustomFoodRow[]>([]);
@@ -175,7 +180,8 @@ export default function NutritionPage() {
   const logOpener = useRef<HTMLElement | null>(null);
   const logButton = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  /** The page's message: a sentence, or a sign-in check that gave no member (with Sign in, or Try again for the day). */
+  const [error, setError] = useState<string | SessionProblem>("");
   const [notice, setNotice] = useState("");
   /** "Tap the one you mean": a typed amount matched more than one food. */
   const [pickHint, setPickHint] = useState("");
@@ -214,7 +220,7 @@ export default function NutritionPage() {
     // A newer load (another day, or a reload after a save) replaces this one: a replaced load sets nothing.
     const seq = ++loadSeq.current;
     const current = () => seq === loadSeq.current;
-    const fail = (message: string) => {
+    const fail = (message: string | SessionProblem) => {
       if (!current()) return;
       setError(message);
       setFailedKey(dateKey);
@@ -226,10 +232,12 @@ export default function NutritionPage() {
     setLoading(true);
     const supabase = createClient();
     if (!supabase) return fail("Nutrition tracking is not connected to Supabase.");
-    const { data: auth } = await supabase.auth.getUser();
+    // Signed out says so and offers Sign in; a check that failed (offline, an auth outage) is never called a sign-out.
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
     if (!current()) return;
-    if (!auth.user) return fail("Sign in to track food and water.");
-    const uid = auth.user.id;
+    setCheckedSession(state);
+    if (!user) return fail(sessionProblem(state, "load") ?? "Your nutrition data could not be loaded. Please try again.");
+    const uid = user.id;
     setUserId(uid);
     // Once per page view: a member who has not answered the food questions (and did not choose Later on this
     // device in the last few days) gets the setup. A read that fails never asks again by mistake.
@@ -531,9 +539,25 @@ export default function NutritionPage() {
       if (!response.ok) throw new Error(data.error || "Food search failed.");
       // Listed whenever the sheet shows its start view (listedFoods), never over a search typed meanwhile.
       setBrowse({ foods: data.foods || [], sources: data.sources || [] });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+    } catch (cause) {
+      // Never over a message already shown: in an auth outage the day's own (with Try again) says what to do.
+      const message = cause instanceof Error ? cause.message : "Food search is temporarily unavailable.";
+      setError((current) => current || message);
+    }
     finally { setSearchingFoods(false); }
   }, []);
+
+  /**
+   * Try again, after the day couldn't be read because the sign-in check couldn't be made: the day, Recent and (if it
+   * never came) the food list are read again. Once the day is in, the message and its button go, so the focus moves to
+   * the tab's heading (or My foods' Add a food) instead of falling to the page.
+   */
+  function retryLoad() {
+    focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]"];
+    void load();
+    void refreshRecent();
+    if (!browse) void browseFoods();
+  }
 
   /**
    * Back to the start view (Frequent, Recent and the browse list), with nothing left of an earlier search or barcode
@@ -685,14 +709,14 @@ export default function NutritionPage() {
     const supabase = createClient();
     if (!supabase) return setError("Nutrition tracking is not connected to Supabase.");
     setBusy(true);
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setError("Sign in to log food.");
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+    if (!user) return setError(sessionProblem(state, "log-food") ?? "That food could not be logged. Please try again.");
     setError(""); setNotice("");
     // Unknown protein, carbs or fat are NULL in the entry and listed in the snapshot, never logged as 0 g.
     const values = buildMealValues(food, grams);
     const portion = chosenPortion;
     const inserted = await supabase.from("meals").insert({
-      user_id: auth.user.id, date: dateKey, meal, food_name: food.name, brand: food.brand,
+      user_id: user.id, date: dateKey, meal, food_name: food.name, brand: food.brand,
       barcode: food.barcode, provider_id: food.id,
       source: food.source, serving_size: portion ? describePortion(amountNumber, portion, grams) : `${formatAmount(grams)} g`,
       servings: grams / 100, quantity_grams: grams,
@@ -867,9 +891,9 @@ export default function NutritionPage() {
       const supabase = createClient();
       if (!supabase) return setError("Water tracking is not connected to Supabase.");
       setBusy(true);
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) return setError("Sign in to log water.");
-      const result = await supabase.from("water_logs").insert({ user_id: auth.user.id, amount_ml: amountMl, local_date: dateKey });
+      const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+      if (!user) return setError(sessionProblem(state, "log-water") ?? "Water could not be logged.");
+      const result = await supabase.from("water_logs").insert({ user_id: user.id, amount_ml: amountMl, local_date: dateKey });
       if (result.error) setError("Water could not be logged."); else setWaterMl((current) => current + amountMl);
     } finally {
       loggingWater.current = false;
@@ -917,7 +941,7 @@ export default function NutritionPage() {
   /** Saves an edited entry. A refusal is returned to the dialog, which stays open and shows it (the page's messages are behind it). */
   async function saveEntry(entry: MealEntry, change: EntryChange): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return "Sign in to change your entries.";
+    if (!supabase || !userId) return noMemberText(checkedSession, "change your entries");
     setBusy(true); setError("");
     const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
     setBusy(false);
@@ -936,7 +960,7 @@ export default function NutritionPage() {
    */
   async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean): Promise<CustomFoodSaveProblem | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return { field: null, message: "Sign in to save your own foods." };
+    if (!supabase || !userId) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
     const editing = foodForm?.editing ?? null;
     setBusy(true); setError("");
     const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
@@ -1017,7 +1041,7 @@ export default function NutritionPage() {
     const prompt = namePrompt;
     const supabase = createClient();
     if (prompt?.kind === "section") { addSection(name, prompt.then); return null; }
-    if (!prompt || !supabase || !userId) return "Sign in to save meals and routines.";
+    if (!prompt || !supabase || !userId) return noMemberText(checkedSession, "save meals and routines");
     const items = prompt.kind === "meal" ? entries.filter((entry) => sameMeal(entry.meal, prompt.slot)) : entries;
     setBusy(true); setError("");
     const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
@@ -1081,7 +1105,7 @@ export default function NutritionPage() {
   /** Saves the member's targets, or goes back to the estimate. A refusal is returned to the targets dialog. */
   async function updateTargets(next: ManualTargets | null): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return "Sign in to set your targets.";
+    if (!supabase || !userId) return noMemberText(checkedSession, "set your targets");
     setBusy(true); setError("");
     const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
     setBusy(false);
@@ -1169,7 +1193,15 @@ export default function NutritionPage() {
   }
 
   const messages = <>
-    {error && <p role="alert" className={styles.alert}>{error}</p>}
+    {error && (typeof error === "string"
+      ? <p role="alert" className={styles.alert}>{error}</p>
+      : <div role="alert" className={styles.alert}>
+        <p>{error.text}</p>
+        {(error.signIn || error.retry) && <div className="mt-2 flex flex-wrap gap-2">
+          {error.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
+          {error.retry && <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-4 text-xs" onClick={retryLoad}>Try again</button>}
+        </div>}
+      </div>)}
     {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
   </>;
 
