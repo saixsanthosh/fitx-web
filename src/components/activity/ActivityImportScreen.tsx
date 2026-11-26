@@ -9,7 +9,7 @@ import { focusDropped, handsFocusOn } from "@/lib/activity/focus";
 import { formatActivityDate, formatDistance, formatDuration, formatDurationWords } from "@/lib/activity/format";
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
-import { canRemove, importFocusAfter, importFocusWitness, type ListedFile } from "@/lib/activity/import/focus";
+import { canRemove, checkAlertShown, importFocusAfter, importFocusWitness, type ListedFile } from "@/lib/activity/import/focus";
 import { checkImport, fullestOfEachSession, importBarShown, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, settleRepeat, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
 import { buildImportRecord, checkStartTime, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
@@ -295,8 +295,10 @@ export function ActivityImportScreen() {
   const [dragging, setDragging] = useState(false);
   // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
   const [lookupFailed, setLookupFailed] = useState(false);
-  // How many checks have failed: the alert stays while Check again checks (so focus stays on it, D5), and a check that
-  // fails again draws its message anew, so it is read out again.
+  // Check again is checking: its alert stays meanwhile, so the button keeps focus (D5). Files chosen after a failure still
+  // hide it while they are read, as before. How many checks have failed: one that fails again draws the alert's message
+  // anew, so it is read out again.
+  const [checkingAgain, setCheckingAgain] = useState(false);
   const [lookupFailures, setLookupFailures] = useState(0);
   const counter = useRef(0);
   // Import was pressed. Once every file has its result the bar goes with its button (nothing is left for it to do), so
@@ -449,9 +451,11 @@ export function ActivityImportScreen() {
     // Check again says aria-disabled while it checks (disabled would drop keyboard focus; D5): a press then does nothing.
     if (reading || importing) return;
     setReading(true);
+    setCheckingAgain(true);
     const ok = await lookUp(entries).catch(() => false);
     setLookupFailed(!ok);
     if (!ok) setLookupFailures((count) => count + 1);
+    setCheckingAgain(false);
     setReading(false);
   }
 
@@ -650,14 +654,14 @@ export function ActivityImportScreen() {
             {/* Goes with the list: Choose files takes focus (D5). */}
             {!importing && <button type="button" ref={controlRef} data-import-control="clear" onClick={clearList} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Clear list</button>}
           </div>
-          {/* Stays while it checks again, so Check again keeps focus (aria-disabled meanwhile) and keeps it when the check
-              fails again, the message drawn anew to be read out again; once a check works it goes, and the Import
-              button, else the files' heading, takes focus (D5). */}
-          {lookupFailed && (
+          {/* Stays while Check again checks, so it keeps focus (aria-disabled meanwhile) and keeps it when the check fails
+              again, the message drawn anew to be read out again; once a check works it goes, and the Import button,
+              else the files' heading, takes focus (D5). */}
+          {checkAlertShown({ failed: lookupFailed, reading, checkingAgain }) && (
             <div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p key={lookupFailures} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
               <button type="button" ref={controlRef} data-import-control="check" onClick={() => void checkAgain()} aria-disabled={reading || importing || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60">
-                {reading ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Checking…</> : "Check again"}
+                {checkingAgain ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Checking…</> : "Check again"}
               </button>
             </div>
           )}

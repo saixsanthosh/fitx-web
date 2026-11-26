@@ -11,7 +11,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { focusDropped, type FocusDocument } from "@/lib/activity/focus";
-import { canRemove, focusAfterRemove, importControlOf, importFocusAfter, importFocusWitness, type ListedFile } from "@/lib/activity/import/focus";
+import { canRemove, checkAlertShown, focusAfterRemove, importControlOf, importFocusAfter, importFocusWitness, type ListedFile } from "@/lib/activity/import/focus";
 
 const read = (file: string) => readFileSync(file, "utf8");
 const files = (...keys: string[]): ListedFile[] => keys.map((key) => ({ key, removable: true }));
@@ -66,6 +66,9 @@ describe("where focus goes once a control of the file list went with it", () => 
     assert.equal(importFocusAfter({ control: "check" }, { before: list, after: list, importReady: false }), "files");
     // No files left (Clear list clicked without moving focus, as Safari's clicks do, while focus was on Check again).
     assert.equal(importFocusAfter({ control: "check" }, { before: list, after: [], importReady: false }), "choose");
+    // Files dropped on the page while focus was on Check again hide the alert while they are read: nothing can be
+    // imported until their check works, so the heading, above the alert that comes back if it fails.
+    assert.equal(importFocusAfter({ control: "check" }, { before: list, after: [...list, ...files("c")], importReady: false }), "files");
   });
 
   test("“Set them all to:” once every file has its sport: the Import button when it has something to import, else the files' heading", () => {
@@ -210,17 +213,27 @@ describe("“Set them all to:” (the screen)", () => {
 describe("Check again (the screen)", () => {
   const screen = read("src/components/activity/ActivityImportScreen.tsx");
 
-  test("the alert stays while it checks, with its message drawn anew after each failure, so a failure again is read out again", () => {
-    assert.doesNotMatch(screen, /lookupFailed && !reading/, "no longer hidden while it checks");
-    assert.match(screen, /\{lookupFailed && \(\s+<div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">\s+<p key=\{lookupFailures\} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet\. Check your connection and try again\.<\/p>/);
+  test("the alert shows once a check failed, until one works: kept while Check again checks; files chosen after a failure hide it while they are read, as before", () => {
+    assert.equal(checkAlertShown({ failed: true, reading: false, checkingAgain: false }), true);
+    assert.equal(checkAlertShown({ failed: true, reading: true, checkingAgain: true }), true, "Check again checking: kept, so it keeps focus");
+    // Files chosen after a failure: hidden while they are read, then their own check says again if it fails. (So a
+    // check that was still running when Clear list emptied the list can't show its failure over the next files.)
+    assert.equal(checkAlertShown({ failed: true, reading: true, checkingAgain: false }), false);
+    assert.equal(checkAlertShown({ failed: false, reading: false, checkingAgain: false }), false);
+    assert.equal(checkAlertShown({ failed: false, reading: true, checkingAgain: true }), false);
+  });
+
+  test("its message is drawn anew after each failure, so a failure again is read out again while focus stays on Check again", () => {
+    assert.doesNotMatch(screen, /lookupFailed && !reading/, "no longer hidden while Check again checks");
+    assert.match(screen, /\{checkAlertShown\(\{ failed: lookupFailed, reading, checkingAgain \}\) && \(\s+<div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">\s+<p key=\{lookupFailures\} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet\. Check your connection and try again\.<\/p>/);
     // Every failed check is counted, from Check again and from files chosen after a failure.
-    assert.equal((screen.match(/setLookupFailed\(!ok\);\s+if \(!ok\) setLookupFailures\(\(count\) => count \+ 1\);\s+setReading\(false\);/g) ?? []).length, 2);
+    assert.equal((screen.match(/setLookupFailed\(!ok\);\s+if \(!ok\) setLookupFailures\(\(count\) => count \+ 1\);\s+(?:setCheckingAgain\(false\);\s+)?setReading\(false\);/g) ?? []).length, 2);
     assert.match(screen, /const \[lookupFailures, setLookupFailures\] = useState\(0\);/);
   });
 
   test("Check again says aria-disabled and “Checking…” while it checks, a press meanwhile does nothing, and it is witnessed", () => {
-    assert.match(screen, /<button type="button" ref=\{controlRef\} data-import-control="check" onClick=\{\(\) => void checkAgain\(\)\} aria-disabled=\{reading \|\| importing \|\| undefined\} className="[^"]*aria-disabled:cursor-progress aria-disabled:opacity-60">\s+\{reading \? <><LoaderCircle size=\{17\} aria-hidden="true" className="animate-spin" \/>Checking…<\/> : "Check again"\}/);
-    assert.match(screen, /async function checkAgain\(\) \{\s+\/\/[^\n]*\n\s+if \(reading \|\| importing\) return;\s+setReading\(true\);/);
+    assert.match(screen, /<button type="button" ref=\{controlRef\} data-import-control="check" onClick=\{\(\) => void checkAgain\(\)\} aria-disabled=\{reading \|\| importing \|\| undefined\} className="[^"]*aria-disabled:cursor-progress aria-disabled:opacity-60">\s+\{checkingAgain \? <><LoaderCircle size=\{17\} aria-hidden="true" className="animate-spin" \/>Checking…<\/> : "Check again"\}/);
+    assert.match(screen, /async function checkAgain\(\) \{\s+\/\/[^\n]*\n\s+if \(reading \|\| importing\) return;\s+setReading\(true\);\s+setCheckingAgain\(true\);\s+const ok = await lookUp\(entries\)\.catch\(\(\) => false\);\s+setLookupFailed\(!ok\);\s+if \(!ok\) setLookupFailures\(\(count\) => count \+ 1\);\s+setCheckingAgain\(false\);\s+setReading\(false\);\s+\}/);
     assert.doesNotMatch(screen, /(?<!aria-)disabled=\{reading/);
   });
 });

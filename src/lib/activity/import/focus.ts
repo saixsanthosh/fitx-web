@@ -13,6 +13,16 @@ export function canRemove(phase: BarFile["phase"], importing: boolean): boolean 
   return !importing && phase !== "done" && phase !== "importing";
 }
 
+/**
+ * Whether the account check's alert ("FITX couldn't check your activities…", with Check again) shows: once a check has
+ * failed, until one works. It stays while Check again checks, so the button keeps focus (aria-disabled meanwhile) and
+ * still has it when the check fails again; files chosen after a failure hide it while they are read, as before (their
+ * own check follows, and says again if it fails).
+ */
+export function checkAlertShown(state: { failed: boolean; reading: boolean; checkingAgain: boolean }): boolean {
+  return state.failed && (!state.reading || state.checkingAgain);
+}
+
 /** What takes focus: Choose files, the Import bar's button, the file list's heading, or a file's Remove. */
 export type ImportFocusTarget = "choose" | "import" | "files" | { remove: string };
 
@@ -42,10 +52,10 @@ export function focusAfterRemove(before: readonly ListedFile[], removed: string,
  * Where focus goes once one of the file list's controls went with it:
  * - a file's Remove: focusAfterRemove;
  * - Clear list (the list went with it): Choose files, to choose others;
- * - Check again (the check worked, so its alert went) and a sport in "Set them all to:" (every file has its sport now,
- *   so the group went): the Import button when it has something to import (the next step, and its label says how
- *   many), else the file list's heading, where the cards say what each file still needs; with no files left, Choose
- *   files.
+ * - Check again (the check worked, so its alert went, or files dropped meanwhile hide it while they are read) and a
+ *   sport in "Set them all to:" (every file has its sport now, so the group went): the Import button when it has
+ *   something to import (the next step, and its label says how many), else the file list's heading, where the alert
+ *   and the cards say what each file still needs; with no files left, Choose files.
  */
 export function importFocusAfter(went: ImportControl, list: { before: readonly ListedFile[]; after: readonly ListedFile[]; importReady: boolean }): ImportFocusTarget {
   if (went.control === "remove") return focusAfterRemove(list.before, went.file, list.after);
