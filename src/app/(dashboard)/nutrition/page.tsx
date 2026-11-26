@@ -59,7 +59,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
+import { dayRetryFocusTargets, focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
 import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, foodCardKey, listedFoods, noSearchReason, openingPortion, startView, swapFocusTargets, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
@@ -180,6 +180,8 @@ export default function NutritionPage() {
   const pendingFocus = useRef<string[] | null>(null);
   /** Where it goes once the day has reloaded only if it fell to the page (an empty day's buttons go once it has food). */
   const focusIfLost = useRef<string[] | null>(null);
+  /** The day's Try again was pressed and its answer isn't drawn yet: an answer that takes the button away moves the focus on. */
+  const dayRetried = useRef(false);
   /** Foods removed from the day, each with an Undo in its place; and which "Added …" toast can still take back what. */
   const [removed, setRemoved] = useState<RemovedEntry[]>([]);
   const addedUndo = useRef(addedUndoRegistry());
@@ -325,6 +327,8 @@ export default function NutritionPage() {
 
   /** Whether the day shown at the top has its own figures yet; until then the overview and meals say they are loading. */
   const dayState = dayLoadState(shownKey, failedKey, dateKey);
+  /** Whether the day viewed failed to load, so its message (dayAlert) is shown under the tabs. */
+  const dayFailed = failedKey === dateKey && dayProblem !== null;
   /** This day's entries: none until they have loaded, so another day's never show under this day's date. */
   const dayEntries = useMemo(() => (dayState === "ready" ? entries : []), [dayState, entries]);
   const totals = useMemo(() => sumKnown(dayEntries), [dayEntries]);
@@ -571,9 +575,11 @@ export default function NutritionPage() {
    * Try again, after the day couldn't be read (its reads failed, or the sign-in check couldn't be made): the day, Recent
    * and (if it never came) the food list are read again. Once the day is in, the message and its button go, so the
    * focus moves to the tab's heading (or My foods' Add a food) instead of falling to the page; while it reads, the
-   * button stays (unavailable), so a failure again leaves the focus on it.
+   * button stays (unavailable), so a failure again leaves the focus on it, and a failure that takes it away (signed
+   * out meanwhile: Sign in only) hands the focus to the message's own control (dayRetried).
    */
   function retryLoad() {
+    dayRetried.current = true;
     focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]", "#history-title"];
     void load();
     void refreshRecent();
@@ -897,6 +903,17 @@ export default function NutritionPage() {
       if (target) { target.focus(); return; }
     }
   }, [entries, customRows, templates]);
+  // Once the day's Try again has its answer: when the day failed again and took the button pressed with it (a session
+  // that ended meanwhile offers only Sign in), the message's own control takes the focus instead of it falling to the
+  // page (D5, dayRetryFocusTargets). A Try again still there keeps it; a day that loaded hands it on just above.
+  useEffect(() => {
+    if (!dayRetried.current || loading) return;
+    dayRetried.current = false;
+    for (const selector of dayRetryFocusTargets(dayFailed, focusFellToPage(document.activeElement, document.body))) {
+      const target = document.querySelector<HTMLElement>(selector);
+      if (target) { target.focus(); return; }
+    }
+  }, [loading, dayFailed]);
 
   /** "Type the number" from the scanner: the barcode field, ready to type in. */
   function typeBarcode() {
@@ -1282,7 +1299,8 @@ export default function NutritionPage() {
     const said = typeof problem === "string" ? { text: problem, signIn: false, retry: false } : problem;
     return <div className={styles.alert}>
       <p key={attempt} role="alert">{said.text}</p>
-      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2">
+      {/* data-day-actions: after a Try again whose answer took the button pressed away, the focus goes to these (D5). */}
+      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2" data-day-actions="">
         {said.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
         {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-xs ${ui.actionBusy}`} aria-disabled={loading || undefined} onClick={() => { if (!loading) retryLoad(); }}>{loading ? "Loading…" : "Try again"}</button>}
       </div>}
