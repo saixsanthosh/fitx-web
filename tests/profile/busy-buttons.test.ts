@@ -71,3 +71,52 @@ describe("Profile's Try again", () => {
     assert.match(view, /<h1 id="profile-name-title" tabIndex=\{-1\} className="[^"]*\boutline-none\b/);
   });
 });
+
+describe("the name editor", () => {
+  const view = read("ProfileView.tsx");
+  const tags = buttons(view);
+
+  test("Save and Cancel stay focusable while the name saves, and do nothing meanwhile", () => {
+    const save = tags.find((tag) => tag.includes('type="submit"') && tag.includes("nameBusy")) ?? "";
+    assert.match(save, /<button type="submit" aria-disabled=\{nameBusy \|\| undefined\} className="[^"]*aria-disabled:opacity-60/);
+    assert.match(view, /async function saveName\(event: FormEvent\) \{\s*event\.preventDefault\(\);\s*if \(nameBusy\) return;/, "a second press, or Enter in the box, saves nothing twice");
+    const cancel = tags.find((tag) => tag.includes("setEditingName(false)")) ?? "";
+    assert.match(cancel, /onClick=\{\(\) => \{ if \(nameBusy\) return; setEditingName\(false\);/);
+    assert.match(cancel, /aria-disabled=\{nameBusy \|\| undefined\}/);
+    assert.match(view, /const nameBusy = busy === "name";/);
+  });
+
+  test("closing it, saved, unchanged or cancelled, hands focus back to Edit name", () => {
+    assert.match(view, /const nameEditorWasOpen = useRef\(editingName\);/);
+    assert.match(view, /useEffect\(\(\) => \{\s*if \(nameEditorWasOpen\.current && !editingName\) editNameButton\.current\?\.focus\(\);\s*nameEditorWasOpen\.current = editingName;\s*\}, \[editingName\]\);/);
+    assert.match(tags.find((tag) => tag.includes('aria-label="Edit name"')) ?? "", /<button ref=\{editNameButton\} type="button"/);
+  });
+});
+
+describe("a Profile section's Save and Cancel", () => {
+  const parts = read("ProfileParts.tsx");
+  const sections = read("ProfileSections.tsx");
+
+  test("stay focusable while the section saves (aria-disabled), so a failed save's message is read with focus on Save", () => {
+    const actions = parts.slice(parts.indexOf("export function EditActions"));
+    const [cancel, save] = buttons(actions);
+    assert.match(cancel, /onClick=\{\(\) => \{ if \(!saving\) onCancel\(\); \}\} aria-disabled=\{saving \|\| undefined\}/);
+    assert.match(save, /<button type="submit" aria-disabled=\{saving \|\| undefined\} aria-busy=\{saving\}/);
+    for (const tag of [cancel, save]) assert.match(tag, /aria-disabled:opacity-60/, "they still look busy");
+  });
+
+  test("every section's save() does nothing while it is saving (a second Save, or Enter in a field)", () => {
+    const saves = [...sections.matchAll(/async function save\(event: FormEvent\) \{\s*event\.preventDefault\(\);\s*if \(saving\) return;/g)];
+    const forms = [...sections.matchAll(/<EditActions saving=\{saving\} onCancel=\{onClose\} error=\{error\} \/>/g)];
+    assert.equal(forms.length, 5, "Body, Goal, Training, Food and Injuries");
+    assert.equal(saves.length, forms.length, "each section with Save and Cancel returns early while saving");
+    assert.equal([...sections.matchAll(/async function save\(/g)].length, saves.length);
+  });
+});
+
+test("no button on Profile is disabled while busy: Chrome would drop keyboard focus to the page (D5)", () => {
+  for (const file of ["ProfileView.tsx", "ProfileParts.tsx", "ProfileSections.tsx"]) {
+    const disabled = buttons(read(file)).filter((tag) => /\bdisabled=/.test(tag.replace(/aria-disabled=\{[^}]*\}/g, "")));
+    assert.deepEqual(disabled, [], file);
+  }
+});

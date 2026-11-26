@@ -256,7 +256,9 @@ export function ProfileView() {
 function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraButton = useRef<HTMLButtonElement>(null);
+  const editNameButton = useRef<HTMLButtonElement>(null);
   const [editingName, setEditingName] = useState(false);
+  const nameEditorWasOpen = useRef(editingName);
   const [name, setName] = useState(data.profile?.name ?? "");
   const [busy, setBusy] = useState<"" | "name" | "photo">("");
   const [error, setError] = useState("");
@@ -270,11 +272,21 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
   const uploadedPhoto = isOwnPhoto(storedAvatar, data.userId);
   // The photo buttons stay focusable while a photo is being worked on (aria-disabled, not disabled), so keyboard
-  // focus isn't dropped to the page; a second press meanwhile does nothing.
+  // focus isn't dropped to the page; a second press meanwhile does nothing. So do the name editor's Save and Cancel
+  // while the name saves, so a failed save's message is read with focus still on Save.
   const photoBusy = busy === "photo";
+  const nameBusy = busy === "name";
+
+  // Saved, unchanged or cancelled, the name editor gives way to the name: focus goes back to Edit name, as a section's
+  // Edit does (ProfileParts SectionCard), instead of falling to the page (D5).
+  useEffect(() => {
+    if (nameEditorWasOpen.current && !editingName) editNameButton.current?.focus();
+    nameEditorWasOpen.current = editingName;
+  }, [editingName]);
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
+    if (nameBusy) return;
     const value = name.replace(/\s+/g, " ").trim();
     if (!value) return setError("Add your name.");
     if (value.length > NAME_MAX_LENGTH) return setError(`Keep your name to ${NAME_MAX_LENGTH} characters.`);
@@ -401,8 +413,8 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
               <label htmlFor="profile-name" className="sr-only">Name</label>
               <input id="profile-name" className="fitx-field max-w-md" value={name} maxLength={NAME_MAX_LENGTH} autoComplete="name" autoFocus onChange={(event) => setName(event.target.value)} />
               <div className="flex gap-2">
-                <button type="submit" disabled={busy === "name"} className="fitx-button px-4">{busy === "name" ? "Saving…" : "Save"}</button>
-                <button type="button" onClick={() => { setEditingName(false); setName(data.profile?.name ?? ""); setError(""); }} className="fitx-button fitx-button-secondary px-4">Cancel</button>
+                <button type="submit" aria-disabled={nameBusy || undefined} className="fitx-button px-4 aria-disabled:opacity-60">{nameBusy ? "Saving…" : "Save"}</button>
+                <button type="button" onClick={() => { if (nameBusy) return; setEditingName(false); setName(data.profile?.name ?? ""); setError(""); }} aria-disabled={nameBusy || undefined} className="fitx-button fitx-button-secondary px-4 aria-disabled:opacity-60">Cancel</button>
               </div>
             </form>
           ) : (
@@ -411,7 +423,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
               <h1 id="profile-name-title" tabIndex={-1} className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text outline-none sm:text-[40px]">
                 {data.profile?.name || "Add your name"}
               </h1>
-              <button type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
+              <button ref={editNameButton} type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
                 className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
                 <Pencil size={16} aria-hidden="true" />
               </button>

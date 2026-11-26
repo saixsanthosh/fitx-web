@@ -150,6 +150,7 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const found: Record<string, string> = {};
     // With a birth date column the database keeps the age equal to the birth date's, so the birth date is what's
     // edited: an account with only an age keeps it until a date is added, and clearing a date clears its age.
@@ -283,6 +284,7 @@ export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }:
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const patch = changedFields({ primary_goal: prefs.primary_goal, activity_level: prefs.activity_level }, { primary_goal: goal, activity_level: activity });
     if (!Object.keys(patch).length) {
       onClose();
@@ -384,6 +386,7 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
     const before = {
@@ -562,6 +565,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const found: Record<string, string> = {};
     const water = Number(draft.water);
     if (!draft.water.trim() || !Number.isFinite(water) || !inRange(water, WATER_RANGE_ML)) found.water = `Enter ${WATER_RANGE_ML.min.toLocaleString("en-IN")} to ${WATER_RANGE_ML.max.toLocaleString("en-IN")} ml.`;
@@ -702,6 +706,7 @@ export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved 
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const next = joinLimitations(draft.limitations, commitDraft(draft.customLimitations, draft.limitationDraft, { max: MAX_CUSTOM_LIMITATIONS, maxLength: MAX_LIMITATION_LENGTH }));
     const patch = changedFields({ limitations: prefs.limitations }, { limitations: next });
     if (!Object.keys(patch).length) {

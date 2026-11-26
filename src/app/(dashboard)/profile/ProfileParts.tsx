@@ -125,14 +125,19 @@ export function NotSet() {
   return <span className="font-normal text-fitx-text-secondary">Not set</span>;
 }
 
-/** Save and Cancel for a section's edit form. */
+/**
+ * Save and Cancel for a section's edit form. While it saves, both stay focusable (aria-disabled, not disabled: a
+ * disabled button drops keyboard focus to the page in Chrome, D5), so a failed save's message is read with focus still
+ * on Save. Cancel does nothing meanwhile, and the section's save() returns at once while `saving`, so a second press of
+ * Save, or Enter in a field, saves nothing twice.
+ */
 export function EditActions({ saving, onCancel, error }: { saving: boolean; onCancel: () => void; error: string }) {
   return (
     <div className="mt-6 border-t border-fitx-divider pt-5">
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mb-4">{error}</p>}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <button type="button" onClick={onCancel} disabled={saving} className="fitx-button fitx-button-secondary">Cancel</button>
-        <button type="submit" disabled={saving} aria-busy={saving} className="fitx-button min-w-32">{saving ? "Saving…" : "Save"}</button>
+        <button type="button" onClick={() => { if (!saving) onCancel(); }} aria-disabled={saving || undefined} className="fitx-button fitx-button-secondary aria-disabled:opacity-60">Cancel</button>
+        <button type="submit" aria-disabled={saving || undefined} aria-busy={saving} className="fitx-button min-w-32 aria-disabled:opacity-60">{saving ? "Saving…" : "Save"}</button>
       </div>
     </div>
   );
