@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent, type Ref } from "react";
 import { Check, ChevronDown, Lock, LockOpen } from "lucide-react";
 import { pickVoice, recognitionLang, type VoiceLike } from "@/components/coach/voice";
 import { SPORT_GROUPS, SPORT_LABEL } from "@/lib/activity/config";
@@ -163,9 +163,9 @@ const HOLD_MS = 800;
 /**
  * Locked controls: Pause and Finish are replaced by one button that must be held (pointer or Space/Enter) for
  * 0.8 s, so a bumped screen changes nothing. The ring fills with transform only; with reduced motion it doesn't
- * animate, and the hold still works.
+ * animate, and the hold still works. `buttonRef` lets the Record screen hand focus to it when Lock is pressed (D5).
  */
-export function UnlockButton({ onUnlock }: { onUnlock: () => void }) {
+export function UnlockButton({ onUnlock, buttonRef }: { onUnlock: () => void; buttonRef?: Ref<HTMLButtonElement> }) {
   const [holding, setHolding] = useState(false);
   const timer = useRef<number | null>(null);
   const stop = useCallback(() => {
@@ -201,6 +201,7 @@ export function UnlockButton({ onUnlock }: { onUnlock: () => void }) {
     <div className="flex flex-col items-center gap-2">
       <button
         type="button"
+        ref={buttonRef}
         aria-label="Hold to unlock controls"
         onPointerDown={onPointerDown}
         onPointerUp={stop}
