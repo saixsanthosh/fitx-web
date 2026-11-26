@@ -10,6 +10,7 @@ import { kcalMethodFor } from "@/lib/activity/calories";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor, lateKcal, type ActivityDetail } from "@/lib/activity/detail";
 import { cleanTitle, formatActivityDate, localDateKey } from "@/lib/activity/format";
+import { mayHandFocus } from "@/lib/activity/focus";
 import { startsInFuture } from "@/lib/activity/future";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -54,13 +55,19 @@ export function ActivityDetailScreen({ id }: { id: string }) {
   const [sharing, setSharing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
+  // What is being saved. Its button says aria-disabled meanwhile (disabled would drop keyboard focus; D5) and another
+  // press does nothing.
   const [busy, setBusy] = useState<"" | "rename" | "delete" | "upload">("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // A rename or upload that failed, said under the header (beside both); a failed delete is said in its confirmation.
   const [message, setMessage] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const [reload, setReload] = useState(0);
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const renameTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const deviceNoteRef = useRef<HTMLParagraphElement | null>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const userId = account.status === "ready" ? account.userId : null;
   useEffect(() => {
@@ -172,7 +179,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
 
   async function rename(event: FormEvent) {
     event.preventDefault();
-    if (!view || !userId || view.local) return;
+    if (!view || !userId || view.local || busy === "rename") return;
     const next = cleanTitle(title, view.title);
     const supabase = createClient();
     if (!supabase) return;
@@ -187,8 +194,9 @@ export function ActivityDetailScreen({ id }: { id: string }) {
 
   /** Deletes both copies: the one on this device and any already uploaded to the account. */
   async function remove() {
-    if (!view || !userId) return;
+    if (!view || !userId || busy === "delete") return;
     setBusy("delete");
+    setDeleteError("");
     const supabase = createClient();
     const store = await recordingStore();
     if (view.local) {
@@ -198,7 +206,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       const server = supabase ? await deleteActivityByClientId(supabase, userId, view.clientId) : null;
       if (stored?.uploadAttempts && server && server.status !== "ok" && server.status !== "unavailable") {
         setBusy("");
-        return setMessage("This activity couldn’t be deleted from your account. Check your connection and try again.");
+        return setDeleteError("This activity couldn’t be deleted from your account. Check your connection and try again.");
       }
       await store.deleteRecording(view.clientId).catch(() => undefined);
       router.replace("/activity");
@@ -206,19 +214,30 @@ export function ActivityDetailScreen({ id }: { id: string }) {
     }
     const result = supabase ? await deleteActivity(supabase, userId, view.id as string) : null;
     setBusy("");
-    if (!result || result.status !== "ok") return setMessage("This activity couldn’t be deleted. Check your connection and try again.");
+    if (!result || result.status !== "ok") return setDeleteError("This activity couldn’t be deleted. Check your connection and try again.");
     // Otherwise the device copy would upload it again.
     await store.deleteRecording(view.clientId).catch(() => undefined);
     router.replace("/activity");
   }
 
+  function keep() {
+    if (busy === "delete") return;
+    setConfirmDelete(false);
+    setDeleteError("");
+    window.setTimeout(() => deleteTriggerRef.current?.focus(), 0);
+  }
+
   async function upload() {
-    if (!view || !userId) return;
-    const store = await recordingStore();
-    const stored = await store.getRecording(view.clientId);
-    const supabase = createClient();
-    if (!stored || !supabase) return;
+    // Marked as uploading at once, so a second press while the device copy is read does nothing either.
+    if (!view || !userId || busy === "upload") return;
     setBusy("upload");
+    const store = await recordingStore();
+    const stored = await store.getRecording(view.clientId).catch(() => null);
+    const supabase = createClient();
+    if (!stored || !supabase) {
+      setBusy("");
+      return;
+    }
     const outcome = await uploadRecording(store, supabase, userId, stored);
     setBusy("");
     if (outcome.result.status === "ok") {
@@ -227,7 +246,10 @@ export function ActivityDetailScreen({ id }: { id: string }) {
     }
     if (outcome.result.status === "rejected") {
       setState((previous) => (previous.status === "ready" ? { ...previous, rejected: true } : previous));
-      return setMessage("");
+      setMessage("");
+      // Upload now goes: focus moves to the note, which now says why it can't be uploaded (D5).
+      window.setTimeout(() => { if (mayHandFocus(document, uploadButtonRef.current)) deviceNoteRef.current?.focus(); }, 0);
+      return;
     }
     setMessage(outcome.result.status === "unavailable" ? "Activity history isn’t available yet. It stays on this device until it is." : outcome.result.status === "error" && outcome.result.offline ? "You’re offline. It will upload when you’re back online." : "The upload didn’t work. Try again in a moment.");
   }
@@ -258,7 +280,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
             <form onSubmit={rename} className="mt-2 flex items-center gap-2">
               <label htmlFor="activity-title" className="sr-only">Activity name</label>
               <input id="activity-title" className="fitx-field h-11 min-w-0 flex-1 text-lg font-semibold" maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} autoFocus />
-              <button type="submit" disabled={busy === "rename"} className="fitx-button min-h-11 px-3" aria-label="Save name"><Check size={17} aria-hidden="true" /></button>
+              <button type="submit" aria-disabled={busy === "rename" || undefined} className="fitx-button min-h-11 px-3 aria-disabled:cursor-progress aria-disabled:opacity-60" aria-label="Save name"><Check size={17} aria-hidden="true" /></button>
               <button type="button" onClick={closeRename} className="fitx-button fitx-button-quiet min-h-11 px-3" aria-label="Cancel renaming"><X size={17} aria-hidden="true" /></button>
             </form>
           ) : (
@@ -280,18 +302,18 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       )}
       {view.local && (
         <section className="fitx-alert flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Saved on this device">
-          <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span>{" "}
+          <p ref={deviceNoteRef} tabIndex={-1} className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Saved on this device only.</span>{" "}
             {state.rejected
               ? "It can’t be uploaded to your account: it’s outside what an activity can hold (for example, longer than 48 hours). It stays here: you can share it or download its GPX."
               : state.uploadNote === "Activity history is not available yet" ? "Activity history isn’t available yet; it uploads once it is." : "It uploads to your account when you’re online."}</span></p>
-          {!state.rejected && <button type="button" onClick={() => void upload()} disabled={busy === "upload"} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
+          {!state.rejected && <button type="button" ref={uploadButtonRef} onClick={() => void upload()} aria-disabled={busy === "upload" || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
         </section>
       )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div>
           {route.some((segment) => segment.length > 1) ? (
-            <ActivityMap segments={route} version={detailed ? 2 : 1} showEnds className="h-[46vh] min-h-72 w-full lg:h-[560px]" label={`Map of the route of ${view.title}`} />
+            <ActivityMap segments={route} version={detailed ? 2 : 1} showEnds className="h-[46vh] min-h-72 w-full lg:h-[560px]" label={`Map of the route of ${view.title}`} routeState={view.local ? "on-device" : "saved"} />
           ) : (
             <div className="grid h-48 place-items-center rounded-xl border border-dashed border-fitx-border bg-fitx-surface px-6 text-center text-sm text-fitx-text-secondary">No route was recorded for this activity.</div>
           )}
@@ -313,10 +335,14 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       <section className="flex flex-col gap-3 border-t border-fitx-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
         {confirmDelete ? (
           <div className="flex flex-1 flex-col gap-3 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg p-4 sm:flex-row sm:items-center sm:justify-between" role="alertdialog" aria-labelledby="delete-question">
-            <p id="delete-question" className="text-sm font-semibold text-fitx-danger">Delete this {SPORT_NOUN[view.sport]} and its route? This can’t be undone.</p>
-            <div className="flex gap-2">
-              <button type="button" ref={focusOnMount} onClick={() => { setConfirmDelete(false); window.setTimeout(() => deleteTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep</button>
-              <button type="button" onClick={() => void remove()} disabled={busy === "delete"} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />{busy === "delete" ? "Deleting…" : "Delete"}</button>
+            <div className="min-w-0 space-y-1">
+              <p id="delete-question" className="text-sm font-semibold text-fitx-danger">Delete this {SPORT_NOUN[view.sport]} and its route? This can’t be undone.</p>
+              {/* Beside the Delete button that was pressed, where it keeps focus (D6). */}
+              {deleteError && <p role="alert" className="text-sm text-fitx-danger">{deleteError}</p>}
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button type="button" ref={focusOnMount} onClick={keep} aria-disabled={busy === "delete" || undefined} className="fitx-button fitx-button-secondary min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60">Keep</button>
+              <button type="button" onClick={() => void remove()} aria-disabled={busy === "delete" || undefined} className="fitx-button fitx-button-danger min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60"><Trash2 size={15} aria-hidden="true" />{busy === "delete" ? "Deleting…" : "Delete"}</button>
             </div>
           </div>
         ) : (

@@ -4,7 +4,7 @@ import type { MealTotals } from "@/lib/domain/meal-totals";
 import type { LoggedSession } from "@/lib/training/muscle-history";
 import {
   calendarDays, comparisonLabel, currentStreak, delta, highlights, indexDays, noHistory, nutritionSeries, periodBuckets, periodFor,
-  periodSummary, previousSummary, strengthGains, trainingDaysAnswered, trainingSeries, weightView, yearMonths,
+  periodSummary, previousSummary, strengthGains, trainingDaysAnswered, trainingSeries, weightChange, weightView, yearMonths,
 } from "@/components/progress/period";
 
 // Friday 20 November 2026, on the browser's calendar.
@@ -177,11 +177,11 @@ describe("weight and strength", () => {
     ];
     const view = weightView(rows, periodFor("week", TODAY));
     assert.deepEqual(view.points, [{ date: "2026-11-16", kg: 71.8 }, { date: "2026-11-19", kg: 71.2 }], "the newer row of a day wins");
-    assert.equal(view.changeKg, -0.6);
+    assert.equal(weightChange(view.points, "kg"), -0.6);
     const last = weightView(rows, periodFor("week", TODAY, -1));
     assert.deepEqual(last.points, []);
     assert.deepEqual(last.latest, { date: "2026-11-02", kg: 72.5 });
-    assert.equal(last.changeKg, null);
+    assert.equal(weightChange(last.points, "kg"), null);
   });
   test("strength gains: the estimated one-rep max of the latest session against the first", () => {
     const sessions = [

@@ -11,8 +11,10 @@ import { splitCue, stateCue } from "@/lib/activity/audio-cues";
 import { formatActivityDate, formatDistance, formatDuration, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
 import type { LocksLike } from "@/lib/activity/device-recordings";
 import { uploadWithin, type KeptReason } from "@/lib/activity/finish";
+import { focusDropped, mayHandFocus } from "@/lib/activity/focus";
 import { recordingStore, type RecordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import type { ActivityRecord } from "@/lib/activity/record";
+import { focusAfterSwap, ignoreHeldKey, type RecordFocus, type RecordScreenState } from "@/lib/activity/record-focus";
 import { ActivityRecorder, type FinishResult, type RecorderSnapshot } from "@/lib/activity/recorder";
 import { toGpx } from "@/lib/activity/gpx";
 import { replayStored } from "@/lib/activity/replay";
@@ -23,7 +25,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
 import { FinishedResult } from "./FinishedResult";
-import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, signalChip, WAKE_LOCK_TEXT, type SignalChip } from "./messages";
+import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, recordMapState, SCREEN_ON_NOTE, signalChip, WAKE_LOCK_TEXT, type SignalChip } from "./messages";
 import { SPORT_PLURAL, sportHref } from "./sports";
 import { AUDIO_CUES_KEY, AUTO_PAUSE_KEY, SettingSwitch, SportPicker, UnlockButton, useCueVoice, useDeviceSwitch } from "./RecordingExtras";
 import { useActivityV2 } from "./useActivityV2";
@@ -94,13 +96,16 @@ function Stat({ label, value, unit, size = "small", className }: { label: string
   );
 }
 
-/** A round control with its word under it: the big buttons people hit while moving. */
+/**
+ * A round control with its word under it: the big buttons people hit while moving. Each can take focus from a control
+ * that went (D5), so a key still held from that press never presses it (ignoreHeldKey).
+ */
 function RoundButton({ label, icon, onClick, tone = "primary", size = "large", disabled, buttonRef }: {
   label: string; icon: ReactNode; onClick: () => void; tone?: "primary" | "secondary" | "quiet"; size?: "large" | "medium"; disabled?: boolean;
   buttonRef?: Ref<HTMLButtonElement>;
 }) {
   return (
-    <button type="button" ref={buttonRef} onClick={onClick} disabled={disabled} className="group flex min-w-16 flex-col items-center gap-2 rounded-2xl text-sm font-semibold text-fitx-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-fitx-primary disabled:opacity-50">
+    <button type="button" ref={buttonRef} onClick={onClick} onKeyDown={ignoreHeldKey} disabled={disabled} className="group flex min-w-16 flex-col items-center gap-2 rounded-2xl text-sm font-semibold text-fitx-text focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-fitx-primary disabled:opacity-50">
       <span aria-hidden="true" className={cn(
         "grid place-items-center rounded-full transition-transform duration-150 motion-safe:group-active:scale-95",
         size === "large" ? "h-20 w-20" : "h-16 w-16",
@@ -109,6 +114,13 @@ function RoundButton({ label, icon, onClick, tone = "primary", size = "large", d
       {label}
     </button>
   );
+}
+
+type ControlRef = { readonly current: HTMLElement | null };
+
+/** The element for a focus hand-off (record-focus.ts), from the screen's refs. */
+function controlFor(target: RecordFocus | null, refs: Readonly<Record<RecordFocus, ControlRef>>): HTMLElement | null {
+  return target ? refs[target].current : null;
 }
 
 export function ActivityRecorderScreen({ initialSport = null }: { initialSport?: Sport | null }) {
@@ -130,6 +142,21 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const finishTriggerRef = useRef<HTMLButtonElement | null>(null);
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Buttons that go once they have done their job hand focus on (D5): Start and Resume to the recording controls'
+  // middle one (Pause, or Resume while paused), a finish that couldn't be saved to its Try again.
+  const mainControlRef = useRef<HTMLButtonElement | null>(null);
+  const focusControls = useRef(false);
+  const retryUnsavedRef = useRef<HTMLButtonElement | null>(null);
+  // Controls that swap for others hand focus on too (D5, record-focus.ts): Lock to "Hold to unlock" and back,
+  // "Allow location" to Start, and a Start that location then blocked to the note that says why.
+  const lockRef = useRef<HTMLButtonElement | null>(null);
+  const unlockRef = useRef<HTMLButtonElement | null>(null);
+  const startRef = useRef<HTMLButtonElement | null>(null);
+  const issueRef = useRef<HTMLDivElement | null>(null);
+  const elsewhereRef = useRef<HTMLParagraphElement | null>(null);
+  const lockPressed = useRef(false);
+  const askedForLocation = useRef(false);
+  const wasBlocking = useRef<boolean | null>(null);
   const [error, setError] = useState("");
   // An upload that finishes after the member has left this screen must not pull them back to the
   // activity: only open it while the recorder (and so its finished result) is still on screen.
@@ -203,6 +230,12 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
 
   const phase = snapshot?.phase ?? "idle";
   const recording = phase === "recording" || phase === "paused";
+  // What location allows now. The focus hand-offs below read it too, so it is worked out before the early returns.
+  const blocking = snapshot?.issue === "unsupported" || snapshot?.issue === "insecure" || snapshot?.issue === "denied";
+  const needsPermission = snapshot !== null && !recording && phase !== "finished" && snapshot.permission !== "granted" && snapshot.permission !== "denied" && phase === "idle" && !blocking;
+  const startUsable = snapshot !== null && !blocking && recorder !== null && !snapshot.elsewhere;
+  // A note says why Start can't be pressed: the location banner, or the one about a recording in another tab.
+  const reasonShown = blocking || Boolean(snapshot?.elsewhere && !recording);
 
   // Leaving or reloading the page stops location updates: ask first while recording, and while a
   // finished activity exists only in this tab.
@@ -218,6 +251,46 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }, [guardLeaving]);
 
   const stats = snapshot?.stats ?? null;
+  const controlsShown = (phase === "recording" || phase === "paused") && stats !== null;
+  useEffect(() => {
+    if (!controlsShown || !focusControls.current) return;
+    focusControls.current = false;
+    if (focusDropped(document)) mainControlRef.current?.focus();
+  }, [controlsShown]);
+  useEffect(() => {
+    if (unsaved && focusDropped(document)) retryUnsavedRef.current?.focus();
+  }, [unsaved]);
+  // Lock and "Hold to unlock" swap places, and "Allow location" gives way to Start: once the screen has drawn the
+  // control that took the pressed one's place, focus moves to it (D5), unless the member moved focus meanwhile.
+  useEffect(() => {
+    if (!lockPressed.current) return;
+    lockPressed.current = false;
+    if (!focusDropped(document)) return;
+    const state: RecordScreenState = { phase, locked, needsPermission, startUsable, reasonShown };
+    controlFor(focusAfterSwap(locked ? "locked" : "unlocked", state), { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: blocking ? issueRef : elsewhereRef })?.focus();
+  }, [locked, phase, needsPermission, startUsable, reasonShown, blocking]);
+  // "Allow location" goes once location is asked for (its press, or the browser's own setting changing): if it had
+  // focus, focus was dropped with it. Start takes its place, so it takes focus (where Allow location was: no scroll),
+  // or, when Start can't be pressed, the note that says why (brought into view).
+  useEffect(() => {
+    const asked = askedForLocation.current;
+    askedForLocation.current = needsPermission;
+    if (!asked || needsPermission || !focusDropped(document)) return;
+    const state: RecordScreenState = { phase, locked, needsPermission, startUsable, reasonShown };
+    const target = focusAfterSwap("allowed", state);
+    controlFor(target, { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: blocking ? issueRef : elsewhereRef })?.focus({ preventScroll: target === "start" });
+  }, [needsPermission, phase, locked, startUsable, reasonShown, blocking]);
+  // Location blocked (refused at the browser's prompt, or in its settings) while Start had focus: Start can't be
+  // pressed any more, so focus goes to the banner that says why. Not when the screen opens already blocked, and never
+  // from anything but Start (mid-recording the banner is announced and focus stays where it is).
+  const ready = snapshot !== null;
+  useEffect(() => {
+    const before = wasBlocking.current;
+    wasBlocking.current = ready ? blocking : null;
+    if (before !== false || !blocking || !startRef.current || !mayHandFocus(document, startRef.current)) return;
+    const state: RecordScreenState = { phase, locked, needsPermission, startUsable, reasonShown };
+    controlFor(focusAfterSwap("blocked", state), { unlock: unlockRef, lock: lockRef, main: mainControlRef, start: startRef, reason: issueRef })?.focus();
+  }, [ready, blocking, phase, locked, needsPermission, startUsable, reasonShown]);
   const latestGap = stats?.gaps.length ? stats.gaps[stats.gaps.length - 1] : null;
   const recentGap = latestGap && snapshot && latestGap.end > snapshot.now - 120_000 ? latestGap : null;
   const gapKey = recentGap ? `${recentGap.start}` : "";
@@ -280,9 +353,11 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }
 
   async function start() {
+    // Start says aria-disabled while it starts (disabled would drop keyboard focus; D5), and another press does nothing.
     if (!recorder || account.status !== "ready" || starting) return;
     setStarting(true);
     setError("");
+    focusControls.current = true;
     try {
       await recorder.start(sport, account.weightKg);
       setAnnouncement(`${SPORT_LABEL[sport]} started`);
@@ -345,7 +420,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }
 
   async function finish() {
-    if (!recorder || account.status !== "ready") return;
+    if (!recorder || account.status !== "ready" || saving) return;
     setSaving(true);
     setError("");
     setConfirm(null);
@@ -353,13 +428,15 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
     if (!result) {
       setSaving(false);
       setError("This activity could not be finished. Try again.");
+      // The confirmation has gone: focus goes back to Finish, beside the message.
+      window.setTimeout(() => { if (focusDropped(document)) finishTriggerRef.current?.focus(); }, 0);
       return;
     }
     await saveFinished(result);
   }
 
   async function retryUnsaved() {
-    if (!unsaved) return;
+    if (!unsaved || saving) return;
     setSaving(true);
     await saveFinished(unsaved);
   }
@@ -386,11 +463,12 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
 
   async function resumeRestored() {
     if (!recorder || account.status !== "ready") return;
+    focusControls.current = true;
     await recorder.resumeRestored(account.weightKg);
   }
 
   async function finishRestored() {
-    if (!recorder || account.status !== "ready") return;
+    if (!recorder || account.status !== "ready" || saving) return;
     setSaving(true);
     const result = await recorder.finishRestored(account.weightKg);
     if (!result) {
@@ -412,8 +490,6 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   if (account.status === "signed-out" || !snapshot) return <EmptyState title="Sign in to record activities" description="Your activities are saved to your account." action={<Link href="/signin?next=/activity/record" className="fitx-button min-h-11">Sign in</Link>} />;
 
   const issue = snapshot.issue ? ISSUE_TEXT[snapshot.issue] : null;
-  const blocking = snapshot.issue === "unsupported" || snapshot.issue === "insecure" || snapshot.issue === "denied";
-  const needsPermission = !recording && phase !== "finished" && snapshot.permission !== "granted" && snapshot.permission !== "denied" && phase === "idle" && !blocking;
   const wakeText = recording ? WAKE_LOCK_TEXT[snapshot.wakeLock] : null;
   const shortRecording = (stats?.distanceM ?? 0) < 50;
   const live = (recording || phase === "finished") && stats !== null;
@@ -458,27 +534,27 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
           </div>
           <div className="flex flex-wrap gap-2">
             {snapshot.restorable.canResume && <button type="button" onClick={() => void resumeRestored()} className="fitx-button min-h-11"><Play size={15} aria-hidden="true" />Resume</button>}
-            <button type="button" disabled={saving} onClick={() => void finishRestored()} className={cn("fitx-button min-h-11", snapshot.restorable.canResume && "fitx-button-secondary")}><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
+            <button type="button" aria-disabled={saving || undefined} onClick={() => void finishRestored()} className={cn("fitx-button min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60", snapshot.restorable.canResume && "fitx-button-secondary")}><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
             <button type="button" ref={discardTriggerRef} onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11"><Trash2 size={15} aria-hidden="true" />Discard</button>
           </div>
         </section>
       )}
 
       {snapshot.elsewhere && !recording && (
-        <p role="status" className="fitx-alert mb-4 flex gap-2"><Info size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info" />An activity is being recorded in another FITX window or tab. Finish it there before starting a new one.</p>
+        <p ref={elsewhereRef} tabIndex={-1} role="status" className="fitx-alert mb-4 flex gap-2"><Info size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info" />An activity is being recorded in another FITX window or tab. Finish it there before starting a new one.</p>
       )}
       {unsaved && (
         <section role="alert" className="fitx-alert fitx-alert-danger mb-4 space-y-3" aria-label="Activity not saved yet">
           <p><span className="font-semibold">Your {SPORT_NOUN[unsaved.record.sport]} isn’t saved yet.</span> It couldn’t be stored on this device or uploaded. Keep this screen open and try again, or download its GPX file.</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void retryUnsaved()} disabled={saving} className="fitx-button min-h-11"><RefreshCw size={15} aria-hidden="true" />{saving ? "Trying…" : "Try again"}</button>
+            <button type="button" ref={retryUnsavedRef} onClick={() => void retryUnsaved()} aria-disabled={saving || undefined} className="fitx-button min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{saving ? "Trying…" : "Try again"}</button>
             <button type="button" onClick={downloadUnsavedGpx} className="fitx-button fitx-button-secondary min-h-11"><Download size={15} aria-hidden="true" />Download GPX</button>
           </div>
         </section>
       )}
       {error && <p role="alert" className="fitx-alert fitx-alert-danger mb-4">{error}</p>}
       {issue && (
-        <div role={blocking ? "alert" : "status"} className={cn("fitx-alert mb-4 flex gap-3", blocking || snapshot.issue === "coarse" ? "fitx-alert-danger" : "")}>
+        <div ref={issueRef} tabIndex={-1} role={blocking ? "alert" : "status"} className={cn("fitx-alert mb-4 flex gap-3", blocking || snapshot.issue === "coarse" ? "fitx-alert-danger" : "")}>
           <TriangleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0" />
           <div><p className="font-semibold">{issue.title}</p><p className="mt-1 text-[13px] leading-5">{issue.body}</p></div>
         </div>
@@ -500,6 +576,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                   live ? "h-[32dvh] min-h-48" : "h-[50dvh] min-h-72",
                 )}
                 label={recording ? "Map of your route so far" : "Map of your current position"}
+                routeState={recordMapState(phase)}
               />
               <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-full border border-fitx-border bg-fitx-elevated/95 px-3.5 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">
                 <EyeOff size={16} aria-hidden="true" />Hide map
@@ -529,7 +606,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                   <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-12 w-full">Allow location</button>
                 </div>
               ) : (
-                <button type="button" disabled={blocking || !recorder || starting || snapshot.elsewhere} onClick={() => void start()} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base">
+                <button type="button" ref={startRef} disabled={blocking || !recorder || snapshot.elsewhere} aria-disabled={starting || undefined} onClick={() => void start()} onKeyDown={ignoreHeldKey} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base aria-disabled:cursor-progress aria-disabled:opacity-60">
                   <Play size={18} aria-hidden="true" />Start {SPORT_NOUN[sport]}
                 </button>
               )}
@@ -593,30 +670,30 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                     <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
                     {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
-                      <button type="button" onClick={() => void finish()} disabled={saving} className="fitx-button min-h-12"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
+                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} onKeyDown={ignoreHeldKey} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
+                      <button type="button" onClick={() => void finish()} aria-disabled={saving || undefined} className="fitx-button min-h-12 aria-disabled:cursor-progress aria-disabled:opacity-60"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
                     </div>
                   </div>
                 ) : confirm === "discard" ? (
                   <div className="mt-1 rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-question">
                     <p id="discard-question" className="text-sm font-semibold text-fitx-danger">Discard this {SPORT_NOUN[activeSport]}? It can’t be recovered.</p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
+                      <button type="button" ref={focusOnMount} onClick={cancelConfirm} onKeyDown={ignoreHeldKey} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
                       <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
                     </div>
                   </div>
                 ) : locked && recording ? (
-                  <div className="mt-2 flex justify-center"><UnlockButton onUnlock={() => { setLocked(false); setAnnouncement("Controls unlocked"); }} /></div>
+                  <div className="mt-2 flex justify-center"><UnlockButton buttonRef={unlockRef} onUnlock={() => { lockPressed.current = true; setLocked(false); setAnnouncement("Controls unlocked"); }} /></div>
                 ) : phase === "recording" ? (
                   <div className="mt-2 flex items-end justify-center gap-6 sm:gap-8">
-                    <RoundButton label="Lock" icon={<Lock size={22} aria-hidden="true" />} onClick={() => { setLocked(true); setAnnouncement("Controls locked. Hold the lock button to unlock."); }} tone="quiet" size="medium" />
-                    <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
+                    <RoundButton label="Lock" icon={<Lock size={22} aria-hidden="true" />} onClick={() => { lockPressed.current = true; setLocked(true); setAnnouncement("Controls locked. Hold the lock button to unlock."); }} tone="quiet" size="medium" buttonRef={lockRef} />
+                    <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} buttonRef={mainControlRef} />
                     <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                   </div>
                 ) : phase === "paused" ? (
                   <div className="mt-2 flex items-end justify-center gap-6 sm:gap-8">
                     <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
-                    <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
+                    <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} buttonRef={mainControlRef} />
                     <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                   </div>
                 ) : (
@@ -635,7 +712,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
             <div className="rounded-2xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="discard-restorable-question">
               <p id="discard-restorable-question" className="text-sm font-semibold text-fitx-danger">Discard the unfinished {SPORT_NOUN[snapshot.restorable.sport]}? It can’t be recovered.</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
+                <button type="button" ref={focusOnMount} onClick={cancelConfirm} onKeyDown={ignoreHeldKey} className="fitx-button fitx-button-secondary min-h-12">Keep it</button>
                 <button type="button" onClick={() => void discard()} className="fitx-button fitx-button-danger min-h-12"><Trash2 size={16} aria-hidden="true" />Discard</button>
               </div>
             </div>

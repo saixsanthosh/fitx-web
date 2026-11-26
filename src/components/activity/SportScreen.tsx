@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { m } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Play, RefreshCw } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { EASE } from "@/components/motion";
@@ -10,6 +11,7 @@ import { ACTIVITY_MEDIA, type ActivityMediaId } from "@/data/activity-media";
 import { StatRow, StatTile } from "@/components/ui/StatTile";
 import { SPORT_LABEL, SPORT_NOUN, sportFamily, usesPace } from "@/lib/activity/config";
 import { sportSummary } from "@/lib/activity/feed";
+import { focusWitness, handsFocusOn } from "@/lib/activity/focus";
 import { durationFigure, paceValue } from "@/lib/activity/format";
 import { personalBests } from "@/lib/activity/stats";
 import type { Sport } from "@/lib/activity/types";
@@ -92,6 +94,32 @@ export function SportScreen({ sport }: { sport: Sport }) {
   const userId = account.status === "ready" ? account.userId : null;
   const feed = useActivityFeed(userId, sport);
   const efforts = useStoredEfforts(userId);
+  // The figures' Try again: one reload at a time (aria-disabled meanwhile, so focus stays on it; D5). Once the figures
+  // load, the alert and its button go, so focus moves to the figures themselves: after a press, and when they came back
+  // by themselves (the "online" reload) while Try again had focus. Focus anywhere else stays where it is.
+  const [retrying, setRetrying] = useState(false);
+  const figuresRef = useRef<HTMLElement | null>(null);
+  const refocusFigures = useRef(false);
+  const [{ ref: figuresRetryRef, wentWithFocus: figuresRetryWent }] = useState(() => focusWitness<HTMLButtonElement>());
+  const statsStatus = feed.statsStatus;
+  useEffect(() => {
+    if (retrying) return;
+    const pressed = refocusFigures.current;
+    refocusFigures.current = false;
+    const wentWithFocus = figuresRetryWent();
+    if (statsStatus === "ready" && handsFocusOn(document, { pressed, wentWithFocus })) figuresRef.current?.focus();
+  }, [retrying, statsStatus, figuresRetryWent]);
+
+  async function retryFigures() {
+    if (!userId || retrying) return;
+    refocusFigures.current = true;
+    setRetrying(true);
+    try {
+      await feed.reload(userId);
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading…</div>;
   if (account.status === "unconfigured") return <EmptyState title="Activity tracking isn’t connected" description="FITX is not connected to its database on this site." />;
@@ -107,12 +135,12 @@ export function SportScreen({ sport }: { sport: Sport }) {
     <div className="mx-auto max-w-5xl space-y-8 sm:space-y-10">
       <Hero sport={sport} />
 
-      <section aria-label={`${SPORT_LABEL[sport]} statistics`} aria-busy={feed.statsStatus === "loading" || undefined}>
+      <section ref={figuresRef} tabIndex={-1} aria-label={`${SPORT_LABEL[sport]} statistics`} aria-busy={feed.statsStatus === "loading" || undefined} className="rounded-2xl">
         {/* Figures only once they are known: never "Not logged" while loading or after a failed request. */}
         {feed.statsStatus === "error" ? (
           <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>{feed.statsOffline ? "You’re offline. Your figures will load when you’re back online." : "Your figures couldn’t load right now."}</span>
-            {userId && <button type="button" onClick={() => void feed.reload(userId)} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />Try again</button>}
+            {userId && <button type="button" ref={figuresRetryRef} onClick={() => void retryFigures()} aria-disabled={retrying || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>}
           </div>
         ) : !known ? (
           <StatRow>
@@ -147,7 +175,8 @@ export function SportScreen({ sport }: { sport: Sport }) {
           ready={feed.history.status === "ready" || feed.history.status === "unavailable"}
           more={feed.history.status === "ready" && feed.timeline.more}
           loadingMore={feed.loadingMore}
-          onLoadMore={() => void feed.loadMore()}
+          moreFailed={feed.moreFailed}
+          onLoadMore={feed.loadMore}
         />
       </section>
     </div>

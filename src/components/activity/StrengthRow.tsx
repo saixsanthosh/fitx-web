@@ -6,10 +6,10 @@ import type { StrengthSession } from "@/lib/activity/strength";
 const kg = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
 /** A completed strength session in the Activity feed; opens the session's record. */
-export function StrengthRow({ session }: { session: StrengthSession }) {
+export function StrengthRow({ session, entryKey }: { session: StrengthSession; entryKey?: string }) {
   return (
     <li>
-      <Link href={`/workouts/history/${session.id}`} className="group block rounded-2xl border border-fitx-border bg-fitx-card p-4 transition-colors hover:border-fitx-primary/40 sm:p-5">
+      <Link href={`/workouts/history/${session.id}`} data-feed-entry={entryKey} className="group block rounded-2xl border border-fitx-border bg-fitx-card p-4 transition-colors hover:border-fitx-primary/40 sm:p-5">
         <div className="flex items-start gap-3">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-fitx-surface-variant text-fitx-text-secondary" aria-hidden="true"><Dumbbell size={19} /></span>
           <div className="min-w-0 flex-1">

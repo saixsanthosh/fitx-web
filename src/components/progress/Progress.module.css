@@ -23,9 +23,10 @@
   display: grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center; border-radius: 12px; color: var(--fitx-text);
   transition: background-color .18s ease, transform .18s ease;
 }
-.periodButton:hover:not(:disabled) { background: var(--fitx-hover); }
-.periodButton:active:not(:disabled) { transform: scale(.94); }
-.periodButton:disabled { color: var(--fitx-text-disabled); }
+.periodButton:hover:not([aria-disabled="true"]) { background: var(--fitx-hover); }
+.periodButton:active:not([aria-disabled="true"]) { transform: scale(.94); }
+/* At the newest or oldest period the arrow waits: aria-disabled, so it keeps keyboard focus after the press that got there (D5). */
+.periodButton[aria-disabled="true"] { color: var(--fitx-text-disabled); cursor: not-allowed; }
 .periodButton:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: 2px; }
 .periodLabel { min-width: 0; overflow: hidden; color: var(--fitx-text); font-family: var(--font-heading); font-size: .98rem; font-weight: 750; letter-spacing: -.01em; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -195,6 +196,8 @@ g[data-tone="plan"] .ringArc { stroke: var(--fitx-gold); }
 .form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .form label { display: grid; gap: 6px; color: var(--fitx-text-secondary); font-size: .8rem; font-weight: 600; }
 .formWide { grid-column: 1 / -1; }
+/* A button while its save runs: dimmed like a disabled button, but focusable (aria-disabled; D5). */
+.busyButton { opacity: .58; cursor: progress; }
 
 /* ---------------------------------------------------------------- nutrition and strength */
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }

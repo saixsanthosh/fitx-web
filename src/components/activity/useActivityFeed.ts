@@ -8,10 +8,12 @@ import { listActivities, listActivitySummaries, viewFromRecord, type ActivitySum
 import { mergeSummaries, periods } from "@/lib/activity/stats";
 import { listStrengthSessions, type StrengthSession } from "@/lib/activity/strength";
 import { uploadPending } from "@/lib/activity/sync";
-import { mergeTimeline, nextToLoad, type TimelineEntry } from "@/lib/activity/timeline";
+import { mergeTimeline, nextToLoad, readSessionsOn, shownFloor, type TimelineEntry } from "@/lib/activity/timeline";
 import { createClient } from "@/lib/supabase/client";
 
 const PAGE = 20;
+/** Try again for strength sessions reads at most this many pages in one go (a stop for a server that ignores `before`). */
+const MAX_RETRY_PAGES = 50;
 
 export type History =
   | { status: "loading" }
@@ -19,15 +21,22 @@ export type History =
   | { status: "error"; offline: boolean }
   | { status: "ready"; items: ActivityView[]; more: boolean };
 
-/** Completed strength sessions for the timeline: "missing" when they couldn't be read (the timeline then shows activities only). */
-type Sessions = { status: "loading" | "ready" | "missing"; items: StrengthSession[]; more: boolean };
+/**
+ * A page of strength sessions that couldn't be read: the first one (the timeline then shows activities only) or a later
+ * one (older entries then stop waiting for sessions). `attempt` counts failed tries of Try again, so the line that says
+ * so is read out again after each.
+ */
+export type SessionsFailure = { kind: "first" | "older"; attempt: number };
+
+/** Completed strength sessions for the timeline, read a page at a time; `failed` when a page couldn't be read. */
+type Sessions = { status: "loading" | "ready"; items: StrengthSession[]; more: boolean; failed: SessionsFailure | null };
 
 export const summaryOf = (view: ActivityView): ActivitySummary => ({
   id: view.id, clientId: view.clientId, sport: view.sport, title: view.title, startedAt: view.startedAt, distanceM: view.distanceM,
   movingSeconds: view.movingSeconds, avgPaceSecondsPerKm: view.avgPaceSecondsPerKm, avgSpeedMps: view.avgSpeedMps, local: view.local,
 });
 
-const NO_SESSIONS: Sessions = { status: "ready", items: [], more: false };
+const NO_SESSIONS: Sessions = { status: "ready", items: [], more: false, failed: null };
 
 /**
  * Everything the Activity feed and the sport pages show: the history (one sport, or every sport with
@@ -36,7 +45,7 @@ const NO_SESSIONS: Sessions = { status: "ready", items: [], more: false };
  */
 export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const [history, setHistory] = useState<History>({ status: "loading" });
-  const [sessions, setSessions] = useState<Sessions>({ status: "loading", items: [], more: false });
+  const [sessions, setSessions] = useState<Sessions>({ status: "loading", items: [], more: false, failed: null });
   const [recentStrength, setRecentStrength] = useState<StrengthSession[] | null>(null);
   const [stats, setStats] = useState<{ rows: ActivitySummary[]; complete: boolean } | null>(null);
   // Why the statistics couldn't be read, so a page never mistakes "still loading" or "failed" for "nothing logged".
@@ -44,6 +53,11 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const [local, setLocal] = useState<StoredRecording[]>([]);
   const [now, setNow] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // One older page at a time; `moreFailed`: the last one couldn't be read (said beside "Show older activities").
+  const loadingMoreNow = useRef(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  // Bumped whenever the history is read again from the first page, so an older page read before that is dropped.
+  const historyGeneration = useRef(0);
   const [recordingElsewhere, setRecordingElsewhere] = useState<Set<string>>(() => new Set());
   const filterRef = useRef(filter);
   useEffect(() => {
@@ -53,6 +67,8 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const loadHistory = useCallback(async (uid: string, which: SportFilter) => {
     const supabase = createClient();
     if (!supabase) return;
+    historyGeneration.current += 1;
+    setMoreFailed(false);
     setHistory({ status: "loading" });
     const sport = which === "all" ? null : which;
     const [list, strength] = await Promise.all([
@@ -64,8 +80,10 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     if (list.status === "unavailable") setHistory({ status: "unavailable" });
     else if (list.status !== "ok") setHistory({ status: "error", offline: list.status === "error" && list.offline });
     else setHistory({ status: "ready", items: list.data, more: list.data.length === PAGE });
-    if (!strength) setSessions(NO_SESSIONS);
-    else setSessions(strength.status === "ok" ? { status: "ready", items: strength.data, more: strength.data.length === PAGE } : { status: "missing", items: [], more: false });
+    // No workout_sessions table (an older database): no sessions anywhere, so nothing is missing from the list.
+    if (!strength || strength.status === "unavailable") setSessions(NO_SESSIONS);
+    else if (strength.status === "ok") setSessions({ status: "ready", items: strength.data, more: strength.data.length === PAGE, failed: null });
+    else setSessions({ status: "ready", items: [], more: false, failed: { kind: "first", attempt: 0 } });
   }, []);
 
   const load = useCallback(async (uid: string) => {
@@ -111,26 +129,6 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     return () => window.clearTimeout(id);
   }, [userId, filter, loadHistory]);
 
-  const loadMore = useCallback(async () => {
-    if (!userId || history.status !== "ready") return;
-    const supabase = createClient();
-    if (!supabase) return;
-    const next = nextToLoad({ items: history.items, more: history.more }, { items: sessions.items, more: sessions.more });
-    if (!next) return;
-    setLoadingMore(true);
-    if (next === "activities") {
-      const before = history.items[history.items.length - 1].startedAt;
-      const page = await listActivities(supabase, userId, { limit: PAGE, before, sport: filter === "all" ? null : filter });
-      if (page.status === "ok") setHistory({ status: "ready", items: [...history.items, ...page.data], more: page.data.length === PAGE });
-    } else {
-      const before = sessions.items[sessions.items.length - 1].startedAt;
-      const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
-      if (page.status === "ok") setSessions({ status: "ready", items: [...sessions.items, ...page.data], more: page.data.length === PAGE });
-      else setSessions({ ...sessions, more: false });
-    }
-    setLoadingMore(false);
-  }, [userId, history, sessions, filter]);
-
   const unfinished = local.find((r) => r.state === "active") ?? null;
   const serverIds = new Set(history.status === "ready" ? history.items.map((item) => item.clientId) : []);
   // A device copy that is already on the server (its upload half-finished) is listed once.
@@ -141,6 +139,82 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const items = history.status === "ready" ? history.items : [];
   const timeline: { entries: TimelineEntry[]; more: boolean } = mergeTimeline({ items, more: history.status === "ready" && history.more }, { items: sessions.items, more: sessions.more }, shownDevice);
 
+  /**
+   * "Show older activities": reads the next page of whichever list holds the timeline back. Says whether a read
+   * started (not while one is still loading, nor with nothing left to read), so the list knows a press is waiting
+   * for new entries. A failed page of activities is said beside the button and can be tried again; a failed page
+   * of strength sessions stops them there, so older activities never wait on them, and the list says so with its
+   * own Try again (retrySessions).
+   */
+  const loadMore = useCallback((): boolean => {
+    if (loadingMoreNow.current || !userId || history.status !== "ready") return false;
+    const supabase = createClient();
+    if (!supabase) return false;
+    const next = nextToLoad({ items: history.items, more: history.more }, { items: sessions.items, more: sessions.more });
+    if (!next) return false;
+    loadingMoreNow.current = true;
+    const generation = historyGeneration.current;
+    setLoadingMore(true);
+    setMoreFailed(false);
+    void (async () => {
+      try {
+        if (next === "activities") {
+          const before = history.items[history.items.length - 1].startedAt;
+          const page = await listActivities(supabase, userId, { limit: PAGE, before, sport: filter === "all" ? null : filter });
+          if (generation !== historyGeneration.current) return;
+          if (page.status === "ok") setHistory({ status: "ready", items: [...history.items, ...page.data], more: page.data.length === PAGE });
+          else setMoreFailed(true);
+        } else {
+          const before = sessions.items[sessions.items.length - 1].startedAt;
+          const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
+          if (generation !== historyGeneration.current) return;
+          if (page.status === "ok") setSessions({ status: "ready", items: [...sessions.items, ...page.data], more: page.data.length === PAGE, failed: null });
+          else setSessions({ ...sessions, more: false, failed: { kind: "older", attempt: 0 } });
+        }
+      } finally {
+        loadingMoreNow.current = false;
+        setLoadingMore(false);
+      }
+    })();
+    return true;
+  }, [userId, history, sessions, filter]);
+
+  /**
+   * Try again for strength sessions that couldn't be read: one read at a time with "Show older activities" (it says
+   * Loading… meanwhile). It reads on from the last session it has until the sessions reach the oldest entry the list
+   * shows (readSessionsOn), so nothing already shown is held back again. A page that fails keeps what was read and is
+   * said again. Says whether a read started, like loadMore.
+   */
+  const retrySessions = (): boolean => {
+    const failed = sessions.failed;
+    // Not while the list is read again from the start (it reads the sessions too); with activities that couldn't be
+    // read, the sessions still sit beside the ones kept on this device.
+    if (!failed || loadingMoreNow.current || !userId || history.status === "loading") return false;
+    const supabase = createClient();
+    if (!supabase) return false;
+    loadingMoreNow.current = true;
+    const generation = historyGeneration.current;
+    const floor = shownFloor(timeline.entries);
+    setLoadingMore(true);
+    void (async () => {
+      try {
+        const read = async (before: number | null) => {
+          const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
+          return page.status === "ok" ? page.data : null;
+        };
+        const result = await readSessionsOn(sessions.items, floor, PAGE, read, { maxPages: MAX_RETRY_PAGES, stillWanted: () => generation === historyGeneration.current });
+        if (!result) return;
+        setSessions(result.failed
+          ? { status: "ready", items: result.items, more: false, failed: { kind: result.items.length ? "older" : "first", attempt: failed.attempt + 1 } }
+          : { status: "ready", items: result.items, more: result.more, failed: null });
+      } finally {
+        loadingMoreNow.current = false;
+        setLoadingMore(false);
+      }
+    })();
+    return true;
+  };
+
   // Statistics from every saved activity plus the ones still only on this device.
   const statRows = stats ? mergeSummaries(stats.rows, deviceViews.map(summaryOf)) : history.status === "unavailable" ? deviceViews.map(summaryOf) : null;
 
@@ -148,6 +222,6 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     history, sessions, recentStrength, statRows, statsComplete: stats?.complete ?? true, now, unfinished,
     statsStatus: figuresStatus(statRows, statsFailure !== null), statsOffline: statsFailure?.offline ?? false,
     unfinishedElsewhere: Boolean(unfinished && recordingElsewhere.has(unfinished.clientId)),
-    waiting, timeline, loadMore, loadingMore, reload: load,
+    waiting, timeline, loadMore, loadingMore, moreFailed, sessionsFailed: sessions.failed, retrySessions, reload: load,
   };
 }

@@ -475,7 +475,9 @@ export function ActivityImportScreen() {
   const settled = entries.some((entry) => !entry.result && (entry.phase === "failed" || entry.phase === "unsupported" || (entry.phase === "ready" && sportOf(entry) !== null)));
 
   async function importAll() {
-    if (!userId || importing || reading || lookupFailed) return;
+    // The button says aria-disabled while it imports, and once nothing is left to import (disabled would drop keyboard
+    // focus; D5): a press then does nothing.
+    if (!userId || importing || reading || lookupFailed || toImport.length === 0) return;
     const supabase = createClient();
     if (!supabase) return;
     setImporting(true);
@@ -584,7 +586,8 @@ export function ActivityImportScreen() {
           <p className="mt-1 text-sm text-fitx-text-secondary">GPX, TCX or FIT, also .gz. Up to {IMPORT_LIMITS.maxFiles} at a time.<span className="hidden sm:inline"> You can drop them here too.</span></p>
           <label className={cn("fitx-button mt-4 min-h-12 cursor-pointer px-6 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-fitx-primary", (reading || importing) && "pointer-events-none opacity-60")}>
             <FileUp size={17} aria-hidden="true" />Choose files
-            <input type="file" multiple accept={ACCEPT} className="sr-only" onChange={onPick} disabled={reading || importing} />
+            {/* Not disabled while files are read or imported, so keyboard focus stays here (D5): the picker doesn't open meanwhile. */}
+            <input type="file" multiple accept={ACCEPT} className="sr-only" onChange={onPick} aria-disabled={reading || importing || undefined} onClick={(event) => { if (reading || importing) event.preventDefault(); }} />
           </label>
         </section>
       )}
@@ -635,7 +638,7 @@ export function ActivityImportScreen() {
           </ul>
           {open && settled && (
             <div data-coach-avoid="" className="sticky bottom-20 z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-4">
-              <button type="button" onClick={() => void importAll()} disabled={importing || reading || toImport.length === 0} className="fitx-button min-h-12 w-full">
+              <button type="button" onClick={() => void importAll()} aria-disabled={importing || reading || toImport.length === 0 || undefined} className="fitx-button min-h-12 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
                 {importing ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Importing…</> : toImport.length ? `Import ${toImport.length} ${toImport.length === 1 ? "activity" : "activities"}` : "Nothing to import yet"}
               </button>
             </div>
