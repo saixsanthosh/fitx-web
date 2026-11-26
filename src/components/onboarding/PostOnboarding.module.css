@@ -1,7 +1,7 @@
 /*
  * The whole sequence (PostOnboardingSequence.tsx) covers the page until Home replaces it: in the page colour, which the
  * welcome film's last frame is, so the film's 300 ms fade at its end (and the reveal-only case's) hands over to it and
- * the onboarding frame behind never shows. Above the cookie banner (z-index 100); the film's and the logo's stages sit
+ * the onboarding frame behind never shows. Above the privacy banner (z-index 49); the film's and the logo's stages sit
  * above it, inside it.
  */
 .cover {
