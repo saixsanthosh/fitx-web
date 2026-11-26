@@ -32,6 +32,32 @@ export function equipmentGapMessage(gaps: EquipmentGaps, listName: string, label
 }
 
 /**
+ * The Today card's "Re-plan this day": the day, whether it runs, how it went (`note`), and whether it left the day
+ * fitting the member's list (`fitted`: the day was re-planned and nothing was left that the list could not replace).
+ */
+export type TodayReplan = { planId: string; busy: boolean; note: string; fitted: boolean };
+
+/**
+ * What is left of the card's re-plan result once the day or the list may have changed (a plan saved, the page's lists
+ * read again, a list saved in Workouts or in Workout setup): only a re-plan still running. The line describes the day
+ * as that re-plan left it, so it goes then (re-check of release 3: "Push was re-planned for your gym list…" stayed
+ * on the card after the list and the day had changed again, right under a new "needs dumbbells" warning).
+ */
+export function replanAfterChange(current: TodayReplan | null): TodayReplan | null {
+  return current?.busy ? current : null;
+}
+
+/**
+ * The card's re-plan line under its equipment warning: never "re-planned for your list" while the card says that
+ * exercises need equipment the list lacks (`gapCount`), whatever changed meanwhile. Other outcomes (nothing could be
+ * changed, a day nothing on the list fits, a failure) stay beside the warning they explain.
+ */
+export function replanLine(replan: TodayReplan | null, gapCount: number): string {
+  if (!replan || replan.busy) return "";
+  return replan.fitted && gapCount > 0 ? "" : replan.note;
+}
+
+/**
  * Whether saving `next` changes the list a programme's days were planned with (`before`, the list in use until now,
  * a starting list included). A list left unsaved (null) changes nothing. The setup sheet re-plans only then (bug 17).
  */

@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { equipmentGapMessage, equipmentGaps, listChanged } from "@/app/(dashboard)/workouts/_lib/today-equipment";
+import { equipmentGapMessage, equipmentGaps, listChanged, replanAfterChange, replanLine, type TodayReplan } from "@/app/(dashboard)/workouts/_lib/today-equipment";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
 
 describe("the Today card's equipment check", () => {
@@ -36,6 +36,43 @@ test("Workout setup changes the programme's list only when it saves a different 
   assert.equal(listChanged(["dumbbell", "barbell"], ["barbell", "dumbbell"]), false, "the same items in another order");
   assert.equal(listChanged(["dumbbell"], null), false, "a list the setup left unsaved");
   assert.equal(listChanged([], []), false);
+});
+
+describe("the Today card's re-plan line lasts while it describes the day and the list (re-check of release 3)", () => {
+  // "Push was re-planned for your gym list: …" stayed on the card after the list changed twice and an exercise needing
+  // dumbbells was added by hand, right under "1 exercise needs dumbbells, not on your gym list."
+  const fitted: TodayReplan = { planId: "push", busy: false, note: "Push was re-planned for your gym list: exercises it doesn’t allow were swapped for ones it does.", fitted: true };
+  const nothing: TodayReplan = { planId: "push", busy: false, note: "Nothing to change: this day has started, or every exercise fits your list.", fitted: false };
+
+  test("a saved plan, a reload or a saved list ends it; a re-plan still running stays", () => {
+    assert.equal(replanAfterChange(fitted), null);
+    assert.equal(replanAfterChange(nothing), null);
+    assert.equal(replanAfterChange(null), null);
+    const running: TodayReplan = { planId: "push", busy: true, note: "", fitted: false };
+    assert.equal(replanAfterChange(running), running);
+  });
+
+  test("never 're-planned for your list' beside a warning that the list rules exercises out", () => {
+    assert.equal(replanLine(fitted, 0), fitted.note);
+    assert.equal(replanLine(fitted, 1), "");
+    assert.equal(replanLine(nothing, 1), nothing.note, "why nothing changed stays beside the warning it explains");
+    assert.equal(replanLine({ ...fitted, busy: true }, 0), "");
+    assert.equal(replanLine(null, 2), "");
+  });
+
+  test("the page ends it wherever the day or a list changes, and works out 'fitted' from the outcome", () => {
+    const page = readFileSync("src/app/(dashboard)/workouts/page.tsx", "utf8");
+    const between = (start: string, end: string) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
+    const load = between("const load = useCallback(", "useEffect(() => { void Promise.resolve().then(load); }, [load]);");
+    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,500}?setTodayReplan\(replanAfterChange\);\s+setLoadVersion/, "every reload, a save's included");
+    assert.match(between("async function saveEquipment()", "async function replanToday("), /setProfiles\(\(current\) => \(\{ \.\.\.current, \[saved\.context\]: saved\.keys \}\)\);[\s\S]{0,120}?setTodayReplan\(replanAfterChange\);/);
+    assert.match(between("function setupSaved(", "async function replanAfterSetup("), /setProfiles\(next\.profiles\);\s+setTodayReplan\(replanAfterChange\);/);
+    const replan = between("async function replanToday(", "async function enrol(");
+    assert.match(replan, /fitted: !checked\.outcome\.error && checked\.outcome\.replanned\.some\(\(day\) => day\.planId === planId\) && !checked\.outcome\.unfixable\.length,/);
+    assert.match(page, /const todayReplanLine = replanLine\(todayReplanHere, todayGaps\?\.count \?\? 0\);/);
+    assert.match(page, /const todayGap = todayCard && \(todayGaps\?\.count \|\| todayReplanLine\) \? \{/);
+    assert.match(page, /note: todayReplanLine,/);
+  });
 });
 
 describe("the Workouts page (JSX, read from the source)", () => {
