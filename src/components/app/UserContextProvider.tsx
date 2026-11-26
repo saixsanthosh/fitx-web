@@ -1,27 +1,35 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
-import { checkSession, sharedStatusWithoutUser } from "@/components/account/session-state";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import { refreshUserContext, type UserContextStatus } from "@/components/app/user-context-refresh";
 import { createClient } from "@/lib/supabase/client";
-import { loadUserContext, syncProfileWeight, USER_CONTEXT_EVENT, type LoadPart, type UserContextData } from "@/lib/domain/user-context";
+import { syncProfileWeight, USER_CONTEXT_EVENT, type LoadPart, type UserContextData } from "@/lib/domain/user-context";
 
 /**
  * One shared copy of the signed-in user's profile, preferences, latest weigh-in and daily targets for
  * the signed-in app (mounted in the dashboard layout). Screens read it with useUserContext(); after a
  * save they call notifyUserContextChanged() (from @/lib/domain/user-context) and every reader updates:
- * the header's name and photo, Home's and Nutrition's targets, the coach's context.
+ * the header's and sidebar's name and photo, Home's greeting, Profile, Explore's setup, and the answers Nutrition
+ * and Progress use. (The AI coach builds its own context on the server: src/lib/ai/context.ts.)
+ *
+ * Readers wait 20 s at most for a refresh (user-context-refresh.ts): past that, a context that has shown nothing yet
+ * says its load failed ("error"), and an answer that comes later still lands.
  */
 
-export type UserContextStatus = "loading" | "ready" | "signed_out" | "unavailable" | "error";
+export type { UserContextStatus };
 
 export type UserContextValue = {
   status: UserContextStatus;
   data: UserContextData | null;
   /** A signed link to the private profile photo (renewed before it expires), or the provider's photo URL. */
   avatarUrl: string | null;
-  /** Which read failed when status is "error". */
+  /**
+   * Which read failed when status is "error"; null when that isn't known (the session check failed, or nothing
+   * answered within the time limit).
+   */
   failedPart: LoadPart | null;
+  /** Settles with the answer itself, however long it takes (the time limit only changes the status meanwhile). */
   refresh: () => Promise<void>;
 };
 
@@ -48,35 +56,23 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
       return;
     }
     const ticket = ++request.current;
-    // "signed_out" only for a session that has ended; a check that failed (offline, a timeout, a 5xx) is "error", so
-    // no reader says "signed out" to a member who is still signed in (bug 41; session-state.ts).
-    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
-    if (ticket !== request.current) return;
-    if (!user) {
-      setData(null);
-      setFailedPart(null);
-      setStatus(sharedStatusWithoutUser(state));
-      return;
-    }
-    const result = await loadUserContext(supabase, { id: user.id, email: user.email ?? null });
-    if (ticket !== request.current) return;
-    if (result.error) {
-      setFailedPart(result.error.part);
-      setStatus("error");
-      return;
-    }
-    const loaded = result.data;
-    loadedUser.current = loaded.userId;
-    setData(loaded);
-    setFailedPart(null);
-    setStatus("ready");
-    // Weigh-ins logged before Progress kept profiles.weight in step: bring it up to date once, so the
-    // screens that still read profiles.weight use the same weight as everything else.
-    const latest = loaded.latestWeighIn?.weight;
-    if (latest != null && loaded.profile && loaded.profile.weight !== latest && healed.current !== loaded.userId) {
-      healed.current = loaded.userId;
-      void syncProfileWeight(supabase, loaded.userId, latest);
-    }
+    // Checks the session, then loads the member's context, within the 20 s limit: past it, a context still loading says
+    // its load failed. The ticket stays as it is, so a late answer still lands (user-context-refresh.ts).
+    await refreshUserContext(supabase, () => ticket === request.current, {
+      setStatus,
+      setData,
+      setFailedPart,
+      loaded: (loaded) => {
+        loadedUser.current = loaded.userId;
+        // Weigh-ins logged before Progress kept profiles.weight in step: bring it up to date once, so the
+        // screens that still read profiles.weight use the same weight as everything else.
+        const latest = loaded.latestWeighIn?.weight;
+        if (latest != null && loaded.profile && loaded.profile.weight !== latest && healed.current !== loaded.userId) {
+          healed.current = loaded.userId;
+          void syncProfileWeight(supabase, loaded.userId, latest);
+        }
+      },
+    });
   }, []);
 
   useEffect(() => {
