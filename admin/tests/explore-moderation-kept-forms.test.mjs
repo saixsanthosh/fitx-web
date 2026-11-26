@@ -195,7 +195,7 @@ test("the reversible actions and Add moderator are client forms that keep what w
   const actions = await read("components/explore/reversible-actions-form.tsx");
   assert.match(actions, /useActionState\(moderateKept, IDLE\)/);
   assert.match(actions, /onSubmit=\{keepTyped\(action\)\}/);
-  assert.match(actions, /<FormResult id=\{resultId\} state=\{state\} formRef=\{formRef\} \/>/);
+  assert.match(actions, /<FormResult id=\{resultId\} state=\{state\} pending=\{pending\} formRef=\{formRef\} \/>/);
   assert.match(actions, /<select name="reason" defaultValue=\{defaultReason \?\? "other"\} \{\.\.\.fieldAria\(state, "reason", resultId\)\}>/);
   assert.match(actions, /<textarea name="note" maxLength=\{1000\} rows=\{2\} \{\.\.\.fieldAria\(state, "note", resultId\)\} \/>/);
   // One submit button per action, each staying focusable and ignoring a press while one is sent.
@@ -208,7 +208,7 @@ test("the reversible actions and Add moderator are client forms that keep what w
   assert.match(add, /useActionState\(addModerator, IDLE\)/);
   assert.match(add, /onSubmit=\{keepTyped\(action\)\}/);
   assert.match(add, /<input name="username" required autoComplete="off" placeholder="name\.surname" \{\.\.\.fieldAria\(state, "username", resultId\)\} \/>/);
-  assert.match(add, /<FormResult id=\{resultId\} state=\{state\} formRef=\{formRef\} \/>/);
+  assert.match(add, /<FormResult id=\{resultId\} state=\{state\} pending=\{pending\} formRef=\{formRef\} \/>/);
   const page = await read("app/(control)/explore/communities/[id]/page.tsx");
   assert.match(page, /\{moderator && <AddModeratorForm communityId=\{community\.id\} \/>\}/);
   assert.doesNotMatch(page, /name="username"/, "no plain form on the page takes a typed username");

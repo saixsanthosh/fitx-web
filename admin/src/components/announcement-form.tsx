@@ -3,6 +3,7 @@
 import { startTransition, useActionState, type FormEvent } from "react";
 import { LoaderCircle } from "lucide-react";
 import { saveAnnouncement, type AnnouncementFormState } from "@/app/(control)/announcements/actions";
+import { answerText } from "@/components/form-rules";
 import { ANNOUNCEMENT_LIMITS, ANNOUNCEMENT_TONE_LABELS, ANNOUNCEMENT_TONES, type AnnouncementStatus } from "@/lib/announcement-input";
 
 export type AnnouncementDefaults = {
@@ -20,6 +21,8 @@ export type AnnouncementDefaults = {
 export function AnnouncementForm({ defaults = {}, submitLabel, status }: { defaults?: AnnouncementDefaults; submitLabel: string; status?: AnnouncementStatus }) {
   const [state, action, pending] = useActionState<AnnouncementFormState, FormData>(saveAnnouncement, null);
   const live = status === "published";
+  // Gone while a save is on its way, so the same refusal again is a new alert and is read out.
+  const error = answerText(state?.error, pending);
 
   // React resets a form after its action runs, which would wipe what the admin typed when the save is
   // refused. Submitting through a transition keeps every field; without JavaScript, the form action
@@ -52,7 +55,7 @@ export function AnnouncementForm({ defaults = {}, submitLabel, status }: { defau
       ) : (
         <p className="field-note">Saving never publishes. People see an announcement only after you publish it, and only between these times.</p>
       )}
-      {state?.error && <p role="alert" className="form-error">{state.error}</p>}
+      {error && <p role="alert" className="form-error">{error}</p>}
       <button className="primary-button" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }} type="submit">
         {pending && <LoaderCircle aria-hidden="true" className="spin" size={17} />}
         <span>{pending ? "Saving…" : submitLabel}</span>

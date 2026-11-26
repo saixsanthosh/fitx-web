@@ -71,6 +71,9 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
   const [preview, setPreview] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const [phase, setPhase] = useState<Phase>({ step: "idle", progress: 0, message: null });
+  // One per choice and per press of Upload: the message is drawn afresh for each, so the same message again (pressing
+  // Upload twice with no photo) is a new node in the live region and is read out, not an unchanged text.
+  const [said, setSaid] = useState(0);
   const limit = MEDIA_LIMITS[kind];
   const isVideo = kind === "video_loop";
 
@@ -80,6 +83,7 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
 
   const choose = (chosen: File | null | undefined) => {
     if (!chosen) return;
+    setSaid((count) => count + 1);
     const problem = checkDeclaredFile(kind, chosen.type, chosen.size);
     if (problem) {
       setPhase({ step: "idle", progress: 0, message: problem });
@@ -97,6 +101,7 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
   };
 
   const upload = async (form: HTMLFormElement) => {
+    setSaid((count) => count + 1);
     if (!file || !preview) {
       setPhase({ step: "idle", progress: 0, message: isVideo ? "Choose a video first." : "Choose a photo first." });
       return;
@@ -199,7 +204,7 @@ export function MediaUploader({ ownerId, kind, prepare, finish, defaultAlt = "",
           </button>
         )}
       </div>
-      <p className={styles.formStatus} role="status" aria-live="polite">{phase.message}</p>
+      <p className={styles.formStatus} role="status" aria-live="polite"><span key={said}>{phase.message}</span></p>
     </form>
   );
 }

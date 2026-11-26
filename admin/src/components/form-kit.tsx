@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { LoaderCircle } from "lucide-react";
+import { resultText } from "@/components/form-rules";
 import type { FormState } from "@/lib/content/form";
 
 /**
@@ -18,20 +19,20 @@ export function BusyButton({ pending, className, pendingLabel, children }: { pen
 }
 
 /**
- * The result of a save, beside the button that was pressed, read out when it changes. After a refusal, focus moves to
- * the field it is about (which points back here with aria-describedby), or here.
+ * The result of a save, beside the button that was pressed, read out when it comes: the line is empty while a save is
+ * on its way, so a result the same as the last one is read out again. After a refusal, focus moves to the field it is
+ * about (which points back here with aria-describedby), or here.
  */
-export function FormResult({ id, state, formRef }: { id: string; state: FormState; formRef: RefObject<HTMLFormElement | null> }) {
+export function FormResult({ id, state, pending, formRef }: { id: string; state: FormState; pending: boolean; formRef: RefObject<HTMLFormElement | null> }) {
   const ref = useRef<HTMLParagraphElement>(null);
   useEffect(() => {
     if (state.status !== "error") return;
     const invalid = formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']");
     (invalid ?? ref.current)?.focus();
   }, [state, formRef]);
-  const text = state.status === "idle" ? "" : (state.message ?? "");
   return (
     <p id={id} ref={ref} tabIndex={-1} role="status" aria-live="polite" className={state.status === "error" ? "form-error" : "form-saved"}>
-      {text}
+      {resultText(state, pending)}
     </p>
   );
 }

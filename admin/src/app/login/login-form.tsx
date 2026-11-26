@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { answerText } from "@/components/form-rules";
 import { signIn, type LoginState } from "./actions";
 import styles from "./login.module.css";
 
@@ -9,7 +10,9 @@ import styles from "./login.module.css";
  * Username and password. The server gives one message for every failure. The password's label names only the field
  * (the Show password button sits beside it, outside the label), and after a refusal focus goes back to the emptied
  * password field, however the form was sent: the Sign in button stays focusable while it works (aria-disabled, and a
- * press while busy sends nothing), since a disabled button drops keyboard focus to the page.
+ * press while busy sends nothing), since a disabled button drops keyboard focus to the page. The message is empty
+ * while a sign-in is on its way, so the same refusal a second time is read out again (focus may already be in the
+ * password field, where moving it there reads nothing).
  */
 export function LoginForm({ next }: { next: string }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, null);
@@ -58,7 +61,7 @@ export function LoginForm({ next }: { next: string }) {
           </button>
         </span>
       </div>
-      <p id="login-error" className={styles.error} role="alert">{error}</p>
+      <p id="login-error" className={styles.error} role="alert">{answerText(error, pending)}</p>
       <button className={styles.submit} type="submit" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
         {pending && <LoaderCircle aria-hidden="true" className={styles.spin} size={18} />}
         <span>Sign in</span>

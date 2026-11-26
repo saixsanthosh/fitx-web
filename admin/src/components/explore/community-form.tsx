@@ -39,7 +39,7 @@ export function CommunityForm({ community, coverUrl, moderator, className }: { c
         </fieldset>
       </Panel>
       {moderator && <BusyButton pending={pending} className="primary-button" pendingLabel="Saving…">Save community</BusyButton>}
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }

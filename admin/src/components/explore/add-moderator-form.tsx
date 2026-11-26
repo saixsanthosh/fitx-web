@@ -24,7 +24,7 @@ export function AddModeratorForm({ communityId }: { communityId: string }) {
         <label>Explore username<input name="username" required autoComplete="off" placeholder="name.surname" {...fieldAria(state, "username", resultId)} /></label>
         <BusyButton pending={pending} className="quiet-button" pendingLabel="Adding…">Add moderator</BusyButton>
       </div>
-      <FormResult id={resultId} state={state} formRef={formRef} />
+      <FormResult id={resultId} state={state} pending={pending} formRef={formRef} />
     </form>
   );
 }
