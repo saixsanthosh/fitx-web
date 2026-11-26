@@ -1,10 +1,11 @@
 // Release 3 fix round 3f (round 3e's open items, D5): on /activity/import, controls of the file list went while they
-// had focus, and focus fell to the page. A file's Remove went with its card, Clear list with the whole list, and Check
-// again with its alert, which was hidden while it checked, so focus fell to the page even when the check failed again.
-// One ref now sees which control went with focus (importFocusWitness), and once that draw is done focus moves on to
-// what is left in its place (importFocusAfter): after Remove, the next file's Remove, else the one before it, else
-// Choose files; after Clear list, Choose files. Check again keeps its alert while it checks (aria-disabled), so it
-// keeps focus, also when the check fails again; once a check works, the Import button, else the files' heading. Only
+// had focus, and focus fell to the page. A file's Remove went with its card, Clear list with the whole list, Check
+// again with its alert, which was hidden while it checked, so focus fell to the page even when the check failed again,
+// and "Set them all to:" once every file had its sport. One ref now sees which control went with focus
+// (importFocusWitness), and once that draw is done focus moves on to what is left in its place (importFocusAfter):
+// after Remove, the next file's Remove, else the one before it, else Choose files; after Clear list, Choose files.
+// Check again keeps its alert while it checks (aria-disabled), so it keeps focus, also when the check fails again; once
+// a check works, and once "Set them all to:" has set the sports, the Import button, else the files' heading. Only
 // while the page has focus: focus the member moved stays where it is.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -65,6 +66,15 @@ describe("where focus goes once a control of the file list went with it", () => 
     assert.equal(importFocusAfter({ control: "check" }, { before: list, after: list, importReady: false }), "files");
     // No files left (Clear list clicked without moving focus, as Safari's clicks do, while focus was on Check again).
     assert.equal(importFocusAfter({ control: "check" }, { before: list, after: [], importReady: false }), "choose");
+  });
+
+  test("“Set them all to:” once every file has its sport: the Import button when it has something to import, else the files' heading", () => {
+    const list = files("a", "b", "c");
+    assert.equal(importFocusAfter({ control: "set-all" }, { before: list, after: list, importReady: true }), "import", "“Import 3 activities”");
+    // The account couldn't be checked yet (nothing can be imported), or every file overlaps another: the heading, above
+    // the alert and the cards that say why.
+    assert.equal(importFocusAfter({ control: "set-all" }, { before: list, after: list, importReady: false }), "files");
+    assert.equal(importFocusAfter({ control: "set-all" }, { before: list, after: [], importReady: false }), "choose");
   });
 
   test("the Remove a card shows: for a file being read, ready, or one that can't be imported; never while importing, nor once it has its result", () => {
@@ -168,6 +178,32 @@ describe("the whole hand-off, as the screen does it", () => {
     assert.deepEqual(went, { control: "check" });
     assert.ok(focusDropped(doc));
     assert.equal(importFocusAfter(went!, { before: files("file-1", "file-2"), after: files("file-1", "file-2"), importReady: true }), "import");
+  });
+
+  test("“Set them all to: Run”: every file gets its sport, the group goes with all its buttons, and Import takes focus", () => {
+    const { doc, control, takeOut } = page();
+    const witness = importFocusWitness();
+    // Walk, Run, Ride and the others: Enter on Run.
+    const sports = Array.from({ length: 5 }, () => control({ importControl: "set-all" }));
+    const cleanups = sports.map((button) => witness.ref(button));
+    doc.activeElement = sports[1];
+    sports.forEach((button, index) => takeOut(button, cleanups[index]));
+    const went = witness.take();
+    assert.deepEqual(went, { control: "set-all" });
+    assert.ok(focusDropped(doc));
+    const list = files("file-1", "file-2", "file-3");
+    assert.equal(importFocusAfter(went!, { before: list, after: list, importReady: true }), "import");
+  });
+});
+
+describe("“Set them all to:” (the screen)", () => {
+  test("each of its sports is witnessed as the group goes", () => {
+    const screen = read("src/components/activity/ActivityImportScreen.tsx");
+    assert.match(screen, /\{unknownSport > 1 && !importing && \(/);
+    assert.match(screen, /<button key=\{sport\} type="button" ref=\{controlRef\} data-import-control="set-all" onClick=\{\(\) => chooseSportForUnknown\(sport\)\}/);
+    // A press sets every file the group counts, so the group always goes with it.
+    assert.match(screen, /function chooseSportForUnknown\(sport: Sport\) \{\s+for \(const entry of entries\) if \(entry\.phase === "ready" && !entry\.sport && entry\.parsed\?\.sport\.kind === "unknown"\) chooseSport\(entry, sport\);/);
+    assert.match(screen, /return entry\.phase === "ready" && !entry\.result && !entry\.sport && entry\.parsed\?\.sport\.kind === "unknown" && kind !== "incomplete" && kind !== "fuller";/);
   });
 });
 

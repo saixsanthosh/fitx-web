@@ -497,10 +497,11 @@ export function ActivityImportScreen() {
   }).length;
   const barShown = importBarShown(entries.map((entry) => ({ phase: entry.phase, done: entry.result !== null, sport: sportOf(entry) })), importing);
 
-  // D5: a file's Remove goes with its card, Clear list with the whole list, and Check again with its alert once a check
-  // works; the browser dropped focus to the page. One ref sees which control went with focus (importFocusWitness), and
-  // once that draw is done focus moves to what is left in its place (importFocusAfter): only while the page has focus,
-  // so focus the member moved stays where it is. Import's own hand-off is importPressed's, above.
+  // D5: a file's Remove goes with its card, Clear list with the whole list, Check again with its alert once a check
+  // works, and "Set them all to:" once every file has its sport; the browser dropped focus to the page. One ref sees
+  // which control went with focus (importFocusWitness), and once that draw is done focus moves to what is left in its
+  // place (importFocusAfter): only while the page has focus, so focus the member moved stays where it is. Import's own
+  // hand-off is importPressed's, above.
   const [{ ref: controlRef, take: controlWent }] = useState(() => importFocusWitness<HTMLElement>());
   const drawnFiles = useRef<readonly ListedFile[]>([]);
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -660,12 +661,13 @@ export function ActivityImportScreen() {
               </button>
             </div>
           )}
+          {/* Goes once every file has its sport: the Import button, else the files' heading, takes focus (D5). */}
           {unknownSport > 1 && !importing && (
             <div className="fitx-panel p-4">
               <p className="text-sm text-fitx-text">{unknownSport} files don’t say their sport. Set them all to:</p>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label="Sport for files that don’t say">
                 {importSports.map((sport) => (
-                  <button key={sport} type="button" onClick={() => chooseSportForUnknown(sport)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-fitx-border text-sm font-medium text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text">
+                  <button key={sport} type="button" ref={controlRef} data-import-control="set-all" onClick={() => chooseSportForUnknown(sport)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-fitx-border text-sm font-medium text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text">
                     <SportIcon sport={sport} size={16} />{SPORT_LABEL[sport]}
                   </button>
                 ))}
