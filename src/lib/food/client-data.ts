@@ -546,8 +546,8 @@ export function customFoodResult(row: CustomFoodRow, photoUrl: string | null = n
     basis: origin === "ai_coach" ? `${basisInfo("ai_suggested").label} · saved` : `Your food · ${basisInfo(valueBasis).label}`,
     state: null,
     dietType: null,
-    // The saved serving counts as the measure it names ("1 item", "1 cup").
-    portions: [customServingPortion(row.serving_size, row.serving_grams)],
+    // The saved serving counts as the measure it names ("1 item", "1 cup"), a package's as the package does.
+    portions: [customServingPortion(row.serving_size, row.serving_grams, { origin, valueBasis })],
     barcode: row.barcode ?? null,
     origin,
     recentCount: 0,

@@ -144,3 +144,78 @@ test("a copy of FITX's Idli whose serving was renamed to \"1 plate (2 idli)\" co
   const options: FoodPortion[] = [...copy.portions, ...extraPortions(copy.portions, copy.name)];
   assert.equal(options[openingPortion(copy, options)].label, "1 item", "it opens on Idli's piece, like any copy whose serving isn't a count");
 });
+
+// Review finding (fix round 3f, numbers-package-copy-counts-label-servings-and-packs): a packaged product saved with
+// "Save to My foods" still counted a bare amount the package itself asks about. A label serving "1 serving (25 g)" or "1
+// portion (25 g)" made "3 marie gold" 3 servings (75 g), and a product with no label serving (common for Indian products)
+// was saved with its pack, "1 pack (200 g)", so "3 marie gold" logged 3 packs: 600 g, about 2,640 kcal. The copy was
+// picked without a word. A container is never a count now, for any food of yours, and a food holding a package's values
+// counts as the package does: only one piece of it ("1 biscuit (7 g)") answers a bare count.
+const MARIE = { code: "8901063010031", product_name: "Marie Gold", nutriments: { "energy-kcal_100g": 440, proteins_100g: 7, carbohydrates_100g: 76, fat_100g: 12 } };
+const PACK = { product_quantity: 200, product_quantity_unit: "g", quantity: "200 g" };
+
+/** The package found by its barcode, then saved with Save to My foods as the form fills it in (origin barcode, label values). */
+function savedCopy(product: Record<string, unknown>, inUse: "pack" | null = null) {
+  const pack = fromOpenFoodFacts({ ...MARIE, ...product });
+  assert.ok(pack);
+  const saved = servingToSave(pack, inUse === "pack" ? pack.portions.find((portion) => portion.label.startsWith("1 pack")) ?? null : null);
+  const row = { id: "c-marie", name: pack.name, serving_size: saved.label, serving_grams: saved.grams, origin: "barcode" as const, value_basis: "label" as const, calories_per_100g: 440, protein_per_100g: 7, carbs_per_100g: 76, fat_per_100g: 12 };
+  // As the search reads it (search results, a scan of its barcode), and as My foods, Recent and the "Log it" toast do.
+  return { pack, saved, copies: [own(row), customFoodResult({ brand: null, ...row })] };
+}
+
+test("a package's \"1 serving (25 g)\", \"1 portion (25 g)\" or pack counts \"3 marie gold\" as the package does once saved: it asks", () => {
+  const typed = parseFoodQuery("3 marie gold");
+  for (const [product, label, grams] of [
+    [{ serving_size: "1 serving (25 g)", serving_quantity: 25 }, "1 serving (25 g)", 25],
+    [{ serving_size: "1 portion (25 g)", serving_quantity: 25 }, "1 portion (25 g)", 25],
+    [{ serving_size: "1 serving (25 g)", serving_quantity: 25, ...PACK }, "1 serving (25 g)", 25],
+    [PACK, "1 pack (200 g)", 200],
+  ] as const) {
+    const { pack, saved, copies } = savedCopy(product);
+    assert.equal(weigh(pack, "3 marie gold"), "no-count-weight", `${label}: the package asks`);
+    assert.deepEqual(saved, { label, grams }, `${label}: what Save to My foods fills in`);
+    for (const copy of copies) {
+      assert.equal(copy.portions[0].countDefault, undefined, label);
+      assert.equal(weigh(copy, "3 marie gold"), "no-count-weight", `${label}: so does the copy, never ${3 * grams} g`);
+      assert.equal(answersAmount(copy, typed), false, label);
+      assert.equal(openingPortion(copy, copy.portions), 0, `${label}: it still opens on the serving it was saved with`);
+      assert.equal(weigh(copy, `${grams * 3} g marie gold`), grams * 3, "grams are always yours to log");
+    }
+    // The member's own food of that name is still the one picked (no catalogue food is called Marie Gold): the sheet asks for grams.
+    assert.equal(rankAndPick(local.all, [copies[0]], typed.words, typed).pick?.id, "c-marie", label);
+  }
+  // A pack chosen under Unit before Save to My foods is saved too, and it is still no count.
+  const chosen = savedCopy({ serving_size: "1 serving (25 g)", serving_quantity: 25, ...PACK }, "pack");
+  assert.deepEqual(chosen.saved, { label: "1 pack (200 g)", grams: 200 });
+  for (const copy of chosen.copies) assert.equal(weigh(copy, "3 marie gold"), "no-count-weight");
+});
+
+test("a package's label serving of one piece is that piece's weight, and a scoop still counts as scoops", () => {
+  const { pack, copies } = savedCopy({ serving_size: "1 biscuit (7 g)", serving_quantity: 7 });
+  assert.equal(weigh(pack, "3 marie gold"), "no-count-weight", "the package itself never counts");
+  for (const copy of copies) assert.equal(weigh(copy, "3 marie gold"), 21, "3 biscuits of 7 g: one piece is a count");
+  const whey = savedCopy({ product_name: "Whey protein", serving_size: "1 scoop (30 g)", serving_quantity: 30 });
+  for (const copy of whey.copies) {
+    assert.equal(weigh(copy, "2 whey protein"), "no-count-weight", "a bare count of a package's scoop is asked about, as on the package");
+    assert.equal(weigh(copy, "2 scoops whey protein"), 60, "2 scoops are 2 of its scoop");
+  }
+  assert.equal(weigh(whey.pack, "2 scoops whey protein"), 60, "as on the package");
+});
+
+test("a container is never a count for any food of yours; your own serving of one thing still is", () => {
+  for (const serving of ["1 pack (200 g)", "1 can (330 ml)", "1 bottle (500 ml)", "Small packet", "1 box (12 pieces)"]) {
+    assert.equal(customServingPortion(serving, 200).countDefault, undefined, serving);
+  }
+  const coke = own({ id: "c-coke", name: "Coke", serving_size: "1 can (330 ml)", serving_grams: 330 });
+  assert.equal(weigh(coke, "2 coke"), "no-count-weight", "never 2 × a can by guess");
+  assert.equal(openingPortion(coke, coke.portions), 0, "it opens on its can");
+  // Your own food, not a package's values: a serving of one thing is still the default count.
+  for (const serving of ["1 serving (40 g)", "1 portion", "1 scoop (30 g)", "1 cup (240 ml)", "1 bowl", "Small bowl"]) {
+    assert.equal(customServingPortion(serving, 40, { origin: "user", valueBasis: "user_entered" }).countDefault, true, serving);
+    assert.equal(customServingPortion(serving, 40, { origin: "barcode", valueBasis: "label" }).countDefault, undefined, `${serving}, a package's: not a count`);
+  }
+  assert.equal(customServingPortion("1 biscuit (7 g)", 7, { origin: "barcode", valueBasis: "label" }).countDefault, true, "one piece of a package is");
+  assert.equal(customServingPortion("1 slice (25 g)", 25, { origin: "user", valueBasis: "label" }).countDefault, true, "so is one slice");
+  assert.equal(customServingPortion("1 serving (40 g)", 40, { origin: "user", valueBasis: "label" }).countDefault, undefined, "values copied from a label are a package's");
+});

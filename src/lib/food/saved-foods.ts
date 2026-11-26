@@ -37,20 +37,37 @@ function namesOne(named: string): boolean {
  * kept by Save to My foods, "1 plate (2 idli)") or only a weight ("100 g", or no name) is not a count: "3 idli" is
  * never 3 × 2 idli, 3 plates of 2 or 3 × 100 g, and a package copied to My foods answers a count as the package does.
  * Its measure still counts as itself ("2 plates idli" is 2 of that plate). A "piece" that holds several ("1 (2
- * idli)") is not one of the food, so it is kept as a serving of them. The app asks for grams instead, or a catalogue
- * food that weighs the count is picked with a note. It is still what the food opens on when nothing was typed
- * (log-sheet's openingPortion). None is an estimate: the member weighed it or copied it.
+ * idli)") is not one of the food, so it is kept as a serving of them. Nor is a container ever a count ("1 pack (200
+ * g)", "1 can (330 ml)"), as for every food (NOT_A_COUNT): "3 marie gold" is not 3 packs. A food holding a package's
+ * values (`food`: scanned or made for a barcode, or copied from a label) counts as the package does: its "1 serving
+ * (25 g)", "1 portion (…)" or "1 scoop (…)" is never a count (open-food-facts.ts), only one piece of it is ("1 biscuit
+ * (7 g)"). The app asks for grams instead, or a catalogue food that weighs the count is picked with a note. It is still
+ * what the food opens on when nothing was typed (log-sheet's openingPortion). None is an estimate: the member weighed
+ * it or copied it.
  */
-export function customServingPortion(servingSize: unknown, servingGrams: unknown): FoodPortion {
+export function customServingPortion(servingSize: unknown, servingGrams: unknown, food: OwnFoodKind = {}): FoodPortion {
   const grams = Number(servingGrams) > 0 ? Number(servingGrams) : 100;
   const named = typeof servingSize === "string" && servingSize.trim() && !GRAMS_ONLY.test(servingSize.trim()) ? servingSize.trim() : "";
   if (!named) return { label: `1 serving (${round1(grams)} g)`, unit: "serving", grams, estimate: false };
   const one = namesOne(named);
+  const container = NOT_A_COUNT.test(named);
   const read = portionFromLabel(named, grams);
-  // A pack stays a pack: no bare count takes one (NOT_A_COUNT), whatever it holds.
-  const measure = read && read.unit !== "serving" && (one || read.unit !== "piece" || NOT_A_COUNT.test(named)) ? read : null;
-  if (measure) return { label: measure.label, unit: measure.unit, grams, ...(one ? { countDefault: true } : {}), estimate: false, ...(isVolumeUnit(measure.unit) ? { ownSize: true } : {}) };
-  return { label: `1 serving (${named}, ${round1(grams)} g)`, unit: "serving", grams, ...(one ? { countDefault: true } : {}), estimate: false };
+  // A pack stays a pack: no bare count takes one, whatever it holds.
+  const measure = read && read.unit !== "serving" && (one || read.unit !== "piece" || container) ? read : null;
+  const counts = one && !container && (!holdsPackageValues(food) || measure?.unit === "piece" || measure?.unit === "slice");
+  if (measure) return { label: measure.label, unit: measure.unit, grams, ...(counts ? { countDefault: true } : {}), estimate: false, ...(isVolumeUnit(measure.unit) ? { ownSize: true } : {}) };
+  return { label: `1 serving (${named}, ${round1(grams)} g)`, unit: "serving", grams, ...(counts ? { countDefault: true } : {}), estimate: false };
+}
+
+/** Where a food of the member's own got its values: custom_foods.origin and value_basis. */
+export interface OwnFoodKind {
+  origin?: string | null;
+  valueBasis?: string | null;
+}
+
+/** A packaged product's values: a food scanned or made for a barcode, or one whose values were copied from its label. */
+function holdsPackageValues(food: OwnFoodKind): boolean {
+  return food.origin === "barcode" || food.valueBasis === "label";
 }
 
 /** A serving that is only a weight ("1 serving (100 g)"): it says nothing about pieces. */
