@@ -50,6 +50,7 @@ import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { focusLost } from "@/lib/workouts/focus-heading";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
@@ -266,6 +267,11 @@ export default function WorkoutsPage() {
   const [setup, setSetup] = useState<WorkoutSetup | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupLater, setSetupLater] = useState(false);
+  // The first-visit setup goes once the member chooses Later or saves it, and the button that held focus goes with it:
+  // focus moves to Workout setup in the header, which opens the setup again (D5). The sheet returns focus there itself.
+  const setupButtonRef = useRef<HTMLButtonElement>(null);
+  const [setupFocus, setSetupFocus] = useState(0);
+  useEffect(() => { if (setupFocus && focusLost(document)) setupButtonRef.current?.focus(); }, [setupFocus]);
   const [profiles, setProfiles] = useState<EquipmentProfiles>({ home: null, gym: null, available: false });
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [enrolAvailable, setEnrolAvailable] = useState(false);
@@ -273,8 +279,8 @@ export default function WorkoutsPage() {
   const [programmePlans, setProgrammePlans] = useState<ProgrammePlan[]>([]);
   const [recentDays, setRecentDays] = useState<Map<string, number>>(() => new Map());
   const [programmeBusy, setProgrammeBusy] = useState(false);
-  // Leaving or finishing replaces the programme card, and the control that held focus with it: focus moves to the
-  // section's heading, under which the result is said (D5).
+  // Following replaces the programme list, and leaving or finishing replaces the programme card, each taking the
+  // control that held focus with it: focus moves to the section's heading, under which the result is said (D5).
   const [programmeFocus, setProgrammeFocus] = useState(0);
   useEffect(() => {
     const heading = programmeFocus ? document.getElementById("programme-title") : null;
@@ -494,10 +500,13 @@ export default function WorkoutsPage() {
   function laterSetup() {
     setSetupLater(true);
     try { window.localStorage.setItem(setupLaterKey(userId), "1"); } catch { /* storage unavailable: hidden for this visit */ }
+    setSetupFocus((value) => value + 1);
   }
 
   function setupSaved(next: WorkoutSetup) {
     const firstTime = !setup?.done;
+    // Saved from the page (the first-visit setup shows only while the sheet is closed): it goes now (see setupFocus).
+    if (!setupOpen) setSetupFocus((value) => value + 1);
     // The list the followed programme's days were planned with, before this save (a starting list until one is saved).
     const programmeList = enrolment ? equipmentFor(profiles, enrolment.context, preferences.equipment).keys : null;
     setSetup(next);
@@ -895,8 +904,10 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    // Said on the new programme card, where the Follow sheet closed (D6).
+    // Said on the new programme card, where the Follow sheet closed (D6). The card replaced the programme list, and
+    // the sheet and its Follow button went with it: focus goes to the Programme heading, above the card (D5).
     setProgrammeNote({ tone: scheduled.error && !scheduled.created ? "error" : "info", text: programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) });
+    setProgrammeFocus((value) => value + 1);
     return null;
   }
 
@@ -1348,7 +1359,7 @@ export default function WorkoutsPage() {
       <PageHeader title="Workouts"
         meta={counts.completed !== null && counts.completed > 0 ? `${counts.completed.toLocaleString()} workout${counts.completed === 1 ? "" : "s"} done` : undefined}
         actions={<>
-          {setup && <button type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
+          {setup && <button ref={setupButtonRef} type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
           <button type="button" className={`fitx-button ${styles.headerAction}`} onClick={() => openCreator("focus", mode)}><Plus size={18} aria-hidden="true" />New workout</button>
         </>} />
       {error && <p role="alert" className="fitx-alert fitx-alert-danger px-3 py-2 text-sm">{error}</p>}

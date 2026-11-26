@@ -71,10 +71,11 @@ describe("a button that goes once it has shown everything hands focus on", () =>
     assert.match(library, /<Link ref=\{editListLink\}/);
   });
 
-  test("leaving or finishing a programme hands focus to the Programme heading, under which the result is said", () => {
+  test("following, leaving or finishing a programme hands focus to the Programme heading, under which the result is said", () => {
     const page = readFileSync("src/app/(dashboard)/workouts/page.tsx", "utf8");
     assert.match(page, /const heading = programmeFocus \? document\.getElementById\("programme-title"\) : null;/);
-    assert.equal((page.match(/setProgrammeFocus\(\(value\) => value \+ 1\);/g) ?? []).length, 2);
+    // Leave and Finish programme; Follow since fix round 3c (tests/workouts/follow-setup-focus.test.ts).
+    assert.equal((page.match(/setProgrammeFocus\(\(value\) => value \+ 1\);/g) ?? []).length, 3);
   });
 });
 
