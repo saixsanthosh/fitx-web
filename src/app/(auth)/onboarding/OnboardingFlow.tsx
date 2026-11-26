@@ -57,7 +57,7 @@ import {
 } from "@/lib/onboarding/form";
 import type { MeasureText } from "@/lib/onboarding/measure-field";
 import { focusAfterFailedSave, focusAfterRetry } from "@/lib/onboarding/save-focus";
-import { SAVE_FAILED, saveWithinLimit, withAbortSignal } from "@/lib/onboarding/time-limit";
+import { SAVE_FAILED, loadWithinLimit, saveWithinLimit, withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -132,33 +132,41 @@ export function OnboardingFlow() {
         if (live) setPhase("unavailable");
         return;
       }
-      const { data: auth } = await supabase.auth.getUser();
-      if (!live) return;
-      if (!auth.user) {
-        router.replace("/signin?next=/onboarding");
-        return;
-      }
-      const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
-      if (!live) return;
-      if (result.error) {
+      // A load that never answers (or breaks off) ends at its time limit with the alert and Try again, never "Loading
+      // your profile…" for good (time-limit.ts). What it brings back after that is dropped: Try again loads afresh.
+      const ended = await loadWithinLimit(async () => {
+        const { data: auth } = await supabase.auth.getUser();
+        if (!live) return;
+        if (!auth.user) {
+          router.replace("/signin?next=/onboarding");
+          return;
+        }
+        const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
+        if (!live) return;
+        if (result.error) {
+          setPhase("load_failed");
+          return;
+        }
+        // Answers already given are never asked again: an onboarded account goes straight to Home.
+        if (result.data.profile?.onboarded) {
+          router.replace("/dashboard");
+          return;
+        }
+        // A missing profile row would otherwise keep this account in onboarding for good.
+        if (!result.data.profile) await ensureProfileRow(supabase, auth.user.id);
+        if (!live) return;
+        const metadata = auth.user.user_metadata as { name?: unknown; full_name?: unknown } | undefined;
+        const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
+        setContext(result.data);
+        setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
+        setForm(initialOnboardingForm(result.data, metadataName));
+        setDrafts(NO_DRAFTS);
+        setPhase("ready");
+      });
+      if (!ended && live) {
+        live = false;
         setPhase("load_failed");
-        return;
       }
-      // Answers already given are never asked again: an onboarded account goes straight to Home.
-      if (result.data.profile?.onboarded) {
-        router.replace("/dashboard");
-        return;
-      }
-      // A missing profile row would otherwise keep this account in onboarding for good.
-      if (!result.data.profile) await ensureProfileRow(supabase, auth.user.id);
-      if (!live) return;
-      const metadata = auth.user.user_metadata as { name?: unknown; full_name?: unknown } | undefined;
-      const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
-      setContext(result.data);
-      setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
-      setForm(initialOnboardingForm(result.data, metadataName));
-      setDrafts(NO_DRAFTS);
-      setPhase("ready");
     })();
     return () => {
       live = false;

@@ -2,7 +2,8 @@
  * Time limits for setup's requests, built on sign-in's helper (src/lib/auth/time-limit.ts). Without one, a save that
  * never answered (a stalled connection, a captive portal, a server that hangs) left Continue on "Saving…" until the
  * page was reloaded, with nothing said. Now setup stops waiting at the limit and says so in its own words, and Continue
- * works again with every answer still as typed and keyboard focus where the member left it.
+ * works again with every answer still as typed and keyboard focus where the member left it. Loading the member's
+ * details had the same gap ("Loading your profile…" for good): it now ends at its limit with setup's alert and Try again.
  *
  * Unlike Supabase Auth's requests, the database requests a save makes can be cancelled, and a save that runs out of
  * time is: each of them carries the save's AbortSignal (withAbortSignal), which the limit aborts. So nothing of it is
@@ -18,6 +19,8 @@ import { isTimeLimit, withTimeLimit } from "@/lib/auth/time-limit";
 export const SETUP_TIME_LIMIT_MS = {
   /** A step's save, from the press of Continue or Finish setup to the answer to its last request. */
   save: 20_000,
+  /** Loading the member's details, when setup opens and after Try again. */
+  load: 20_000,
 } as const;
 
 /** What setup says beside its buttons when a step's save runs out of time: what happened, and what to do. */
@@ -49,6 +52,21 @@ export async function saveWithinLimit(
     if (!isTimeLimit(problem)) return finishing ? SAVE_FAILED.finish : SAVE_FAILED.page;
     controller.abort();
     return finishing ? SAVE_TIMED_OUT.finish : SAVE_TIMED_OUT.page;
+  }
+}
+
+/**
+ * Runs setup's load within its time limit: true when it ended in time (it has shown what it found), false when it ran
+ * out of time or broke off. Setup then shows its alert with Try again, and drops whatever the load brings back later.
+ * Nothing is cancelled: Supabase Auth's request can't be, and the load only reads (and creates a missing profile row,
+ * which is safe to do again).
+ */
+export async function loadWithinLimit(load: () => PromiseLike<unknown>, ms: number = SETUP_TIME_LIMIT_MS.load): Promise<boolean> {
+  try {
+    await withTimeLimit(load(), ms);
+    return true;
+  } catch {
+    return false;
   }
 }
 
