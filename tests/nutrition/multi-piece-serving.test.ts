@@ -6,7 +6,7 @@
 // food of that name weighs it, with the note saying so. The food still opens on its serving with nothing typed.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { customRowToFood, localFoodsFrom, rankAndPick, type RankableFood } from "@/lib/food/catalog-search";
 import { customFoodResult, type CustomFoodRow } from "@/lib/food/client-data";
 import { countsSeveral, extraPortions, parseFoodQuery, resolvePortion, type FoodPortion } from "@/lib/domain/food-query";
@@ -93,6 +93,31 @@ test("a serving whose \"1\" holds several pieces is never the default count; siz
   // Every measure FITX's own food list gives is one of something, so a copy saved with it counts as before.
   const labels = new Set(read("fitx-staples.json").foods.flatMap((food: { portions: Array<{ label: string }> }) => food.portions.map((portion) => portion.label)));
   for (const label of labels) assert.equal(countsSeveral(label as string), false, label as string);
+});
+
+test("ranges and \"per\" are read as USDA writes them: a weight range or how many fill a pack is not a count", () => {
+  for (const label of ["1 large drumstick (from tom, approx 19 to 21 lb bird) (yield after cooking, bone removed)", "1 medium neck (from 14 to 18 lb turkey)", "1 slice (15 per 8 oz package)",
+    "1 slice (4-1/8\" dia x 1/8\" thick) (10 per 8 oz package)", "1 medium (approx 3 per lb)", "1 serving (10 slices per pack)", "1 bowl (1-1/2 cups)"]) {
+    assert.equal(countsSeveral(label), false, label);
+  }
+  for (const label of ["1 plate (2 or 3 idli)", "1 plate (1 to 2 idli)", "1 plate (1-1/2 dosa)", "1 serving (2 idli per plate)", "1 serving (2 or more idli)"]) {
+    assert.equal(countsSeveral(label), true, label);
+  }
+  // The whole seeded catalogue: only the measures that really hold several are read so.
+  const seeds = readdirSync(new URL("../../supabase/migrations/", import.meta.url)).filter((file) => /_fitx_food_catalog_seed_part_\d+\.sql$/.test(file));
+  assert.ok(seeds.length > 0);
+  const measures = new Set<string>();
+  for (const file of seeds) {
+    const sql = readFileSync(new URL(`../../supabase/migrations/${file}`, import.meta.url), "utf8");
+    for (const match of sql.matchAll(/\$fitx\$(\[[\s\S]*?\])\$fitx\$/g)) {
+      for (const food of JSON.parse(match[1]) as Array<{ po?: Array<[string, string, number, boolean?]> }>) for (const [label] of food.po ?? []) measures.add(label);
+    }
+  }
+  assert.ok(measures.size > 300, `${measures.size} measures read`);
+  assert.deepEqual([...measures].filter((label) => countsSeveral(label)).sort(), [
+    "1 frozen family size package (6 steaks)",
+    "1 serving (2 pig's feet, 3\" x 2\", two slices Spanish sausage, 1\" x 1/4\", 1/2 cup sauce) (yield after bone removed)",
+  ]);
 });
 
 test("its measure still counts as itself, and a \"piece\" that holds several is a serving of them", () => {
