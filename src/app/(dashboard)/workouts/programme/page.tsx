@@ -21,6 +21,7 @@ import { addDays, groupByWeek, mondayOf, programmeCalendar, programmeStatus, ses
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import type { Programme } from "@/lib/training/programmes";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { focusHeading } from "@/lib/workouts/focus-heading";
 import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
@@ -43,6 +44,10 @@ type Loaded = {
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** The page's h1 in every state ("Programme", or the programme's own name), and the unavailable state's Try again. */
 const PROGRAMME_FOCUS = { heading: "programme-page-title", retry: "programme-retry" };
+/** The heading of "You’re not following a programme", which takes focus when that state replaces the page (D5). */
+const NONE_HEADING = "programme-none-title";
+/** How a load ended: the programme shown, no programme followed, or failed (its reason shown). */
+type LoadOutcome = "ready" | "none" | "failed";
 /** Weeks loaded at a time, back from today. */
 const WEEKS_BACK = 4;
 
@@ -69,15 +74,20 @@ export default function ProgrammeJourneyPage() {
   // "Show earlier weeks" goes once the first week is shown: the earliest week it brought then takes focus (D5).
   const [weekFocus, setWeekFocus] = useState<{ shown: string[]; seq: number } | null>(null);
   const handledWeekFocus = useRef(0);
+  // "Show earlier weeks" can find the programme left meanwhile (in another tab): "You’re not following a programme"
+  // then replaces the page, the button with it, so that state's heading takes focus, if focus went with the button
+  // (D5; release 3 fix round 3f). Counted per press.
+  const [noneFocus, setNoneFocus] = useState(0);
+  useEffect(() => { if (noneFocus) focusHeading(document, NONE_HEADING); }, [noneFocus]);
 
   // A load that fails says why in place of the page, with Try again. Earlier weeks (`backTo`) are different: the page
   // keeps what it shows and the reason goes beside "Show earlier weeks" (D6), so that button, and keyboard focus on
-  // it, stay (D5). False when it failed.
-  const load = useCallback(async (backTo?: string): Promise<boolean> => {
-    const fail = (text: string, earlier = text) => {
+  // it, stay (D5). "failed" when it failed; "none" when no programme is followed (any more).
+  const load = useCallback(async (backTo?: string): Promise<LoadOutcome> => {
+    const fail = (text: string, earlier = text): LoadOutcome => {
       if (backTo) setEarlierError(earlier);
       else { setMessage(text); setState("error"); }
-      return false;
+      return "failed";
     };
     const offline = "Earlier weeks couldn’t be loaded. Check your connection and try again.";
     const supabase = createClient();
@@ -87,7 +97,7 @@ export default function ProgrammeJourneyPage() {
     if (!user) return fail("Sign in to see your programme.");
     const current = await loadCurrentEnrolment(supabase, user.id);
     if (current.error) return fail("Your programme couldn’t be loaded. Check your connection and try again.", offline);
-    if (!current.enrolment) { setState("none"); return true; }
+    if (!current.enrolment) { setState("none"); return "none"; }
     const enrolment = current.enrolment;
     const earliest = mondayOf(enrolment.started_on);
     const wanted = backTo ?? mondayOf(addDays(todayKey, -7 * (WEEKS_BACK - 1)));
@@ -128,7 +138,7 @@ export default function ProgrammeJourneyPage() {
       legacyEquipment, activeSession: (active.data as { id: string; name: string } | null) ?? null, replanNote,
     });
     setState("ready");
-    return true;
+    return "ready";
   }, [todayKey]);
 
   useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
@@ -156,8 +166,10 @@ export default function ProgrammeJourneyPage() {
     if (!weekFocus || weekFocus.seq === handledWeekFocus.current || !view || !loaded) return;
     handledWeekFocus.current = weekFocus.seq;
     const target = focusAfterShowMore({ more: loaded.fromKey > mondayOf(loaded.enrolment.started_on), shown: weekFocus.shown, added: addedIds(weekFocus.shown, view.weeks.map((week) => week.weekStart)) });
-    const heading = target && target !== "button" ? document.querySelector<HTMLElement>(`[data-journey-week="${target}"] h2`) : null;
-    if (!heading) return;
+    if (target === "button") return;
+    const heading = target ? document.querySelector<HTMLElement>(`[data-journey-week="${target}"] h2`) : null;
+    // No such week drawn (the programme was changed in another tab meanwhile): the page's own heading, never the page.
+    if (!heading) { focusHeading(document, PROGRAMME_FOCUS.heading); return; }
     heading.tabIndex = -1;
     heading.focus();
   }, [weekFocus, view, loaded]);
@@ -182,10 +194,12 @@ export default function ProgrammeJourneyPage() {
     const shown = view?.weeks.map((week) => week.weekStart) ?? [];
     setLoadingEarlier(true);
     setEarlierError("");
-    const loadedEarlier = await load(mondayOf(addDays(loaded.fromKey, -7 * WEEKS_BACK)));
+    const outcome = await load(mondayOf(addDays(loaded.fromKey, -7 * WEEKS_BACK)));
     setLoadingEarlier(false);
-    // When it failed, the button stays with focus and its reason beside it.
-    if (loadedEarlier) setWeekFocus((current) => ({ shown, seq: (current?.seq ?? 0) + 1 }));
+    // When it failed, the button stays with focus and its reason beside it. When the programme was left meanwhile, the
+    // state that replaced the page takes focus.
+    if (outcome === "ready") setWeekFocus((current) => ({ shown, seq: (current?.seq ?? 0) + 1 }));
+    else if (outcome === "none") setNoneFocus((value) => value + 1);
   }
 
   const back = <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
@@ -193,7 +207,7 @@ export default function ProgrammeJourneyPage() {
   const heading = <PageHeader title="Programme" className="mb-0 sm:mb-0" titleId={PROGRAMME_FOCUS.heading} />;
   if (state === "loading") return <div className="space-y-4">{back}{heading}<div role="status" aria-label="Loading your programme" className="space-y-4"><div className="h-24 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /><div className="h-40 animate-pulse rounded-xl bg-fitx-surface motion-reduce:animate-none" /></div></div>;
   if (state === "error") return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="Programme unavailable" description={message} descriptionId="programme-load-problem" action={<button id={PROGRAMME_FOCUS.retry} type="button" aria-describedby="programme-load-problem" className="fitx-button fitx-button-secondary" onClick={() => { retrying(); setState("loading"); void load(); }}>Try again</button>} /></div>;
-  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="You’re not following a programme" description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
+  if (state === "none" || !loaded || !view) return <div className="space-y-4">{back}{heading}<EmptyState headingLevel={2} title="You’re not following a programme" headingId={NONE_HEADING} description="Pick a programme on the Workouts page. FITX plans your training days on the weekdays you choose, with rest days in between." action={<Link href="/workouts" className="fitx-button">Choose a programme</Link>} /></div>;
 
   const { enrolment, programme } = loaded;
   const paused = enrolment.status === "paused";
