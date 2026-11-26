@@ -90,7 +90,9 @@ describe("checkSession with supabase-js's own answers", () => {
 describe("checkSessionKeepingMember (Home, review home-1)", () => {
   const offline = async () => { throw new TypeError("Failed to fetch"); };
 
-  test("signed in, and signed out everywhere: the server's answer, nothing read locally", async () => {
+  // Since fix round 3f the local session is read beside the check (within the same limit), but only a check that failed
+  // uses it (tests/home/home-quote-time-limit.test.ts).
+  test("signed in, and signed out everywhere: the server's answer, never the local session's", async () => {
     const { auth } = client(json(200, { ...USER, aud: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-11-01T00:00:00Z" }));
     assert.deepEqual(await checkSessionKeepingMember(auth), { state: "signed_in", userId: USER.id });
     const ended = client(json(403, { code: 403, error_code: "session_not_found", msg: "Session from session_id claim in JWT does not exist" }));

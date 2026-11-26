@@ -9,6 +9,8 @@
  *
  * No React here, so node tests cover it (tests/account/session-state.test.ts).
  */
+import { withTimeLimit } from "@/lib/auth/time-limit";
+
 export type SessionState = "signed_in" | "signed_out" | "unknown";
 
 /** Auth error codes that mean the session is over rather than that the check failed. */
@@ -63,21 +65,41 @@ export type SessionAuth = {
 };
 
 /**
+ * How long checkSessionKeepingMember waits, in milliseconds: the shared user context's 20 s
+ * (user-context-refresh.ts USER_CONTEXT_TIME_LIMIT_MS), which Home has already waited out when it checks itself.
+ */
+export const SESSION_CHECK_TIME_LIMIT_MS = 20_000;
+
+/**
  * checkSession, plus, when the check itself failed ("unknown"), the member this browser's own session names. That is
  * read locally (getSession() needs no network while the access token is valid), so a page can still show what this
  * device keeps for that member, such as Home's quote of the day (bug 70). It is never proof of a session: only a
  * "signed_in" answer is. `auth` is null where Supabase isn't set up, which is a check that couldn't be made.
+ *
+ * The check and the session read each wait `ms` at most, side by side, so the whole check ends within `ms` (fix round
+ * 3f: with neither limited, Home's quote area kept its loading lines for good on a stalled connection, a captive portal
+ * or an auth server that hangs). A check with no answer by then counts as one that failed ("unknown"); a session read
+ * with none (renewing an expired access token over the same connection) names no member. Supabase Auth's requests
+ * can't be cancelled: a late answer is dropped, and one that finds the session ended still reaches the page as auth's
+ * SIGNED_OUT event.
  */
-export async function checkSessionKeepingMember(auth: SessionAuth | null): Promise<{ state: SessionState; userId: string | null }> {
+export async function checkSessionKeepingMember(auth: SessionAuth | null, ms: number = SESSION_CHECK_TIME_LIMIT_MS): Promise<{ state: SessionState; userId: string | null }> {
   if (!auth) return { state: "unknown", userId: null };
-  const { state, user } = await checkSession(() => auth.getUser());
+  // Read beside the check rather than after it, so a check that runs out of time still has it within the same limit.
+  const local = sessionMember(auth, ms);
+  const { state, user } = await checkSession(() => withTimeLimit(auth.getUser(), ms));
   if (state !== "unknown") return { state, userId: user?.id ?? null };
+  return { state, userId: await local };
+}
+
+/** The member this browser's own session names, read within `ms`: null for none, a read that failed, or no answer in time. */
+async function sessionMember(auth: SessionAuth, ms: number): Promise<string | null> {
   try {
-    const { data } = await auth.getSession();
+    const { data } = await withTimeLimit(auth.getSession(), ms);
     const id = data.session?.user?.id;
-    return { state, userId: typeof id === "string" && id ? id : null };
+    return typeof id === "string" && id ? id : null;
   } catch {
-    return { state, userId: null };
+    return null;
   }
 }
 
