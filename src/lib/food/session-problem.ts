@@ -40,6 +40,21 @@ export function sessionProblem(state: SessionState, action: SessionAction): Sess
 }
 
 /**
+ * The message when the member is signed in but the day's own reads failed (meals, water, profile, preferences or their
+ * foods), with Try again, which reads that day again (fix round 3c: it said "Please try again." with no way to, and
+ * the meals line said to reload the page). `statuses`: the failed reads' HTTP statuses; 0 is supabase-js's answer to a
+ * request that never reached FITX (offline, a dropped connection), so the member is asked to check their connection.
+ */
+export function dayReadProblem(statuses: ReadonlyArray<number | null | undefined>): SessionProblem {
+  const unreached = statuses.some((status) => status === 0);
+  return {
+    text: unreached ? "FITX couldn't be reached, so this day didn't load. Check your connection and try again." : "This day couldn't be loaded just now. Try again in a moment.",
+    signIn: false,
+    retry: true,
+  };
+}
+
+/**
  * What a save in a dialog says when the page has no member yet, because its sign-in check hasn't succeeded: signed out
  * only when that check said so; otherwise the check failed (an outage) or hasn't answered yet. `what` finishes "Sign in
  * again to …" ("save your own foods").

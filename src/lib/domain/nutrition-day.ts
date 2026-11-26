@@ -22,9 +22,12 @@ export function dayStatusText(state: Exclude<DayLoad, "ready">): string {
   return state === "loading" ? "Loading this day…" : "This day couldn't be loaded.";
 }
 
-/** The meal list's line while the day's meals are not there. */
+/**
+ * The meal list's line while the day's meals are not there. A failed day's message, with its Try again (or Sign in),
+ * is the page's, under the tabs, for as long as the day stays failed: this line never sends the member to reload.
+ */
 export function mealsStatusText(state: Exclude<DayLoad, "ready">): string {
-  return state === "loading" ? "Loading meals…" : "This day's meals couldn't be loaded. Reload the page to try again.";
+  return state === "loading" ? "Loading meals…" : "This day's meals couldn't be loaded.";
 }
 
 /** The line under a ring: how much is left (or over), or a note (no target yet, or the day's status). */

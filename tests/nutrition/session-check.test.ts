@@ -69,10 +69,13 @@ test("the day, Add to log, the water buttons and History check the session this 
   assert.match(logFood, /if \(!user\) return setError\(sessionProblem\(state, "log-food"\)/);
   const water = page.slice(page.indexOf("async function addWater("), page.indexOf("async function removeMeal("));
   assert.match(water, /if \(!user\) return setError\(sessionProblem\(state, "log-water"\)/);
-  assert.match(page, /\{error\.signIn && <Link href=\{signInHref\(NUTRITION_PATH\)\} className="fitx-button min-h-11 px-4 text-xs">Sign in<\/Link>\}/);
-  assert.match(page, /\{error\.retry && <button type="button" [^>]*onClick=\{retryLoad\}>Try again<\/button>\}/);
+  // A log refused for an ended session offers Sign in next to the message; the day's own message (day-retry.test.ts)
+  // offers Sign in or Try again for as long as the day stays failed.
+  assert.match(page, /\{error\.signIn && <div className="mt-2 flex flex-wrap gap-2">\s*<Link href=\{signInHref\(NUTRITION_PATH\)\} className="fitx-button min-h-11 px-4 text-xs">Sign in<\/Link>/);
+  assert.match(page, /\{said\.signIn && <Link href=\{signInHref\(NUTRITION_PATH\)\} className="fitx-button min-h-11 px-4 text-xs">Sign in<\/Link>\}/);
+  assert.match(page, /\{said\.retry && <button type="button" [^>]*onClick=\{\(\) => \{ if \(!loading\) retryLoad\(\); \}\}>\{loading \? "Loading…" : "Try again"\}<\/button>\}/);
   const retry = page.slice(page.indexOf("function retryLoad("), page.indexOf("function showStart("));
-  assert.match(retry, /focusIfLost\.current = \["#meals-title", "#routines-title", "\[data-food-add\]"\];\s*void load\(\);\s*void refreshRecent\(\);\s*if \(!browse\) void browseFoods\(\);/, "the button goes once the day is in: the focus moves on; Recent and the food list are read again too");
+  assert.match(retry, /focusIfLost\.current = \["#meals-title", "#routines-title", "\[data-food-add\]", "#history-title"\];\s*void load\(\);\s*void refreshRecent\(\);\s*if \(!browse\) void browseFoods\(\);/, "the button goes once the day is in: the focus moves on; Recent and the food list are read again too");
   assert.match(page.slice(page.indexOf("const browseFoods = useCallback("), page.indexOf("function retryLoad(")), /setError\(\(current\) => current \|\| message\);/, "the food list's failure never hides the day's message and its Try again");
   const history = read("src/components/nutrition/NutritionHistory.tsx");
   assert.ok(!history.includes("Sign in to see your history."));

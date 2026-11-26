@@ -46,7 +46,7 @@ import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
 import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
-import { noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
+import { dayReadProblem, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
@@ -182,8 +182,13 @@ export default function NutritionPage() {
   const logOpener = useRef<HTMLElement | null>(null);
   const logButton = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
-  /** The page's message: a sentence, or a sign-in check that gave no member (with Sign in, or Try again for the day). */
+  /** The page's message about what the member just did: a sentence, or a sign-in check that gave no member (with Sign in). */
   const [error, setError] = useState<string | SessionProblem>("");
+  /**
+   * Why the day's last load failed, with Sign in or Try again: shown under the tabs for as long as that day's load stays
+   * failed (failedKey), whatever else is said meanwhile. `attempt` counts the failures, so one after Try again is read out.
+   */
+  const [dayProblem, setDayProblem] = useState<{ problem: string | SessionProblem; attempt: number } | null>(null);
   const [notice, setNotice] = useState("");
   /** "Tap the one you mean": a typed amount matched more than one food. */
   const [pickHint, setPickHint] = useState("");
@@ -224,7 +229,7 @@ export default function NutritionPage() {
     const current = () => seq === loadSeq.current;
     const fail = (message: string | SessionProblem) => {
       if (!current()) return;
-      setError(message);
+      setDayProblem((old) => ({ problem: message, attempt: (old?.attempt ?? 0) + 1 }));
       setFailedKey(dateKey);
       setLoading(false);
       // What a save meant to focus once the day was back: it isn't, so a later load must not move the focus for it.
@@ -238,7 +243,7 @@ export default function NutritionPage() {
     const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
     if (!current()) return;
     setCheckedSession(state);
-    if (!user) return fail(sessionProblem(state, "load") ?? "Your nutrition data could not be loaded. Please try again.");
+    if (!user) return fail(sessionProblem(state, "load") ?? dayReadProblem([]));
     const uid = user.id;
     setUserId(uid);
     // Once per page view: a member who has not answered the food questions (and did not choose Later on this
@@ -267,8 +272,9 @@ export default function NutritionPage() {
     ]);
     if (!current()) return;
     setCapabilities(caps);
-    const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
-    if (failure) return fail("Your nutrition data could not be loaded. Please try again.");
+    // A read that failed: Try again reads the day again (status 0: it never reached FITX, so the connection is named).
+    const failed = [mealResult, waterResult, profileResult, prefsResult].filter((result) => result.error);
+    if (failed.length || custom.error) return fail(dayReadProblem(failed.map((result) => result.status)));
     setEntries((mealResult.data || []) as MealEntry[]);
     setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
     const prefs = prefsResult.data as Prefs | null;
@@ -284,6 +290,7 @@ export default function NutritionPage() {
     // This day's figures are in: the overview and meals may show them now.
     setShownKey(dateKey);
     setFailedKey(null);
+    setDayProblem(null);
     setError("");
     setLoading(false);
     // Photo links don't hold up the day: signed afterwards.
@@ -554,12 +561,13 @@ export default function NutritionPage() {
   }, []);
 
   /**
-   * Try again, after the day couldn't be read because the sign-in check couldn't be made: the day, Recent and (if it
-   * never came) the food list are read again. Once the day is in, the message and its button go, so the focus moves to
-   * the tab's heading (or My foods' Add a food) instead of falling to the page.
+   * Try again, after the day couldn't be read (its reads failed, or the sign-in check couldn't be made): the day, Recent
+   * and (if it never came) the food list are read again. Once the day is in, the message and its button go, so the
+   * focus moves to the tab's heading (or My foods' Add a food) instead of falling to the page; while it reads, the
+   * button stays (unavailable), so a failure again leaves the focus on it.
    */
   function retryLoad() {
-    focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]"];
+    focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]", "#history-title"];
     void load();
     void refreshRecent();
     if (!browse) void browseFoods();
@@ -1216,13 +1224,28 @@ export default function NutritionPage() {
       ? <p role="alert" className={styles.alert}>{error}</p>
       : <div role="alert" className={styles.alert}>
         <p>{error.text}</p>
-        {(error.signIn || error.retry) && <div className="mt-2 flex flex-wrap gap-2">
-          {error.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
-          {error.retry && <button type="button" className="fitx-button fitx-button-secondary min-h-11 px-4 text-xs" onClick={retryLoad}>Try again</button>}
+        {error.signIn && <div className="mt-2 flex flex-wrap gap-2">
+          <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>
         </div>}
       </div>)}
     {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
   </>;
+
+  /**
+   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. A new paragraph per failure,
+   * so a Try again that fails again is read out again; the button is the same one, unavailable while the day is read.
+   */
+  const dayAlert = failedKey === dateKey && dayProblem && (() => {
+    const { problem, attempt } = dayProblem;
+    const said = typeof problem === "string" ? { text: problem, signIn: false, retry: false } : problem;
+    return <div role="alert" className={styles.alert}>
+      <p key={attempt}>{said.text}</p>
+      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2">
+        {said.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
+        {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-xs ${ui.actionBusy}`} aria-disabled={loading || undefined} onClick={() => { if (!loading) retryLoad(); }}>{loading ? "Loading…" : "Try again"}</button>}
+      </div>}
+    </div>;
+  })();
 
   const foodList = (
     <div aria-live="polite" className={styles.foodResults}>
@@ -1287,6 +1310,7 @@ export default function NutritionPage() {
       <nav aria-label="Nutrition sections" className={styles.tabs}>
         {tabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={styles.tab}>{label}</button>)}
       </nav>
+      {dayAlert}
       {!logOpen && messages}
 
       <div className={styles.panel}>
