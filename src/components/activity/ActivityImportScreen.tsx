@@ -295,6 +295,9 @@ export function ActivityImportScreen() {
   const [dragging, setDragging] = useState(false);
   // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
   const [lookupFailed, setLookupFailed] = useState(false);
+  // How many checks have failed: the alert stays while Check again checks (so focus stays on it, D5), and a check that
+  // fails again draws its message anew, so it is read out again.
+  const [lookupFailures, setLookupFailures] = useState(0);
   const counter = useRef(0);
   // Import was pressed. Once every file has its result the bar goes with its button (nothing is left for it to do), so
   // the result ("2 imported.", partial results and failures too) takes focus if it fell to the page (D5).
@@ -438,14 +441,17 @@ export function ActivityImportScreen() {
     // After a failed check, the earlier files are checked again with the new ones.
     const ok = await lookUp(lookupFailed ? [...entries, ...readEntries] : readEntries).catch(() => false);
     setLookupFailed(!ok);
+    if (!ok) setLookupFailures((count) => count + 1);
     setReading(false);
   }
 
   async function checkAgain() {
+    // Check again says aria-disabled while it checks (disabled would drop keyboard focus; D5): a press then does nothing.
     if (reading || importing) return;
     setReading(true);
     const ok = await lookUp(entries).catch(() => false);
     setLookupFailed(!ok);
+    if (!ok) setLookupFailures((count) => count + 1);
     setReading(false);
   }
 
@@ -491,10 +497,10 @@ export function ActivityImportScreen() {
   }).length;
   const barShown = importBarShown(entries.map((entry) => ({ phase: entry.phase, done: entry.result !== null, sport: sportOf(entry) })), importing);
 
-  // D5: a file's Remove goes with its card, and Clear list with the whole list; the browser dropped focus to the page.
-  // One ref sees which control went with focus (importFocusWitness), and once that draw is done focus moves to what is
-  // left in its place (importFocusAfter): only while the page has focus, so focus the member moved stays where it is.
-  // Import's own hand-off is importPressed's, above.
+  // D5: a file's Remove goes with its card, Clear list with the whole list, and Check again with its alert once a check
+  // works; the browser dropped focus to the page. One ref sees which control went with focus (importFocusWitness), and
+  // once that draw is done focus moves to what is left in its place (importFocusAfter): only while the page has focus,
+  // so focus the member moved stays where it is. Import's own hand-off is importPressed's, above.
   const [{ ref: controlRef, take: controlWent }] = useState(() => importFocusWitness<HTMLElement>());
   const drawnFiles = useRef<readonly ListedFile[]>([]);
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -643,10 +649,15 @@ export function ActivityImportScreen() {
             {/* Goes with the list: Choose files takes focus (D5). */}
             {!importing && <button type="button" ref={controlRef} data-import-control="clear" onClick={clearList} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Clear list</button>}
           </div>
-          {lookupFailed && !reading && (
-            <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p>FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
-              <button type="button" onClick={() => void checkAgain()} className="fitx-button fitx-button-secondary min-h-11 shrink-0">Check again</button>
+          {/* Stays while it checks again, so Check again keeps focus (aria-disabled meanwhile) and keeps it when the check
+              fails again, the message drawn anew to be read out again; once a check works it goes, and the Import
+              button, else the files' heading, takes focus (D5). */}
+          {lookupFailed && (
+            <div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p key={lookupFailures} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
+              <button type="button" ref={controlRef} data-import-control="check" onClick={() => void checkAgain()} aria-disabled={reading || importing || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60">
+                {reading ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Checking…</> : "Check again"}
+              </button>
             </div>
           )}
           {unknownSport > 1 && !importing && (

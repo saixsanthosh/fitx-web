@@ -1,8 +1,11 @@
 // Release 3 fix round 3f (round 3e's open items, D5): on /activity/import, controls of the file list went while they
-// had focus, and focus fell to the page. A file's Remove went with its card, and Clear list with the whole list. One
-// ref now sees which control went with focus (importFocusWitness), and once that draw is done focus moves on to what
-// is left in its place (importFocusAfter): after Remove, the next file's Remove, else the one before it, else Choose
-// files; after Clear list, Choose files. Only while the page has focus: focus the member moved stays where it is.
+// had focus, and focus fell to the page. A file's Remove went with its card, Clear list with the whole list, and Check
+// again with its alert, which was hidden while it checked, so focus fell to the page even when the check failed again.
+// One ref now sees which control went with focus (importFocusWitness), and once that draw is done focus moves on to
+// what is left in its place (importFocusAfter): after Remove, the next file's Remove, else the one before it, else
+// Choose files; after Clear list, Choose files. Check again keeps its alert while it checks (aria-disabled), so it
+// keeps focus, also when the check fails again; once a check works, the Import button, else the files' heading. Only
+// while the page has focus: focus the member moved stays where it is.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -53,6 +56,15 @@ describe("where focus goes once a control of the file list went with it", () => 
     // Clear list also goes while the files are imported (it comes back after): Choose files all the same.
     assert.equal(importFocusAfter({ control: "clear" }, { before: files("a"), after: [done("a")], importReady: false }), "choose");
     assert.deepEqual(importFocusAfter({ control: "remove", file: "a" }, { before: files("a", "b"), after: files("b"), importReady: true }), { remove: "b" }, "Remove: focusAfterRemove");
+  });
+
+  test("Check again once the check worked: the Import button when it has something to import, else the files' heading; no files left: Choose files", () => {
+    const list = files("a", "b");
+    assert.equal(importFocusAfter({ control: "check" }, { before: list, after: list, importReady: true }), "import", "“Import 2 activities”: the next step");
+    // Nothing to import yet (every file already in FITX, or a sport still to choose): the cards below the heading say why.
+    assert.equal(importFocusAfter({ control: "check" }, { before: list, after: list, importReady: false }), "files");
+    // No files left (Clear list clicked without moving focus, as Safari's clicks do, while focus was on Check again).
+    assert.equal(importFocusAfter({ control: "check" }, { before: list, after: [], importReady: false }), "choose");
   });
 
   test("the Remove a card shows: for a file being read, ready, or one that can't be imported; never while importing, nor once it has its result", () => {
@@ -139,6 +151,41 @@ describe("the whole hand-off, as the screen does it", () => {
     assert.deepEqual(went, { control: "clear" });
     assert.ok(focusDropped(doc));
     assert.equal(importFocusAfter(went!, { before: files("file-1", "file-2"), after: [], importReady: false }), "choose");
+  });
+
+  test("Check again: its alert stays while it checks and when the check fails again, so focus stays; once one works, Import takes it", () => {
+    const { doc, control, takeOut } = page();
+    const witness = importFocusWitness();
+    const checkAgain = control({ importControl: "check" });
+    const cleanup = witness.ref(checkAgain);
+    doc.activeElement = checkAgain;
+    // Enter: "Checking…" (aria-disabled), the alert and its button stay. The check fails again: still there.
+    assert.equal(witness.take(), null, "nothing went");
+    assert.equal(doc.activeElement, checkAgain, "focus stays on Check again");
+    // Enter again, and this time the account is read: the alert goes with Check again.
+    takeOut(checkAgain, cleanup);
+    const went = witness.take();
+    assert.deepEqual(went, { control: "check" });
+    assert.ok(focusDropped(doc));
+    assert.equal(importFocusAfter(went!, { before: files("file-1", "file-2"), after: files("file-1", "file-2"), importReady: true }), "import");
+  });
+});
+
+describe("Check again (the screen)", () => {
+  const screen = read("src/components/activity/ActivityImportScreen.tsx");
+
+  test("the alert stays while it checks, with its message drawn anew after each failure, so a failure again is read out again", () => {
+    assert.doesNotMatch(screen, /lookupFailed && !reading/, "no longer hidden while it checks");
+    assert.match(screen, /\{lookupFailed && \(\s+<div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">\s+<p key=\{lookupFailures\} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet\. Check your connection and try again\.<\/p>/);
+    // Every failed check is counted, from Check again and from files chosen after a failure.
+    assert.equal((screen.match(/setLookupFailed\(!ok\);\s+if \(!ok\) setLookupFailures\(\(count\) => count \+ 1\);\s+setReading\(false\);/g) ?? []).length, 2);
+    assert.match(screen, /const \[lookupFailures, setLookupFailures\] = useState\(0\);/);
+  });
+
+  test("Check again says aria-disabled and “Checking…” while it checks, a press meanwhile does nothing, and it is witnessed", () => {
+    assert.match(screen, /<button type="button" ref=\{controlRef\} data-import-control="check" onClick=\{\(\) => void checkAgain\(\)\} aria-disabled=\{reading \|\| importing \|\| undefined\} className="[^"]*aria-disabled:cursor-progress aria-disabled:opacity-60">\s+\{reading \? <><LoaderCircle size=\{17\} aria-hidden="true" className="animate-spin" \/>Checking…<\/> : "Check again"\}/);
+    assert.match(screen, /async function checkAgain\(\) \{\s+\/\/[^\n]*\n\s+if \(reading \|\| importing\) return;\s+setReading\(true\);/);
+    assert.doesNotMatch(screen, /(?<!aria-)disabled=\{reading/);
   });
 });
 
