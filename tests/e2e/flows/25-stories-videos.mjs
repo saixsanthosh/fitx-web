@@ -9,7 +9,7 @@
 // create menu only while videos are on, and the platform switch closes the video composer and the links route.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { signInUi } from "./common.mjs";
+import { signInUi, titleOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
@@ -172,6 +172,9 @@ export const flow = {
       const viewer = page.getByRole("dialog", { name: `Story by ${miraName}` });
       await viewer.waitFor({ timeout: 15000 });
       await viewer.getByRole("button", { name: "Pause story" }).click();
+      // The tab names whose story is on screen (bug 78).
+      const title = await titleOf(page, `Story by @${miraName} · Explore · FITX`);
+      t.expect(title === `Story by @${miraName} · Explore · FITX`, `the story's tab title names its account (got "${title}")`);
       await viewer.getByRole("img", { name: `Story: ${caption}` }).waitFor({ timeout: 15000 });
       await viewer.getByText(caption).first().waitFor();
       t.expect(await viewer.getByRole("button", { name: "Delete story" }).count() === 0, "no Delete on someone else's story");

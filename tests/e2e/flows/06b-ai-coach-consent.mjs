@@ -5,7 +5,7 @@
 // push to talk explains where speech goes first, and the question sent carries no name or e-mail.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { signInUi, textOf } from "./common.mjs";
+import { hasFocus, signInUi, textOf } from "./common.mjs";
 
 function providerRequests(outDir, since) {
   try {
@@ -49,6 +49,8 @@ export const flow = {
       await page.getByRole("button", { name: "Start coaching" }).click();
       const message = page.getByLabel("Message", { exact: true });
       await message.waitFor({ timeout: 20000 });
+      // The coach replaces the consent screen and the button in use: the focus goes to the message box (D5).
+      t.expect(await hasFocus(message), "after Start coaching, the focus is in the message box");
       const consent = await standin.one(`select share_personal_data from public.ai_coach_consents where user_id = '${account.id}'`);
       t.expect(consent?.share_personal_data === "f", "the consent should record that nothing is shared", consent);
       // Questions only: the starting prompts are general ones, never written from the member's data.
@@ -76,6 +78,8 @@ export const flow = {
         t.expect(/FITX receives only the text/.test(await textOf(explain)), "the voice note says FITX gets only the text");
         await t.checkpoint("voice privacy note");
         await explain.getByRole("button", { name: "Not now" }).click();
+        // The note and the button in use go: the focus goes back to the microphone, never to the page (D5).
+        t.expect(await hasFocus(talk), "after Not now, the focus is back on Hold to talk");
       } else {
         t.note("voice", "no speech recognition in this browser: no microphone button (as designed)");
       }

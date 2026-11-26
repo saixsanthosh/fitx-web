@@ -1,10 +1,11 @@
 // Flow 9: Help. Send a support request and see it in "Your messages"; a staff reply (written through SQL the way
-// the Admin reply function writes it) shows in the thread and the member answers. An announcement published
+// the Admin reply function writes it) shows in the thread and the member answers (an empty answer is refused in
+// words first). An announcement published
 // through SQL shows in the app's banner, can be dismissed, and stays dismissed after a reload. A draft never shows.
 // What FITX Admin sends (written through SQL as its functions write it): a maintenance notice from Settings shows
 // under its own name and hides for the tab, and a notice sent to this account shows until dismissed. Help offers
 // complaints once the database takes them.
-import { signInUi, textOf } from "./common.mjs";
+import { hasFocus, signInUi, textOf } from "./common.mjs";
 
 export const flow = {
   id: "09-help-announcements",
@@ -62,7 +63,14 @@ export const flow = {
       await page.getByText("Does it also stop with the screen on?").waitFor({ timeout: 15000 });
       t.expect((await page.getByText("Waiting for your reply").count()) > 0, "the thread should say it waits for the member");
       const reply = page.getByLabel("Reply");
+      // An empty reply is refused in words beside the box, which is marked and keeps the focus (bug 47), never a
+      // silent nothing or the browser's own bubble.
+      await page.getByRole("button", { name: "Send reply" }).click();
+      await page.getByRole("alert").filter({ hasText: "Write 1 to 4,000 characters." }).waitFor({ timeout: 10000 });
+      t.expect((await reply.getAttribute("aria-invalid")) === "true" && (await hasFocus(reply)), "the empty reply box is marked and has the focus");
       await reply.fill("Only when the screen locks. With the screen on it keeps counting.");
+      // Typing clears the message.
+      await page.getByRole("alert").filter({ hasText: "Write 1 to 4,000 characters." }).waitFor({ state: "detached", timeout: 5000 });
       // What the page asks the server for after sending (router.refresh() is an RSC request for /help).
       const timeline = [];
       const clickAt = Date.now();

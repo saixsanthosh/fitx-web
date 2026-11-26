@@ -3,7 +3,7 @@
 // Muscles shows the body map, links each muscle to Browse by muscle and offers alternatives; History and Progress
 // start empty, then show a completed session's sets, best set and estimated one-rep max (labelled as an estimate);
 // the open tab is kept in ?tab=. A workout the member abandoned never shows.
-import { signInUi, textOf } from "./common.mjs";
+import { signInUi, textOf, titleOf } from "./common.mjs";
 
 const EXERCISE = "bench_press";
 const NOTE = "Seat on 4, pin at 7";
@@ -20,6 +20,9 @@ export const flow = {
     await t.step("the Guide: name, details, photos in order, steps and the report link", async () => {
       await t.goto(`/exercises/${EXERCISE}`, { label: "exercise guide" });
       await page.getByRole("heading", { level: 1, name: "Barbell Bench Press" }).waitFor({ timeout: 20000 });
+      // The tab carries the exercise's own name, not "Exercise" for every exercise (bug 78).
+      const title = await titleOf(page, "Barbell Bench Press | FITX");
+      t.expect(title === "Barbell Bench Press | FITX", `the page is titled with the exercise's name (got "${title}")`);
       t.expect((await tab("Guide").getAttribute("aria-selected")) === "true", "the Guide tab is open first");
       const about = await textOf(page.getByRole("list", { name: "About this exercise" }));
       t.expect(/Strength/.test(about) && /Compound/.test(about) && /Barbell and plates/.test(about), `the header names category, mechanic and equipment: ${about}`);

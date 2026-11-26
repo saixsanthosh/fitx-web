@@ -49,9 +49,14 @@ export function findSmallTargets() {
 
 const smallTargets = (page) => page.evaluate(findSmallTargets);
 
+/**
+ * Each page and the heading that says it has loaded. Workouts shows its h1 from the first paint, loading included (bug
+ * 94), so its loaded page is told by the Gym tab's Today or Up next, or the Home tab's Target muscles, and its one h1
+ * is checked as well (`h1`).
+ */
 const PAGES = [
   { path: "/dashboard", label: "Home", heading: { level: 1 } },
-  { path: "/workouts", label: "Workouts", heading: { level: 1, name: "Workouts" } },
+  { path: "/workouts", label: "Workouts", heading: { name: /^(Today|Up next|Target muscles)$/ }, h1: "Workouts" },
   { path: "/exercises", label: "Library", heading: { level: 1 } },
   { path: "/exercises/bench_press", label: "Exercise", heading: { level: 1 } },
   { path: "/nutrition", label: "Nutrition", heading: { name: /^Meals/ } },
@@ -72,6 +77,10 @@ export const flow = {
     async function sweep(entry, label = entry.label) {
       await t.goto(entry.path, { label });
       await page.getByRole("heading", entry.heading).first().waitFor({ timeout: 20000 });
+      if (entry.h1) {
+        const h1s = (await page.getByRole("heading", { level: 1 }).allInnerTexts()).map((text) => text.trim());
+        t.expect(h1s.length === 1 && h1s[0] === entry.h1, `${label}: exactly one h1, "${entry.h1}"`, h1s);
+      }
       await fadesSettled(page);
       const shot = await t.checkpoint(label);
       t.expect(!shot.overflow?.overflow, `${label}: no sideways scroll`, shot.overflow);

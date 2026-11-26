@@ -303,6 +303,14 @@ export const flow = {
       const text = await message.innerText();
       t.note("barcode message", text);
       t.expect(!/No product with barcode/.test(await textOf(page.locator("main"))), "it must not claim the product doesn't exist");
+      // The answer names the barcode it couldn't check and offers the ways on (bug 57): add the product with this
+      // barcode filled in, try again, or search by name.
+      const said = page.getByRole("dialog", { name: "Log food" }).getByRole("status").filter({ hasText: /8901063010031 couldn.t be checked/ });
+      await said.waitFor({ timeout: 10000 });
+      const answer = said.locator("xpath=..");
+      for (const name of ["Create a food", "Try again", "Search by name"]) {
+        t.expect((await answer.getByRole("button", { name, exact: true }).count()) === 1, `the answer offers ${name}`);
+      }
       await t.checkpoint("barcode offline");
     });
   },

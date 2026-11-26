@@ -81,6 +81,8 @@ export const flow = {
       await t.checkpoint("equipment editor", { fullPage: false });
       await sheet.getByRole("button", { name: "Save list" }).click();
       await sheet.waitFor({ state: "detached", timeout: 10000 });
+      // What saving did is said on the list's own card, beside Edit equipment (D6); no programme is followed yet.
+      await page.getByRole("region", { name: "Gym equipment" }).getByRole("status").filter({ hasText: "List saved." }).waitFor({ timeout: 10000 });
       const row = await standin.one(`select equipment_keys::text keys from public.user_equipment_profiles where user_id = '${account.id}' and context = 'gym'`);
       t.expect(/kettlebell/.test(row?.keys ?? ""), "the saved gym list should include the kettlebell", row);
     });
@@ -98,6 +100,8 @@ export const flow = {
       await sheet.waitFor({ state: "detached", timeout: 20000 });
       const card = page.getByRole("region", { name: "Your programme" });
       await card.waitFor({ timeout: 15000 });
+      // What following planned is said on the new programme card, where the Follow sheet closed (D6).
+      await card.getByRole("status").filter({ hasText: /^Planned \d+ workouts? for the next 7 days\./ }).waitFor({ timeout: 15000 });
       const text = await textOf(card);
       t.note("programme card", text);
       t.expect(/Today/.test(text), "today should be one of the planned programme days", text);
@@ -260,7 +264,10 @@ export const flow = {
       t.dialogAnswer = "accept";
       const repeated = new URL(page.url()).searchParams.get("session");
       await page.getByRole("button", { name: "Abandon" }).click();
-      await page.getByText("Workout abandoned").waitFor({ timeout: 15000 });
+      // The abandoned state keeps the page's one h1, "Workout", over its own h2 (bug 94).
+      await page.getByRole("heading", { level: 2, name: "Workout abandoned" }).waitFor({ timeout: 15000 });
+      const h1s = (await page.getByRole("heading", { level: 1 }).allInnerTexts()).map((text) => text.trim());
+      t.expect(h1s.length === 1 && h1s[0] === "Workout", "the abandoned workout's page has one h1, Workout", h1s);
       const row = await standin.one(`select status from public.workout_sessions where id = '${repeated}'`);
       t.expect(row?.status === "abandoned", "abandoning should mark the repeated session abandoned", row);
     });

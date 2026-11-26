@@ -1,7 +1,8 @@
 // Flow 11: signed out, every private route sends the visitor to /signin?next=<the route>; signed in, "/" and the
-// sign-in pages go to the dashboard, an account still in setup is held at onboarding (Help stays open), and
-// every app page opens cleanly (console, failed requests, overflow and a screenshot per page).
-import { signInUi } from "./common.mjs";
+// sign-in pages go to the dashboard, an account still in setup is held at onboarding (Help stays open, under the
+// setup header with "Back to setup"), and every app page opens cleanly (console, failed requests, overflow and a
+// screenshot per page) with a title of its own (release 3, bug 78).
+import { signInUi, titleOf } from "./common.mjs";
 
 const PRIVATE = [
   "/dashboard", "/workouts", "/workouts/active", "/nutrition", "/nutrition/sources", "/activity", "/activity/record",
@@ -26,6 +27,22 @@ const MOVED = {
 /** Moved before sign-in too (next.config.ts redirects run before the proxy), so sign-in returns to the new page. */
 const SIGNED_OUT_NEXT = { "/home-workout": "/workouts/form-check", "/form-coach": "/workouts/form-check" };
 const PUBLIC_PAGES = ["/", "/features", "/pricing", "/about", "/for-gyms", "/privacy", "/terms", "/cookies", "/refunds", "/signin", "/signup", "/forgot-password"];
+/** The home page's own title, which an app page carried when it had none of its own (bug 78). */
+const HOME_TITLE = "FITX — Train smart. Live fit.";
+/**
+ * The pages bug 78 found with the home page's title, or with the record's on a not-found address, and the titles they
+ * have now (each page's own name, and "Page not found" for an address that is not one).
+ */
+const OWN_TITLES = {
+  "/workouts": "Workouts | FITX",
+  "/workouts/programme": "Programme | FITX",
+  "/workouts/active": "Active workout | FITX",
+  "/exercises": "Exercise library | FITX",
+  "/exercises/muscles": "Browse by muscle | FITX",
+  "/nutrition": "Nutrition | FITX",
+  "/workouts/history/not-a-workout": "Page not found | FITX",
+  "/activity/not-an-activity": "Page not found | FITX",
+};
 
 export const flow = {
   id: "11-routing",
@@ -95,16 +112,32 @@ export const flow = {
 
     await t.step("signed in: every app page opens", async () => {
       const failures = [];
+      const titles = {};
       for (const route of APP_PAGES) {
         const response = await t.goto(route, { label: `app ${route}` });
         const url = new URL(page.url());
         const heading = await page.locator("main h1, h1").first().innerText({ timeout: 5000 }).catch(() => null);
         const expected = MOVED[route] ?? route;
+        titles[route] = await page.title();
         if (!response || response.status() >= 400) failures.push({ route, status: response?.status() });
         else if (`${url.pathname}${url.search}` !== expected && url.pathname !== expected) failures.push({ route, expected, landed: `${url.pathname}${url.search}` });
         await t.checkpoint(`app ${route}${heading ? ` (${heading.replace(/\s+/g, " ").slice(0, 40)})` : ""}`);
       }
+      t.note("app page titles", titles);
       t.expect(!failures.length, "every app page should open for a signed-in member", failures);
+      // Each names itself, so tabs, history and the screen reader's page announcement tell them apart (bug 78).
+      const untitled = Object.entries(titles).filter(([, title]) => title === HOME_TITLE || !/FITX$/.test(title));
+      t.expect(!untitled.length, "no app page should carry the home page's title", untitled);
+    });
+
+    await t.step("signed in: the pages that had no title of their own are named, and an address that is not a page says so", async () => {
+      const wrong = [];
+      for (const [route, title] of Object.entries(OWN_TITLES)) {
+        await t.goto(route, { label: `title ${route}` });
+        const shown = await titleOf(page, title);
+        if (shown !== title) wrong.push({ route, expected: title, shown });
+      }
+      t.expect(!wrong.length, "each page should carry its own title (bug 78)", wrong);
     });
 
     await t.step("an account still in setup is held at onboarding, Help stays open", async () => {
@@ -121,6 +154,13 @@ export const flow = {
       }
       await t.goto("/help", { label: "unfinished /help" });
       const helpOpen = new URL(page.url()).pathname === "/help";
+      // During setup Help shows the setup header, whose one way on is back to setup: no app menu, account menu or AI
+      // Coach button leading into an app the account can't open yet (bug 35).
+      const back = page.getByRole("link", { name: "Back to setup" });
+      await back.waitFor({ timeout: 15000 });
+      t.expect((await back.getAttribute("href")) === "/onboarding", "Back to setup leads to setup", await back.getAttribute("href"));
+      t.expect((await page.getByRole("navigation", { name: "Main navigation" }).count()) === 0, "no app menu during setup");
+      t.expect((await page.getByRole("button", { name: /^Account(: .+)?$/ }).count()) === 0 && (await page.getByRole("button", { name: "Open AI Coach" }).count()) === 0, "no account menu or AI Coach button during setup");
       await t.checkpoint("help for an account in setup");
       t.expect(!wrong.length, "app pages should send an unfinished account to onboarding", wrong);
       t.expect(helpOpen, `Help should stay open before onboarding, got ${page.url()}`);

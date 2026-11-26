@@ -127,6 +127,8 @@ export const flow = {
       await t.checkpoint("setup about you (validation)");
       await page.getByLabel("Date of birth").fill(BIRTH_DATE);
       await seeText(t, `${expectedAge} years`);
+      // Continue saves it for good, so the field says so first (bug 25), as Profile and Explore settings do.
+      await seeText(t, "You can add it once. To change it later, ask FITX support.");
       await choose(t, "Gender", "Female");
       await t.checkpoint("setup about you (filled)");
       await page.getByRole("button", { name: "Continue" }).click();

@@ -25,6 +25,10 @@ export const flow = {
       await page.getByRole("link", { name: "See pricing" }).click();
       await page.waitForURL("**/pricing");
       await t.settle();
+      // A signed-in member already has the free account: its card offers the dashboard, never "Create account" (bug 72).
+      const free = page.locator("section[aria-labelledby=plan-free]");
+      t.expect(await free.getByRole("link", { name: "Open dashboard" }).isVisible(), "signed in, the FITX account card offers Open dashboard");
+      t.expect((await free.getByRole("link", { name: "Create account" }).count()) === 0, "and no Create account");
       await t.checkpoint("pricing");
     });
 

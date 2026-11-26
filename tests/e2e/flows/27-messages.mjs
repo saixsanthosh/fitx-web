@@ -6,7 +6,7 @@
 // neither inbox lists the other. Release 2a: each member reaches Messages from the Explore rail (whose "Messages" link
 // carries the unread badge), Asha starts the conversation from Ben's profile ("Message"), and shares his post from the
 // post's own share menu ("Send to…").
-import { signInUi } from "./common.mjs";
+import { hasFocus, signInUi } from "./common.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
 
@@ -83,6 +83,8 @@ export const flow = {
       await page.getByRole("button", { name: "Message", exact: true }).click();
       const sheet = page.getByRole("dialog", { name: "New message" });
       await sheet.getByText(`@${benName}`).first().waitFor({ timeout: 15000 });
+      // Whether a first message is taken, and lands in Requests, is Ben's own setting: the sheet promises neither (bug 19).
+      await sheet.getByText(`If @${benName} takes messages from you, it goes to their inbox, or to their requests if they do not follow you.`).waitFor({ timeout: 10000 });
       await sheet.getByRole("textbox", { name: "Message" }).fill("Hi Ben, tempo run on Saturday? https://fitx.example/route");
       await sawOverflow(t, "new message");
       await Promise.all([page.waitForURL(/\/explore\/messages\/[0-9a-f-]{36}$/, { timeout: 20000 }), sheet.getByRole("button", { name: "Send" }).click()]);
@@ -112,6 +114,8 @@ export const flow = {
       await page.getByRole("textbox", { name: "Message" }).fill("Saturday works. 7 am?");
       await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_send_message") && r.ok()), page.getByRole("button", { name: "Send" }).click()]);
       await page.getByText("Saturday works. 7 am?").waitFor({ timeout: 15000 });
+      // The emptied box turns Send off, so the box keeps the focus for the next message (D5).
+      t.expect(await hasFocus(page.getByRole("textbox", { name: "Message" })), "after sending, the focus is in the message box");
       await sawOverflow(t, "conversation");
       const row = await settled(standin, `select status from public.social_conversations where id = '${conversation}'`, (r) => r?.status === "accepted");
       t.expect(row?.status === "accepted", "the conversation is accepted", row);
@@ -152,7 +156,8 @@ export const flow = {
       await sheet.getByRole("button", { name: "Send to…" }).click();
       await sheet.getByRole("searchbox", { name: "Search people to send to" }).fill(benName);
       await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_send_message") && r.ok()), sheet.getByRole("button", { name: new RegExp(benName) }).click()]);
-      await page.getByText(`Sent to @${benName}`).waitFor({ timeout: 15000 });
+      // Said inside the open Share sheet, where a toast would be hidden under it (D6).
+      await sheet.getByText(`Sent to @${benName}`).waitFor({ timeout: 15000 });
       await sawOverflow(t, "send to");
       const shared = await settled(standin, `select count(*)::int n from public.social_messages where conversation_id = '${conversation}' and shared_post_id = '${post.id}'`, (r) => Number(r?.n) === 1);
       t.expect(Number(shared?.n) === 1, "the post is shared in the conversation", shared);
@@ -162,6 +167,8 @@ export const flow = {
       await page.getByRole("button", { name: /^Options for your message: Hi Ben, tempo run on Saturday/ }).click();
       await page.getByRole("dialog", { name: "Your message" }).getByRole("button", { name: "Unsend" }).click();
       await page.getByText("You unsent a message").waitFor({ timeout: 15000 });
+      // The message's options button went with it: the focus is on "You unsent a message" in its place (bug 82, D5).
+      t.expect(await hasFocus(page.getByText("You unsent a message", { exact: true })), "after Unsend, the focus is on the unsent message's place");
       const gone = await settled(standin, `select count(*)::int n from public.social_messages where conversation_id = '${conversation}' and user_id = '${asha.id}' and deleted_at is not null and body = ''`, (r) => Number(r?.n) === 1);
       t.expect(Number(gone?.n) === 1, "unsending blanks the body", gone);
       await sawOverflow(t, "unsent");
@@ -192,7 +199,9 @@ export const flow = {
       await compose.getByRole("button", { name: new RegExp(ashaName) }).click();
       await compose.getByRole("textbox", { name: "Message" }).fill("Hello Asha");
       await compose.getByRole("button", { name: "Send" }).click();
-      await compose.getByRole("alert").getByText("This member does not take messages from you.").waitFor({ timeout: 15000 });
+      // Picked from search, so the sheet doesn't know whether Chen follows Asha: the refusal says what Chen can do and
+      // reveals neither Asha's setting nor her age (bug 19).
+      await compose.getByRole("alert").getByText(`@${ashaName} is not taking messages from you. If you do not follow them yet, follow them first, then try again.`, { exact: true }).waitFor({ timeout: 15000 });
       const none = await standin.one(`select count(*)::int n from public.social_conversations where '${chen.id}' in (user_low, user_high)`);
       t.expect(Number(none?.n) === 0, "no conversation was made", none);
       await standin.sql(`update public.social_profiles set dm_policy = 'followers' where user_id = '${asha.id}'`);

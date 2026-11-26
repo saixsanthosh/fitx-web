@@ -1,8 +1,9 @@
 // Flow 16: the app shell (phases 3 and 15). The grouped menu with its drawn icons (desktop sidebar, tablet rail,
-// phone bar and More sheet), the current page marked and the page fading in on navigation (and not under reduced
+// phone bar and More sheet) and the desktop sidebar's account card with its menu (release 3, bug 73), the current
+// page marked and the page fading in on navigation (and not under reduced
 // motion), the floating AI Coach button (drag and the remembered spot, temporary hide, hidden on focus screens,
 // opening the coach, the Settings switch stored on the account), and a returning member's logo reveal.
-import { signInUi, textOf } from "./common.mjs";
+import { hasFocus, signInUi, textOf } from "./common.mjs";
 
 const MAIN = ["Home", "Workouts", "Nutrition", "Activity", "AI Coach", "Progress", "Exercise library", "Explore"];
 
@@ -67,6 +68,21 @@ export const flow = {
         const moving = await page.evaluate(() => document.getAnimations().filter((animation) => animation.animationName?.startsWith("fitx-navicon")).length);
         t.expect(moving > 0, "the hovered item's icon moves", { moving });
         await t.checkpoint("sidebar", { fullPage: false });
+        // The account is one card at the sidebar's foot (bug 73: the whole menu fits a 1366 × 768 screen). It opens
+        // Profile, Settings, Help and feedback and Log out above it, with the focus inside; Escape gives it back.
+        const card = page.getByRole("button", { name: /^Account(: .+)?$/ }).filter({ visible: true }).first();
+        const panelId = await card.getAttribute("aria-controls");
+        const cardIs = (expanded) => page.locator(`button[aria-controls="${panelId}"][aria-expanded="${expanded}"]`);
+        await card.click();
+        await cardIs(true).waitFor({ timeout: 5000 });
+        const menu = page.locator(`[id="${panelId}"]`);
+        for (const name of ["Profile", "Settings", "Help and feedback"]) t.expect((await menu.getByRole("link", { name, exact: true }).count()) === 1, `${name} is in the account menu`);
+        t.expect((await menu.getByRole("button", { name: "Log out" }).count()) === 1, "Log out is in the account menu");
+        t.expect(await hasFocus(menu.getByRole("link", { name: "Profile", exact: true })), "the focus moves into the menu");
+        await t.checkpoint("sidebar account menu", { fullPage: false });
+        await page.keyboard.press("Escape");
+        await cardIs(false).waitFor({ timeout: 5000 });
+        t.expect(await hasFocus(card), "Escape closes the menu and gives the focus back to the card");
         await nav.getByRole("link", { name: "Nutrition" }).click();
         await page.waitForURL("**/nutrition");
         await t.settle();
@@ -83,6 +99,9 @@ export const flow = {
         const nav = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first();
         const labels = (await nav.getByRole("link").allInnerTexts()).map((text) => text.replace(/\s+/g, " ").trim());
         t.expect(labels.includes("Coach") && labels.includes("Library"), "the rail uses the short labels", labels);
+        // The account's links are in the header's account menu on a tablet, not on the rail (bug 73).
+        const rail = page.locator("aside[data-coach-edge]").filter({ visible: true }).first();
+        t.expect((await rail.getByRole("link", { name: /^(Profile|Settings|Help and feedback)$/ }).count()) === 0, "the rail holds no account links");
         const box = await launcherBox(page);
         t.expect(box && box.x + box.width <= 768 && box.y + box.height <= 1024, "the coach button is on screen at 768 px", box);
         await t.checkpoint("tablet rail", { fullPage: false });
@@ -154,6 +173,9 @@ export const flow = {
     await t.step("Hide AI Coach button lasts until the page is reloaded", async () => {
       const hide = page.getByRole("button", { name: "Hide AI Coach button" });
       await page.getByRole("button", { name: "Open AI Coach" }).hover();
+      // A full touch target around the small badge, its centre on the badge's corner (bug 77).
+      const target = await hide.evaluate((button) => ({ width: button.offsetWidth, height: button.offsetHeight }));
+      t.expect(target.width >= 44 && target.height >= 44, "Hide AI Coach button is at least 44 × 44", target);
       await hide.click();
       t.expect((await page.getByRole("button", { name: "Open AI Coach" }).count()) === 0, "hidden at once");
       const nav = page.getByRole("navigation", { name: "Main navigation" }).filter({ visible: true }).first();

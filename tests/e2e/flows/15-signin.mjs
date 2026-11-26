@@ -49,6 +49,14 @@ async function sentCode(standin, email) {
   return body.code;
 }
 
+/** Each sign-in page's own title. */
+const TITLES = {
+  "/signin": "Sign in | FITX",
+  "/signup": "Create your FITX account | FITX",
+  "/forgot-password": "Reset password | FITX",
+  "/reset-password": "New password | FITX",
+};
+
 /** How far the page scrolls vertically at this viewport (0 means it fits). */
 const verticalScroll = (page) => page.evaluate(() => {
   const root = document.scrollingElement ?? document.documentElement;
@@ -84,6 +92,8 @@ export const flow = {
     await t.step("the stage: the still frame is the page; three.js, its worker and a canvas never load without ?scene=live", async () => {
       for (const route of ["/signin", "/signup", "/forgot-password", "/reset-password"]) {
         await t.goto(route, { label: `stage ${route}` });
+        // Each page names itself (bug 78): the two password pages used to carry the home page's title.
+        t.expect((await page.title()) === TITLES[route], `${route} is titled "${TITLES[route]}" (got "${await page.title()}")`);
         const stage = page.locator("section[aria-label=FITX]");
         const still = await stage.evaluate((element) => getComputedStyle(element.querySelector("div")).backgroundImage);
         t.expect(/\/media\/login\/still-(light|dark)-(wide|tall)\.webp/.test(still), `${route}: the still frame is the picture (${still})`);

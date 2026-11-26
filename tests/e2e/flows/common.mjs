@@ -33,6 +33,26 @@ export async function textOf(locator) {
   return (await locator.innerText()).replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Whether the element `locator` finds holds the keyboard focus within `timeout` ms. Focus often moves a render after
+ * the action (release 3, D5: a control that goes hands the focus on), so this asks again until then; the locator is
+ * resolved afresh each time, so a re-rendered element still counts.
+ */
+export async function hasFocus(locator, { timeout = 5000 } = {}) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    if (await locator.evaluate((element) => element === document.activeElement, null, { timeout: 1000 }).catch(() => false)) return true;
+    if (Date.now() > until) return false;
+    await sleep(100);
+  }
+}
+
+/** The tab title once it is `title`, waiting up to `timeout` ms (a page's metadata can land after its first paint). */
+export async function titleOf(page, title, { timeout = 10000 } = {}) {
+  await page.waitForFunction((want) => document.title === want, title, { timeout }).catch(() => undefined);
+  return page.title();
+}
+
 /** Clicks a visible choice (a label wrapping a visually hidden radio or checkbox) inside the fieldset titled `legend`. */
 export async function choose(t, legend, option) {
   const fieldset = t.page.locator("fieldset").filter({ has: t.page.locator("legend", { hasText: legend }) }).first();

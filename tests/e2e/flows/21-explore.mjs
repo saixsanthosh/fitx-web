@@ -8,7 +8,7 @@
 // adds it in Explore settings; with Explore switched off in Admin, Ben still deletes his own post from Explore settings.
 // Release 2a: the rail shows Feed, Discover, Community and Messages (Videos only while FITX has videos on), the story
 // tray sits above the feed, and "New post" opens the create menu (Photo post and Story; Video only while videos are on).
-import { signInUi, textOf } from "./common.mjs";
+import { hasFocus, signInUi, textOf, titleOf } from "./common.mjs";
 import { makePng } from "../support/png.mjs";
 
 const tag = () => Math.random().toString(36).slice(2, 7);
@@ -138,6 +138,9 @@ export const flow = {
       await page.getByRole("searchbox", { name: "Search Explore" }).fill(benName);
       await page.getByRole("link", { name: new RegExp(benName) }).first().click();
       await page.getByRole("heading", { level: 1, name: "Ben Okafor" }).waitFor({ timeout: 15000 });
+      // The tab names whose profile this is (bug 78).
+      const title = await titleOf(page, `@${benName} · Explore · FITX`);
+      t.expect(title === `@${benName} · Explore · FITX`, `the profile's tab title names the account (got "${title}")`);
       await page.getByText("This account is private").waitFor();
       t.expect(await page.getByRole("link", { name: /Post by/ }).count() === 0, "no post tiles before approval");
       await page.getByRole("button", { name: `Follow @${benName}` }).click();
@@ -177,6 +180,8 @@ export const flow = {
       await page.getByLabel("Add a comment").fill("Strong session!");
       await page.getByRole("button", { name: "Post", exact: true }).click();
       await page.locator("#comments").getByText("Strong session!").waitFor({ timeout: 15000 });
+      // The emptied box turns Post off, so the box keeps the focus for the next comment (D5).
+      t.expect(await hasFocus(page.getByLabel("Add a comment")), "after posting, the focus is in the comment box");
       const counts = await settled(standin, `select (select count(*) from public.social_likes where post_id = '${postId}')::int likes,
         (select count(*) from public.social_saves where post_id = '${postId}' and user_id = '${asha.id}')::int saves,
         (select count(*) from public.social_comments where post_id = '${postId}')::int comments`, (row) => Number(row?.comments) === 1);
@@ -264,6 +269,9 @@ export const flow = {
       const safety = page.locator("section[aria-labelledby=settings-safety]");
       await safety.getByRole("button", { name: `Unblock @${benName}` }).click();
       await safety.getByText("You have not blocked or restricted anyone.").waitFor({ timeout: 15000 });
+      // Said beside the list (Unblock used to say nothing), and the emptied list's heading takes the focus (bug 82).
+      await safety.getByRole("status").filter({ hasText: `@${benName} is unblocked` }).waitFor({ timeout: 10000 });
+      t.expect(await hasFocus(safety.getByRole("heading", { name: "Blocked and restricted" })), "after Unblock, the focus is on the list's heading");
       await Promise.all([page.waitForResponse((r) => r.url().includes("/rpc/fitx_social_save_notification_prefs") && r.ok()), page.getByRole("switch", { name: "Likes", exact: true }).click()]);
       await page.locator("button[role=switch][aria-checked='false']#pref-likes").waitFor({ timeout: 10000 });
       const prefs = await settled(standin, `select likes::text likes from public.social_notification_prefs where user_id = '${asha.id}'`, (r) => r?.likes === "false");

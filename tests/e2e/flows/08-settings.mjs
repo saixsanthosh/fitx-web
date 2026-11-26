@@ -41,7 +41,12 @@ export const flow = {
       await t.goto("/settings", { label: "settings" });
       const section = page.locator("section[aria-labelledby=settings-account]");
       await section.getByText(account.email).waitFor({ timeout: 15000 });
-      t.expect((await textOf(section)).includes("Email and password"), "the sign-in method should read Email and password");
+      // Named from the account and this session (bug 27): every email account can use a code, and this session was
+      // signed in with the password, so Password is listed as fact, without the hedge kept for a code or Google sign-in.
+      const methods = await textOf(section);
+      t.expect(methods.includes("Email code") && methods.includes("Password"), "the sign-in methods should read Email code and Password (a password sign-in)", methods);
+      t.expect((await section.getByText("Email code", { exact: true }).count()) === 1 && (await section.getByText("Password", { exact: true }).count()) === 1, "one chip for each method", methods);
+      t.expect(!methods.includes("If you also set a password, it still works."), "a password sign-in shows no hedge about a password", methods);
       // The theme card: three options of one height, and no empty band under them before Intro film.
       const theme = await page.locator("fieldset").filter({ has: page.locator("legend", { hasText: "Theme" }) }).evaluate((fieldset) => {
         const boxes = [...fieldset.querySelectorAll(".fitx-choice__box")].map((box) => Math.round(box.getBoundingClientRect().height));
@@ -119,6 +124,8 @@ export const flow = {
 
       const body = page.locator("section#body");
       await body.getByRole("button", { name: "Edit body" }).click();
+      // Before it is saved, the field says the date can be added only once (bug 25), as setup and Explore settings do.
+      await body.getByText("You can add it once. To change it later, ask FITX support.").waitFor({ timeout: 10000 });
       await body.getByLabel("Date of birth").fill("1995-03-14");
       await body.getByRole("button", { name: "Save", exact: true }).click();
       await body.getByRole("status").filter({ hasText: "Saved" }).waitFor({ timeout: 15000 });
