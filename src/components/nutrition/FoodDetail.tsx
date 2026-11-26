@@ -2,11 +2,12 @@ import Image from "next/image";
 import { X } from "lucide-react";
 import type { FoodPortion } from "@/lib/domain/food-query";
 import type { FoodMacros } from "@/lib/domain/nutrition";
+import { missingSentence, otherNutrientMissing } from "@/lib/food/missing-values";
 import type { FoodResult } from "@/lib/food/types";
 import { BasisBadge, DietBadge, StateTag } from "./FoodBadges";
 import { NutrientList } from "./NutrientList";
 import { PortionPicker, type AmountPrompt } from "./PortionPicker";
-import { missingSentence, ProductSummary } from "./ProductSummary";
+import { ProductSummary } from "./ProductSummary";
 import styles from "./FoodUi.module.css";
 
 export const ADD_MEAL_VALUE = "__add-meal";
@@ -57,7 +58,8 @@ export function FoodDetail(props: FoodDetailProps) {
     food.servingLabel ? `Serving size on the label: ${food.servingLabel}` : serving ? `Serving: ${serving.label.replace(/^1 serving \((.*)\)$/, "$1")}` : null,
     pack ? `Pack: ${pack.label.replace(/^1 pack \((.*)\)$/, "$1")}` : null,
   ].filter(Boolean).join(" · ");
-  const problem = missingSentence(food, food.source === "Open Food Facts" ? "label" : "source");
+  // In the words of where the food comes from: a label or source doesn't list a value; your own food has it blank.
+  const problem = missingSentence(food);
   return (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -85,7 +87,7 @@ export function FoodDetail(props: FoodDetailProps) {
         </div>}
       <ProductSummary food={food} grams={grams}/>
       {problem && <p role="status" className={styles.callout}>{problem}</p>}
-      <NutrientList food={food} grams={grams} source={food.source === "Open Food Facts" ? "this label" : "this source"}/>
+      <NutrientList food={food} grams={grams} missing={otherNutrientMissing(food)}/>
       {facts && <p className={styles.factLine}>{facts}</p>}
       {food.servingNote && <p className={styles.factLine}>{food.servingNote}</p>}
       {food.recipeNote && <p className={styles.recipeNote}>{food.recipeNote}</p>}

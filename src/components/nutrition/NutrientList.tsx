@@ -8,9 +8,10 @@ const SALT_PER_SODIUM = 2.5;
 
 /**
  * Every other nutrient the food has, for the chosen amount: fibre, sugars, saturated fat, sodium (with the salt it
- * equals). A value the source does not list says so; it is never shown as 0.
+ * equals). A value the food has none for says so (`missing`: "not listed by this label", or "unknown" for a food of
+ * your own); it is never shown as 0.
  */
-export function NutrientList({ food, grams, source }: { food: FoodResult; grams: number; source?: string }) {
+export function NutrientList({ food, grams, missing = "not listed" }: { food: FoodResult; grams: number; missing?: string }) {
   const valid = Number.isFinite(grams) && grams > 0;
   const g = (per100: number | null | undefined) => (valid ? scaleNutrient(per100, grams) : null);
   const sodium = valid ? scaleNutrient(food.sodiumMg, grams) : null;
@@ -29,7 +30,7 @@ export function NutrientList({ food, grams, source }: { food: FoodResult; grams:
       {rows.map((row) => (
         <div key={row.label}>
           <dt>{row.label}</dt>
-          <dd>{row.value ?? <span className={styles.unknown}>not listed{source ? ` by ${source}` : ""}</span>}{row.note && <small>{row.note}</small>}</dd>
+          <dd>{row.value ?? <span className={styles.unknown}>{missing}</span>}{row.note && <small>{row.note}</small>}</dd>
         </div>
       ))}
     </dl>
