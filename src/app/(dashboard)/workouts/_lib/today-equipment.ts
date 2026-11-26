@@ -6,6 +6,7 @@
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { missingEquipment, sortEquipmentKeys } from "@/lib/training/equipment";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
+import type { TodayStart } from "./today-start";
 
 export type EquipmentGaps = { count: number; missing: string[] };
 
@@ -29,6 +30,46 @@ export function equipmentGapMessage(gaps: EquipmentGaps, listName: string, label
   const names = gaps.missing.map((key) => label(key).toLowerCase());
   const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
   return `${gaps.count === 1 ? "1 exercise needs" : `${gaps.count} exercises need`} ${list}, not on your ${listName} list.`;
+}
+
+/**
+ * What the Today card adds to its equipment warning when it has no "Re-plan this day" (the member's own plan): where
+ * the exercises can really be swapped, for the card's start state (today-start.ts). It used to say "Open Details to
+ * swap them", but Details has no Swap: Swap is in the builder, reached with Details' Edit plan, which Details does not
+ * offer while a workout is in progress (release 3 review). With the card's own workout in progress, the live workout's
+ * Swap works (before the exercise's sets are logged); with another one, the swap waits until that one is finished.
+ */
+export function swapAdvice(input: { canReplan: boolean; start: TodayStart["kind"] }): string {
+  if (input.canReplan) return "";
+  if (input.start === "continue") return "You can swap them in your workout with Swap, before you log their sets.";
+  if (input.start === "other") return "To swap them, finish your workout in progress, then open Details and choose Edit plan.";
+  return "To swap them, open Details and choose Edit plan.";
+}
+
+/**
+ * The Today card's "Re-plan this day": the day, whether it runs, how it went (`note`), and whether it left the day
+ * fitting the member's list (`fitted`: the day was re-planned and nothing was left that the list could not replace).
+ */
+export type TodayReplan = { planId: string; busy: boolean; note: string; fitted: boolean };
+
+/**
+ * What is left of the card's re-plan result once the day or the list may have changed (a plan saved, the page's lists
+ * read again, a list saved in Workouts or in Workout setup): only a re-plan still running. The line describes the day
+ * as that re-plan left it, so it goes then (re-check of release 3: "Push was re-planned for your gym list…" stayed
+ * on the card after the list and the day had changed again, right under a new "needs dumbbells" warning).
+ */
+export function replanAfterChange(current: TodayReplan | null): TodayReplan | null {
+  return current?.busy ? current : null;
+}
+
+/**
+ * The card's re-plan line under its equipment warning: never "re-planned for your list" while the card says that
+ * exercises need equipment the list lacks (`gapCount`), whatever changed meanwhile. Other outcomes (nothing could be
+ * changed, a day nothing on the list fits, a failure) stay beside the warning they explain.
+ */
+export function replanLine(replan: TodayReplan | null, gapCount: number): string {
+  if (!replan || replan.busy) return "";
+  return replan.fitted && gapCount > 0 ? "" : replan.note;
 }
 
 /**

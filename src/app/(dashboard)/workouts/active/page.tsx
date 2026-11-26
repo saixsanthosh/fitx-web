@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { PageHeading } from "@/components/app/PageHeading";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
@@ -33,6 +32,7 @@ import { finishSessionWithRpc } from "@/lib/training/plans";
 import { sessionStats } from "@/lib/training/session-stats";
 import { draftRepsFor, isLiftSet, isTimedPrescription, liftedVolume, setTargetReps, swappedPrescription } from "@/lib/training/sets";
 import { LEVELS, type Level } from "@/lib/training/taxonomy";
+import { focusHeading } from "@/lib/workouts/focus-heading";
 import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMNS, SET_REP_SOURCE_COLUMNS } from "../_lib/workout-columns";
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
@@ -42,7 +42,7 @@ import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/ses
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
-  sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone, updateSet, workTarget,
+  sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, tickMovesOn, timerSecondsDone, updateSet, workTarget,
 } from "./_lib/session-progress";
 import { useScreenWakeLock, useWorkoutCues } from "./session-device";
 
@@ -64,6 +64,9 @@ const DRAFT_LIMITS: Record<DraftField, { max: number; decimals: number }> = { dr
 
 /** An action's problem, beside the control that was used. */
 const PROBLEM_CLASS = "m-0 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg px-3 py-2 text-sm text-fitx-danger";
+/** The headings of the screens that Finish workout and Abandon open: each takes focus once its action has worked (D5). */
+const COMPLETE_HEADING = "workout-complete-title";
+const ABANDONED_HEADING = "workout-abandoned-title";
 
 /** One calm line naming what this database cannot store yet; empty when everything is available. */
 function unavailableFieldsNotice(targetsSupported: boolean, timedSetsSupported: boolean) {
@@ -170,6 +173,17 @@ export default function ActiveWorkoutPage() {
   const clockButtonRef = useRef<HTMLButtonElement>(null);
   const [focusClock, setFocusClock] = useState(0);
   useEffect(() => { if (focusClock) clockButtonRef.current?.focus(); }, [focusClock]);
+  // Finish workout and Abandon replace the running workout with their own screen, and the button that held focus goes
+  // with it (focus fell to the page body): that screen's heading, which says what happened, takes focus. Not when the
+  // action fails: the button then stays, with the problem beside it, and keeps focus.
+  const [closedFocus, setClosedFocus] = useState<string | null>(null);
+  useEffect(() => { if (closedFocus) focusHeading(document, closedFocus); }, [closedFocus]);
+  // The same when ticking an exercise's last open set moves the page on: the set list that held focus is replaced by
+  // the next exercise's, whose name takes focus (a touch or mouse user's page does not scroll for it).
+  const exerciseIndexRef = useRef(exerciseIndex);
+  useEffect(() => { exerciseIndexRef.current = exerciseIndex; }, [exerciseIndex]);
+  const [movedOn, setMovedOn] = useState(0);
+  useEffect(() => { if (movedOn) focusHeading(document, "current-exercise-title", { keepScroll: true }); }, [movedOn]);
   const restCueRef = useRef<{ endsAt: number | null; cued: boolean }>({ endsAt: null, cued: true });
   useEffect(() => { timerRef.current = setTimer; }, [setTimer]);
   useEffect(() => { restCueRef.current = { endsAt: restEndsAt, cued: restEndsAt === null || restEndsAt <= Date.now() }; }, [restEndsAt]);
@@ -539,6 +553,7 @@ export default function ActiveWorkoutPage() {
       setRestHeldSeconds(0);
       // Moves on only when the member is still on this exercise.
       const index = nextExercises.findIndex((item) => item.id === exerciseId);
+      if (tickMovesOn(nextExercises, index, exerciseIndexRef.current)) setMovedOn((value) => value + 1);
       setExerciseIndex((current) => (index >= 0 && Math.max(0, Math.min(current, nextExercises.length - 1)) === index ? exerciseAfterTick(nextExercises, index) : current));
     } else { setRestEndsAt(null); setRestHeldSeconds(0); }
   }
@@ -584,6 +599,7 @@ export default function ActiveWorkoutPage() {
     setSetTimer(null);
     setFinished(true);
     setSaving(false);
+    setClosedFocus(COMPLETE_HEADING);
     void loadCompletionMuscles(supabase, session, finishedAt, exercises);
   }
 
@@ -667,6 +683,7 @@ export default function ActiveWorkoutPage() {
     setRestEndsAt(null);
     setSetTimer(null);
     setSession({ ...session, status: "abandoned" });
+    setClosedFocus(ABANDONED_HEADING);
   }
 
   // Every state of the page has one main heading (bug 94): "Workout" over a state, the workout's name while it runs.
@@ -676,7 +693,7 @@ export default function ActiveWorkoutPage() {
   if (finished && completion) {
     const stats = sessionStats({ status: "completed", started_at: session.started_at, completed_at: completion.finishedAt, duration_seconds: completion.duration }, exercises);
     return <div className="mx-auto max-w-4xl space-y-5">
-      <PageHeading title="Workout complete" description="Saved to your workout history." />
+      <PageHeader title="Workout complete" meta="Saved to your workout history." titleId={COMPLETE_HEADING} />
       <section aria-labelledby="completed-workout-name" className="fitx-panel space-y-6 p-4 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-fitx-primary/10 text-fitx-primary"><Check size={24} aria-hidden="true" /></span>
@@ -697,7 +714,7 @@ export default function ActiveWorkoutPage() {
       </section>
     </div>;
   }
-  if (session.status === "abandoned") return <ActiveState><EmptyState headingLevel={2} title="Workout abandoned" description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} /></ActiveState>;
+  if (session.status === "abandoned") return <ActiveState><EmptyState headingLevel={2} title="Workout abandoned" headingId={ABANDONED_HEADING} description="It doesn’t count as a completed workout. The sets you completed are kept with it in your history." action={<div className="flex flex-wrap justify-center gap-2"><Link href={recordHref(session.id)} className="fitx-button">View its record</Link><Link href="/workouts" className="fitx-button fitx-button-secondary">Back to workouts</Link></div>} /></ActiveState>;
   if (session.status !== "in_progress") return <ActiveState><EmptyState headingLevel={2} title="Opening the workout record" description="This workout has finished." action={<Link href={recordHref(session.id)} className="fitx-button">View its record</Link>} /></ActiveState>;
 
   const paused = Boolean(clock?.paused);

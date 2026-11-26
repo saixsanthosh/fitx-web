@@ -50,6 +50,8 @@ import { splitProgrammeId, type Programme } from "@/lib/training/programmes";
 import { readPlanExercises, startFailureMessage, startPlanSession, type PlanExerciseRow } from "@/lib/training/plans";
 import { replanMessage, replanUpcomingProgrammeDays } from "@/lib/training/programme-replan";
 import { loadRecentExerciseDays } from "@/lib/training/recent-days";
+import { focusLost } from "@/lib/workouts/focus-heading";
+import { useRetryFocus, type ReloadPhase } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import { stripRange, targetSessions } from "@/lib/training/programme-calendar";
 import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/training/start-link";
@@ -61,7 +63,7 @@ import { MAX_PLAN_EXERCISES, focusAfterMove, focusAfterRemove, focusAfterSwap, m
 import { focusAfterPlanDelete, historyNote, moreNote, planCardNote, plansLineNote, type ListNote } from "./_lib/list-notes";
 import { deletePlanAndItsItem, itemLeftMessage } from "./_lib/plan-delete";
 import { plannerEventsForPlan, plannerScheduleChange } from "./_lib/plan-schedule";
-import { equipmentGapMessage, equipmentGaps, listChanged } from "./_lib/today-equipment";
+import { equipmentGapMessage, equipmentGaps, listChanged, replanAfterChange, replanLine, type TodayReplan } from "./_lib/today-equipment";
 import { pickToday } from "./_lib/today-pick";
 import { fetchUpcomingScheduled, joinScheduledToPlans, type ScheduledItem } from "./_lib/scheduled";
 import { FIRST_PLAN_PAGE, composePlanPage, mergePlansById, planCardStatus, planPageRequests, planSegmentSpec, type PlanPageCursor, type PlanSegmentRequest } from "./_lib/plan-list";
@@ -91,6 +93,8 @@ const EQUIPMENT_SHOWN = 9;
 const TARGETS_UNAVAILABLE_NOTICE = "Weight and time targets arrive with the next FITX update. Everything else saves.";
 const SETUP_SAVED = "Setup saved. Workouts now follows your answers.";
 const BUILDER_MODES: ReadonlyArray<[BuilderMode, string]> = [["focus", "Body areas"], ["auto", "Your split"], ["custom", "Blank"]];
+/** The page's h1 in every state, and the Try again of Workouts unavailable or of the lists' alert (never both). */
+const WORKOUTS_FOCUS = { heading: "workouts-title", retry: "workouts-retry" };
 
 /** "Done" in the success colour; the other statuses stay neutral. */
 function PlanStatusChip({ status }: { status: ReturnType<typeof planCardStatus> }) {
@@ -266,6 +270,11 @@ export default function WorkoutsPage() {
   const [setup, setSetup] = useState<WorkoutSetup | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [setupLater, setSetupLater] = useState(false);
+  // The first-visit setup goes once the member chooses Later or saves it, and the button that held focus goes with it:
+  // focus moves to Workout setup in the header, which opens the setup again (D5). The sheet returns focus there itself.
+  const setupButtonRef = useRef<HTMLButtonElement>(null);
+  const [setupFocus, setSetupFocus] = useState(0);
+  useEffect(() => { if (setupFocus && focusLost(document)) setupButtonRef.current?.focus(); }, [setupFocus]);
   const [profiles, setProfiles] = useState<EquipmentProfiles>({ home: null, gym: null, available: false });
   const [programmes, setProgrammes] = useState<Programme[]>([]);
   const [enrolAvailable, setEnrolAvailable] = useState(false);
@@ -273,8 +282,8 @@ export default function WorkoutsPage() {
   const [programmePlans, setProgrammePlans] = useState<ProgrammePlan[]>([]);
   const [recentDays, setRecentDays] = useState<Map<string, number>>(() => new Map());
   const [programmeBusy, setProgrammeBusy] = useState(false);
-  // Leaving or finishing replaces the programme card, and the control that held focus with it: focus moves to the
-  // section's heading, under which the result is said (D5).
+  // Following replaces the programme list, and leaving or finishing replaces the programme card, each taking the
+  // control that held focus with it: focus moves to the section's heading, under which the result is said (D5).
   const [programmeFocus, setProgrammeFocus] = useState(0);
   useEffect(() => {
     const heading = programmeFocus ? document.getElementById("programme-title") : null;
@@ -296,8 +305,8 @@ export default function WorkoutsPage() {
   // The programme card's own line (D6): days re-planned for a changed equipment list (bug 17), or what a programme
   // action did or why it did not work, beside the card's buttons rather than at the top of the page.
   const [programmeNote, setProgrammeNote] = useState<{ tone: "info" | "error"; text: string } | null>(null);
-  // The Today card's "Re-plan this day": the day, whether it runs, and how it went.
-  const [todayReplan, setTodayReplan] = useState<{ planId: string; busy: boolean; note: string } | null>(null);
+  // The Today card's "Re-plan this day": the day, whether it runs, and how it went (until the day or the list changes).
+  const [todayReplan, setTodayReplan] = useState<TodayReplan | null>(null);
   const [swapIndex, setSwapIndex] = useState<number | null>(null);
   // After a swap or a remove takes the focused button away, the control that takes focus (seq: once per action), and
   // what the builder's live region says about it (bug 14).
@@ -423,6 +432,14 @@ export default function WorkoutsPage() {
     setTargetsSupported((current) => !targetsProbe.error ? true : targetsMissing ? false : current);
     setLoading(false);
     setError("");
+    // The list is read again: a plan card's or a History row's earlier message is about a list that is gone (as the
+    // page-wide alert was at 99d06a8). An action that reloads says its own result after this (Delete, a save).
+    setListNote(null);
+    // So were the days and the lists: the Today card's re-plan line, and the programme card's line (a re-plan or an
+    // action's result), no longer describe them. Anything this load re-plans, and an action's result, is said below or
+    // after it.
+    setTodayReplan(replanAfterChange);
+    setProgrammeNote(null);
     setLoadVersion((value) => value + 1);
     // Home, the week view and To-Do link here with ?plan=: the plan opens in its preview first.
     if (linkedPlanId && !deepLinkHandled.current) {
@@ -464,6 +481,11 @@ export default function WorkoutsPage() {
   }, []);
 
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  // Try again (Workouts unavailable, or the lists' alert) reloads the whole page, taking the button with it: once the
+  // reload ends, focus goes to the page's h1, or to the new Try again when something still could not load (D5). The
+  // page was replaced, so it is shown from its h1.
+  const reloadPhase: ReloadPhase = loading ? "loading" : error || equipmentLoadFailed || programmeLoadFailed ? "failed" : "ready";
+  const retrying = useRetryFocus(reloadPhase, WORKOUTS_FOCUS);
 
   // "Later" on the first-time setup holds on this device until the member opens the setup themselves.
   useEffect(() => {
@@ -486,14 +508,18 @@ export default function WorkoutsPage() {
   function laterSetup() {
     setSetupLater(true);
     try { window.localStorage.setItem(setupLaterKey(userId), "1"); } catch { /* storage unavailable: hidden for this visit */ }
+    setSetupFocus((value) => value + 1);
   }
 
   function setupSaved(next: WorkoutSetup) {
     const firstTime = !setup?.done;
+    // Saved from the page (the first-visit setup shows only while the sheet is closed): it goes now (see setupFocus).
+    if (!setupOpen) setSetupFocus((value) => value + 1);
     // The list the followed programme's days were planned with, before this save (a starting list until one is saved).
     const programmeList = enrolment ? equipmentFor(profiles, enrolment.context, preferences.equipment).keys : null;
     setSetup(next);
     setProfiles(next.profiles);
+    setTodayReplan(replanAfterChange);
     setPreferences((current) => ({ ...current, workout_location: next.location, fitness_level: next.level, equipment: next.profiles.home ?? current.equipment }));
     setSetupOpen(false);
     setNotice(SETUP_SAVED);
@@ -501,7 +527,11 @@ export default function WorkoutsPage() {
     notifyUserContextChanged();
     if (firstTime) changeMode(modeForLocation(next.location));
     const keys = enrolment ? next.profiles[enrolment.context] : null;
-    if (programmeList && listChanged(programmeList, keys)) void replanAfterSetup(next, keys!);
+    if (programmeList && listChanged(programmeList, keys)) {
+      // The programme card's line was about the list before this one; the re-plan says its result with the setup's.
+      setProgrammeNote(null);
+      void replanAfterSetup(next, keys!);
+    }
   }
 
   /** Setup saved a new list for the followed programme's place: its days ahead follow it (bug 17), as after Save list. */
@@ -737,6 +767,9 @@ export default function WorkoutsPage() {
     showBuilder();
     setError("");
     setNotice("");
+    // The member has moved on to a new workout: an earlier plan card's or History row's message goes, as Edit,
+    // Duplicate, Delete and Repeat already clear it.
+    setListNote(null);
   }
 
   /** Switching how a new workout starts: a split regenerates; body areas regenerate once chosen; Blank keeps the rows. */
@@ -819,6 +852,10 @@ export default function WorkoutsPage() {
     // Profile shows the lists (and counts a saved one as setup done) from the shared context: it reloads now.
     notifyUserContextChanged();
     setProfiles((current) => ({ ...current, [saved.context]: saved.keys }));
+    // The Today card's re-plan line was about the list before this one, and so was the programme card's when the
+    // list is for the programme's place.
+    setTodayReplan(replanAfterChange);
+    if (enrolment?.context === saved.context) setProgrammeNote(null);
     // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
     setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [saved.context]: saved.keys }, done: true } : current);
     // The followed programme's days ahead follow the new list (bug 17): what that changed is said on the list's card.
@@ -845,7 +882,7 @@ export default function WorkoutsPage() {
     const supabase = createClient();
     const programme = followedProgramme(programmes, enrolment);
     if (!supabase || !userId || !enrolment || !programme || todayReplan?.busy) return;
-    setTodayReplan({ planId, busy: true, note: "" });
+    setTodayReplan({ planId, busy: true, note: "", fitted: false });
     const todayKey = localDateKey();
     const checked = await replanProgrammeDays(supabase, {
       userId, enrolment, programme, catalog, owned: ownedFor(enrolment.context), level, recentDays, todayKey,
@@ -855,6 +892,7 @@ export default function WorkoutsPage() {
     setTodayReplan({
       planId, busy: false,
       note: checked.outcome.error ? "This day couldn’t be re-planned. Check your connection and try again." : replanMessage(checked.outcome, enrolment.context) || "Nothing to change: this day has started, or every exercise fits your list.",
+      fitted: !checked.outcome.error && checked.outcome.replanned.some((day) => day.planId === planId) && !checked.outcome.unfixable.length,
     });
   }
 
@@ -874,8 +912,10 @@ export default function WorkoutsPage() {
     });
     setProgrammeBusy(false);
     await load();
-    // Said on the new programme card, where the Follow sheet closed (D6).
+    // Said on the new programme card, where the Follow sheet closed (D6). The card replaced the programme list, and
+    // the sheet and its Follow button went with it: focus goes to the Programme heading, above the card (D5).
     setProgrammeNote({ tone: scheduled.error && !scheduled.created ? "error" : "info", text: programmeNotice(scheduled.created, scheduled.unfilledSlots, scheduled.error, scheduled.skippedDays) });
+    setProgrammeFocus((value) => value + 1);
     return null;
   }
 
@@ -1278,11 +1318,11 @@ export default function WorkoutsPage() {
   // The page's h1 is there in every state (bug 94), loading and unavailable included.
   if (loading) return (
     <div className={styles.page}>
-      <PageHeader title="Workouts" />
+      <PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading} />
       <div className={styles.topGrid} aria-busy="true" aria-label="Loading workouts"><div className={`${styles.skeleton} h-96`} /><div className={`${styles.skeleton} hidden h-96 lg:block`} /></div>
     </div>
   );
-  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} action={<button className="fitx-button fitx-button-secondary" onClick={() => { setLoading(true); void load(); }}>Try again</button>} /></div>;
+  if (error && !userId) return <div className={styles.page}><PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading} /><EmptyState headingLevel={2} title="Workouts unavailable" description={error} descriptionId="workouts-load-problem" action={<button id={WORKOUTS_FOCUS.retry} type="button" aria-describedby="workouts-load-problem" className="fitx-button fitx-button-secondary" onClick={() => { retrying(); setLoading(true); void load(); }}>Try again</button>} /></div>;
   // Hidden only once the database has said it lacks the target columns, so nothing typed is lost on save.
   const showTargets = targetsSupported !== false;
   const gymEquipment = equipmentFor(profiles, "gym", preferences.equipment);
@@ -1307,11 +1347,13 @@ export default function WorkoutsPage() {
   const todayContext: TrainingContext = today.kind !== "none" && today.programme && enrolment ? enrolment.context : contextForLocation(today.kind === "none" ? null : today.plan.workout_location);
   const todayGaps = todayCard && loadedToday?.rows ? equipmentGaps(loadedToday.rows, catalogById, ownedFor(todayContext)) : null;
   const todayReplanHere = todayCard && todayReplan?.planId === todayCard.id ? todayReplan : null;
-  const todayGap = todayCard && (todayGaps?.count || todayReplanHere?.note) ? {
+  // What the last re-plan did, while it still describes this day and list: never "re-planned" beside a new warning.
+  const todayReplanLine = replanLine(todayReplanHere, todayGaps?.count ?? 0);
+  const todayGap = todayCard && (todayGaps?.count || todayReplanLine) ? {
     message: todayGaps?.count ? equipmentGapMessage(todayGaps, todayContext, equipmentLabel) : "",
     onReplan: todayGaps?.count && today.kind !== "none" && today.programme && enrolment?.status === "active" ? () => void replanToday(todayCard.id) : null,
     replanning: Boolean(todayReplanHere?.busy),
-    note: todayReplanHere?.note ?? "",
+    note: todayReplanLine,
   } : null;
   const doneToday = sessions.find((session) => localDateKey(new Date(session.started_at)) === todayKey) ?? null;
   const hiddenEquipment = Math.max(0, gymEquipment.keys.length - EQUIPMENT_SHOWN);
@@ -1322,19 +1364,19 @@ export default function WorkoutsPage() {
   return (
     <div className={styles.page}>
       <div className={styles.stack}>
-      <PageHeader title="Workouts"
+      <PageHeader title="Workouts" titleId={WORKOUTS_FOCUS.heading}
         meta={counts.completed !== null && counts.completed > 0 ? `${counts.completed.toLocaleString()} workout${counts.completed === 1 ? "" : "s"} done` : undefined}
         actions={<>
-          {setup && <button type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
+          {setup && <button ref={setupButtonRef} type="button" className={`fitx-button fitx-button-secondary ${styles.headerAction}`} onClick={() => setSetupOpen(true)} aria-haspopup="dialog"><Settings2 size={17} aria-hidden="true" />Workout setup</button>}
           <button type="button" className={`fitx-button ${styles.headerAction}`} onClick={() => openCreator("focus", mode)}><Plus size={18} aria-hidden="true" />New workout</button>
         </>} />
       {error && <p role="alert" className="fitx-alert fitx-alert-danger px-3 py-2 text-sm">{error}</p>}
       {notice && <p role="status" className={styles.notice}><Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-info"/><span>{notice}</span></p>}
       {(equipmentLoadFailed || programmeLoadFailed) && <p role="status" className="fitx-alert">
-        {equipmentLoadFailed && programmeLoadFailed ? "Your equipment and programme couldn’t be loaded. Saving and planning wait until they do."
+        <span id="workouts-lists-problem">{equipmentLoadFailed && programmeLoadFailed ? "Your equipment and programme couldn’t be loaded. Saving and planning wait until they do."
           : equipmentLoadFailed ? "Your saved equipment couldn’t be loaded. Saving a list waits until it does."
-          : "Your programme couldn’t be loaded. Planning waits until it does, so no week is planned twice."}
-        <button type="button" onClick={() => { setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
+          : "Your programme couldn’t be loaded. Planning waits until it does, so no week is planned twice."}</span>
+        <button id={WORKOUTS_FOCUS.retry} type="button" aria-describedby="workouts-lists-problem" onClick={() => { retrying(); setLoading(true); void load(); }} className="fitx-alert-action">Try again</button>
       </p>}
       {activeSession && <div className={styles.activeSession}><span className={styles.livePulse} aria-hidden="true" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold">Workout in progress</p><p className="truncate text-xs text-fitx-text-secondary">{activeSession.name} · started {readableDate(new Date(activeSession.started_at), { hour: "numeric", minute: "2-digit" })}</p></div><Link className="fitx-button min-h-11 shrink-0" href={"/workouts/active?session=" + activeSession.id}>Continue<ArrowRight size={16} aria-hidden="true"/></Link></div>}
 
@@ -1556,7 +1598,9 @@ export default function WorkoutsPage() {
               <h3 id="builder-order-title" tabIndex={-1} className="text-sm font-semibold">Exercise order <span className="font-normal text-fitx-text-secondary">· {preview.length}</span></h3>
               {((builderProgramme) || (builderMode === "focus" && !editingPlanId && focusAreas.length > 0)) && <button type="button" onClick={() => { const seed = autoSeed + 1; setAutoSeed(seed); if (builderMode === "focus") applyFocus(builderContext, focusAreas, seed); else applyAuto(builderContext, autoDay, seed); }} className="inline-flex min-h-11 items-center text-sm font-semibold text-fitx-primary-text">Regenerate plan</button>}
             </div>
-            {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary" aria-live="polite">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
+            {/* Not a live region: it changes with every digit typed in a row's Sets, Reps or Rest, and the builder's own
+                status line below already says what Swap, Remove and the move buttons did (release 3 review). */}
+            {preview.length > 0 && <p className="mb-3 text-xs text-fitx-text-secondary">{builderSummary.exercises} exercise{builderSummary.exercises === 1 ? "" : "s"} · {builderSummary.totalSets} sets{builderSummary.estimateMinutes ? ` · ≈ ${builderSummary.estimateMinutes} min (estimate)` : ""}</p>}
             <p role="status" className="sr-only">{builderNotice}</p>
             {autoNote && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{autoNote}</span></p>}
             {!showTargets && <p role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface-variant px-3 py-2 text-xs text-fitx-text-secondary"><Info size={14} aria-hidden="true" className="mt-px shrink-0 text-fitx-info"/><span>{TARGETS_UNAVAILABLE_NOTICE}</span></p>}

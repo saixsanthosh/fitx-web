@@ -1,10 +1,16 @@
 /**
  * Touch targets for the body map's picker (bug 77: on a 390 px phone the neck's plates were 14 × 33 px, the traps
  * 88 × 26, the shoulders 30 × 47 each, and the lats, lower back, abductors and adductors also under 44 px). Each
- * plate smaller than 44 × 44 px at the size the figure is drawn gets an invisible hit area: a rectangle centred on the
- * plate and at least 44 × 44 px, inside the region's own button, so tapping just beside a small muscle still selects
- * it. Each rectangle is clipped to leave out every other region's plates, so a tap on a neighbouring muscle always
- * selects that muscle: the extra area only ever covers the body's base and gaps. Pure data from body-paths.ts.
+ * plate smaller than 44 × 44 px at the size the figure is drawn gets an invisible hit area inside the region's own
+ * button, so tapping just beside a small muscle still selects it: a rectangle centred on the plate and at least
+ * 44 × 44 px, clipped to leave out every other region's plates, so a tap on a neighbouring muscle always selects that
+ * muscle and the extra area only ever covers the body's base and gaps.
+ *
+ * At phone sizes nearly every plate is small, so these rectangles overlap, and the muscle drawn later used to take
+ * the whole overlap (re-check of release 3: almost none of the back adductors' area selected them; the front lats kept
+ * 4 % of theirs). Where two muscles' rectangles overlap, each now keeps the part nearer its own plate (the line halfway
+ * between the two plates' centres), so the areas never overlap and a tap between two muscles selects the nearer one.
+ * Each area is the convex polygon left. Pure data from body-paths.ts.
  */
 import type { RegionKey } from "@/lib/training/anatomy";
 import { BODY_ART, BODY_VIEWBOX, type BodyView } from "./body-paths";
@@ -14,8 +20,13 @@ export const HIT_MIN_PX = 44;
 
 export type Box = { x: number; y: number; width: number; height: number };
 
-/** One invisible hit area: a rectangle in the figure's units, and the clip that leaves out other regions' plates. */
-export type HitArea = Box & { clip: string | null };
+/**
+ * One invisible hit area, in the figure's units: its outline (`d`, a convex polygon), the box around it, and the clip
+ * that leaves out other regions' plates.
+ */
+export type HitArea = Box & { d: string; clip: string | null };
+
+type Point = readonly [number, number];
 
 const NUMBER = /[MCZmcz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g;
 
@@ -82,6 +93,40 @@ function grown(box: Box, min: number): Box {
 
 const rounded = (value: number) => Math.round(value * 100) / 100;
 
+const centreOf = (box: Box): Point => [box.x + box.width / 2, box.y + box.height / 2];
+const cornersOf = (box: Box): Point[] => [[box.x, box.y], [box.x + box.width, box.y], [box.x + box.width, box.y + box.height], [box.x, box.y + box.height]];
+
+/**
+ * The part of a convex polygon nearer `own` than `other`: the side of the line halfway between them (the perpendicular
+ * bisector) that holds `own` (Sutherland–Hodgman with one edge). The result is convex too.
+ */
+export function nearerTo(polygon: readonly Point[], own: Point, other: Point): Point[] {
+  const nx = other[0] - own[0];
+  const ny = other[1] - own[1];
+  if (Math.abs(nx) < 1e-9 && Math.abs(ny) < 1e-9) return [...polygon];
+  const limit = (other[0] ** 2 + other[1] ** 2 - own[0] ** 2 - own[1] ** 2) / 2;
+  const side = (point: Point) => nx * point[0] + ny * point[1] - limit;
+  const kept: Point[] = [];
+  polygon.forEach((a, index) => {
+    const b = polygon[(index + 1) % polygon.length];
+    const sa = side(a);
+    const sb = side(b);
+    if (sa <= 0) kept.push(a);
+    if ((sa < 0 && sb > 0) || (sa > 0 && sb < 0)) {
+      const t = sa / (sa - sb);
+      kept.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]);
+    }
+  });
+  return kept;
+}
+
+function boxOf(points: readonly Point[]): Box {
+  const xs = points.map((point) => point[0]);
+  const ys = points.map((point) => point[1]);
+  const x = Math.min(...xs); const y = Math.min(...ys);
+  return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
+}
+
 const plateBoxes = new Map<BodyView, Array<{ key: RegionKey; d: string; box: Box }>>();
 function platesOf(view: BodyView) {
   let plates = plateBoxes.get(view);
@@ -100,8 +145,9 @@ export function unitsPerPixel(figurePx: number): number {
 const cache = new Map<string, Partial<Record<RegionKey, HitArea[]>>>();
 
 /**
- * The hit areas for one view with the figure drawn `figurePx` wide: per region, one rectangle for each of its plates
- * that is under 44 × 44 px there (none for a region whose plates are all large enough).
+ * The hit areas for one view with the figure drawn `figurePx` wide: per region, one area for each of its plates that
+ * is under 44 × 44 px there (none for a region whose plates are all large enough): the plate's 44 px rectangle,
+ * less what is nearer another region's small plate whose rectangle reaches into it.
  */
 export function pickerHitAreas(view: BodyView, figurePx: number): Partial<Record<RegionKey, HitArea[]>> {
   const min = HIT_MIN_PX * unitsPerPixel(figurePx);
@@ -109,13 +155,17 @@ export function pickerHitAreas(view: BodyView, figurePx: number): Partial<Record
   const known = cache.get(cacheKey);
   if (known) return known;
   const plates = platesOf(view);
+  const small = plates.filter((plate) => plate.box.width < min || plate.box.height < min).map((plate) => ({ ...plate, rect: grown(plate.box, min), centre: centreOf(plate.box) }));
   const areas: Partial<Record<RegionKey, HitArea[]>> = {};
-  for (const plate of plates) {
-    if (plate.box.width >= min && plate.box.height >= min) continue;
-    const rect = grown(plate.box, min);
-    const others = plates.filter((other) => other.key !== plate.key && overlaps(rect, other.box)).map((other) => other.d);
-    const outline = `M${rounded(rect.x)} ${rounded(rect.y)}H${rounded(rect.x + rect.width)}V${rounded(rect.y + rect.height)}H${rounded(rect.x)}Z`;
-    (areas[plate.key] ??= []).push({ x: rounded(rect.x), y: rounded(rect.y), width: rounded(rect.width), height: rounded(rect.height), clip: others.length ? `${outline} ${others.join(" ")}` : null });
+  for (const plate of small) {
+    let polygon: Point[] = cornersOf(plate.rect);
+    for (const other of small) if (other.key !== plate.key && overlaps(plate.rect, other.rect)) polygon = nearerTo(polygon, plate.centre, other.centre);
+    const points = polygon.map(([x, y]): Point => [rounded(x), rounded(y)]);
+    const box = points.length >= 3 ? boxOf(points) : null;
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    const outline = `M${points.map(([x, y]) => `${x} ${y}`).join("L")}Z`;
+    const others = plates.filter((other) => other.key !== plate.key && overlaps(box, other.box)).map((other) => other.d);
+    (areas[plate.key] ??= []).push({ x: box.x, y: box.y, width: rounded(box.width), height: rounded(box.height), d: outline, clip: others.length ? `${outline} ${others.join(" ")}` : null });
   }
   cache.set(cacheKey, areas);
   return areas;

@@ -7,7 +7,7 @@
  * "Workout setup" whenever the member wants to change an answer. Saving goes through saveWorkoutSetup.
  */
 import Image from "next/image";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ChevronDown } from "lucide-react";
 import { EquipmentTile } from "@/components/equipment/EquipmentTile";
 import { WORKOUTMODES_MEDIA } from "@/data/workout-modes-media";
@@ -21,7 +21,8 @@ import {
 } from "@/lib/training/setup";
 import { DEFAULT_GYM_EQUIPMENT, EQUIPMENT, LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { cn } from "@/lib/utils";
-import { setupSteps, type SetupStep } from "./setup-steps";
+import { focusHeading } from "@/lib/workouts/focus-heading";
+import { setupSteps, stepMoveRemovesButton, type SetupStep } from "./setup-steps";
 import styles from "./WorkoutSetup.module.css";
 
 const LEVEL_TEXT: Record<Level, { label: string; detail: string }> = {
@@ -70,6 +71,9 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState("");
+  // Back from the second step takes its own button away (the first step has none): the step's title takes focus (D5).
+  const [titleFocus, setTitleFocus] = useState(0);
+  useEffect(() => { if (titleFocus) focusHeading(document, "workout-setup-title"); }, [titleFocus]);
 
   const steps = setupSteps(location);
   const step = steps[Math.min(stepIndex, steps.length - 1)];
@@ -83,6 +87,7 @@ export function WorkoutSetupFlow({ setup, userId, legacyWords, variant, onSaved,
     setDirection(delta);
     setExpanded(false);
     setStepIndex((index) => Math.max(0, Math.min(steps.length - 1, index + delta)));
+    if (stepMoveRemovesButton(stepIndex, delta)) setTitleFocus((value) => value + 1);
   };
 
   async function save() {

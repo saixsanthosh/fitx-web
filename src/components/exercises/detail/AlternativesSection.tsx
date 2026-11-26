@@ -14,6 +14,7 @@ import { groupAlternatives } from "@/lib/training/alternatives";
 import { otherEquipmentOptions, substitutesWithout, type EquipmentOption } from "@/lib/training/other-equipment";
 import { rankSubstitutes } from "@/lib/training/substitutions";
 import { MUSCLE_GROUP_LABELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 import { libraryHref } from "./detail-text";
 import { TextLink } from "./TextLink";
 
@@ -36,6 +37,8 @@ type AlternativesSectionProps = {
 type CatalogState = { status: "loading" } | { status: "ready"; exercises: CatalogExercise[] } | { status: "error" };
 
 const NO_PROFILES = { home: null, gym: null, available: false } as const;
+/** The section's heading, and Try again when the alternatives couldn't be loaded. */
+const ALTERNATIVES_FOCUS = { heading: "exercise-alternatives-heading", retry: "exercise-alternatives-retry" };
 
 /** The place to show alternatives for first: where this exercise cannot be done, else where the member trains. */
 function defaultContext(exercise: CatalogExercise, equipment: EquipmentState | null, preferred: TrainingContext | null): TrainingContext {
@@ -68,6 +71,10 @@ export function AlternativesSection({ exercise, equipment, level, preferredConte
     return () => { active = false; };
   }, [attempt]);
 
+  // Try again swaps the message for loading, taking the button with it: once the alternatives have loaded, the
+  // section's heading takes focus, or the new Try again when they failed again (D5). The page stays where it is for touch.
+  const retrying = useRetryFocus(catalog.status === "error" ? "failed" : catalog.status, ALTERNATIVES_FOCUS, { keepScroll: true });
+
   useEffect(() => {
     if (focusRequest <= 0 || !heading.current) return;
     heading.current.scrollIntoView({ block: "start" });
@@ -86,10 +93,10 @@ export function AlternativesSection({ exercise, equipment, level, preferredConte
   const group = MUSCLE_GROUP_LABELS[exercise.muscle_group];
 
   return (
-    <section aria-labelledby="exercise-alternatives-heading" className="border-t border-fitx-divider pt-5">
+    <section aria-labelledby={ALTERNATIVES_FOCUS.heading} className="border-t border-fitx-divider pt-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 ref={heading} id="exercise-alternatives-heading" tabIndex={-1} className="text-base font-semibold text-fitx-text focus:outline-none">Alternatives</h2>
+          <h2 ref={heading} id={ALTERNATIVES_FOCUS.heading} tabIndex={-1} className="text-base font-semibold text-fitx-text focus:outline-none">Alternatives</h2>
           <p className="mt-1 text-sm text-fitx-text-secondary">Other exercises for the same muscles, checked against your {context === "home" ? "home" : "gym"} equipment.</p>
         </div>
         <div role="group" aria-label="Equipment list to check against" className="inline-flex rounded-lg border border-fitx-border bg-fitx-surface-variant p-0.5">
@@ -116,8 +123,8 @@ export function AlternativesSection({ exercise, equipment, level, preferredConte
 
       {catalog.status === "error" && (
         <div className="mt-4 rounded-xl border border-fitx-border p-4 text-sm text-fitx-text-secondary">
-          <p className="m-0">Alternatives couldn’t be loaded. Check your connection and try again.</p>
-          <button type="button" onClick={() => { setCatalog({ status: "loading" }); setAttempt((value) => value + 1); }} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 font-semibold text-fitx-primary-text hover:underline">Try again</button>
+          <p id="exercise-alternatives-problem" className="m-0">Alternatives couldn’t be loaded. Check your connection and try again.</p>
+          <button id={ALTERNATIVES_FOCUS.retry} type="button" aria-describedby="exercise-alternatives-problem" onClick={() => { retrying(); setCatalog({ status: "loading" }); setAttempt((value) => value + 1); }} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 font-semibold text-fitx-primary-text hover:underline">Try again</button>
         </div>
       )}
 

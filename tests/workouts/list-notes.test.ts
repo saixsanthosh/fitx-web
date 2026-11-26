@@ -80,6 +80,21 @@ describe("the Workouts page (JSX, read from the source)", () => {
     assert.match(page, /id="plans-build-first"/);
   });
 
+  test("an earlier message goes once the member moves on: New workout, and every reload of the list (re-check of release 3)", () => {
+    // A failed Edit's "Check your connection" stayed under its card after a new plan was saved: only the list actions
+    // cleared it. At 99d06a8 opening the builder, saving and loading all cleared the page-wide alert it replaced.
+    assert.match(between("function openCreator(", "function switchMode("), /setError\(""\);\s+setNotice\(""\);[\s\S]*?setListNote\(null\);\s+\}/);
+    const load = between("const load = useCallback(", "useEffect(() => { void Promise.resolve().then(load); }, [load]);");
+    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,300}?setListNote\(null\);[\s\S]{0,600}?setLoadVersion/, "a list that loaded clears it");
+    assert.doesNotMatch(load.slice(0, load.indexOf("if (failure?.error)") + 200), /setListNote/, "a failed load leaves it");
+    // An action that reloads says its own result after the reload, so the reload never wipes it.
+    const remove = between("async function deletePlan(", "async function savePlan(");
+    assert.ok(remove.indexOf("await load();") > 0 && remove.indexOf("await load();") < remove.indexOf('setListNote({ at: "plans"'));
+    const after = between("async function afterSave(", "async function startWorkout(");
+    assert.ok(after.lastIndexOf("await load();") < after.lastIndexOf("if (saved) sayOnSaved("));
+    assert.match(after, /if \(message\) \{ await load\(\); sayOnSaved\("error", message\); \}/);
+  });
+
   test("after the builder closes, a save's warning or a failed start is said with the saved plan", () => {
     const after = between("async function afterSave(", "async function startWorkout(");
     assert.match(after, /const sayOnSaved = \(tone: "info" \| "error", text: string\) => \(editingProgrammeDay \? setProgrammeNote\(\{ tone, text \}\) : setListNote\(\{ at: "plan", planId, tone, text \}\)\);/);

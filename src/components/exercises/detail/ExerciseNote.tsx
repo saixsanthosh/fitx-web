@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import {
   NOTE_MAX_CHARS, checkNote, deleteExerciseNote, noteLength, saveExerciseNote, tidyNote, type ExerciseNote as Note, type NoteLoad, type NoteWrite,
 } from "@/lib/training/exercise-notes";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 
 type ExerciseNoteProps = {
   userId: string;
@@ -58,6 +59,10 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
       askDelete.current?.focus();
     }
   }, [confirmDelete]);
+
+  // Try again swaps the message for loading, taking the button with it: once the note has loaded, the box's heading
+  // takes focus, or the new Try again when it failed again (D5). The page stays where it is for touch.
+  const retrying = useRetryFocus(load === null ? "loading" : load.status === "error" ? "failed" : "ready", { heading: `${fieldId}-heading`, retry: `${fieldId}-retry` }, { keepScroll: true });
 
   if (load?.status === "unavailable") return null;
 
@@ -137,8 +142,8 @@ export function ExerciseNote({ userId, exerciseId, exerciseName, load, onChange,
 
       {load?.status === "error" && (
         <div className="mt-2 text-sm text-fitx-text-secondary">
-          <p className="m-0">Your note couldn’t be loaded.</p>
-          <button type="button" onClick={onRetry} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 text-sm font-semibold text-fitx-primary-text hover:underline">Try again</button>
+          <p id={`${fieldId}-problem`} className="m-0">Your note couldn’t be loaded.</p>
+          <button id={`${fieldId}-retry`} type="button" aria-describedby={`${fieldId}-problem`} onClick={() => { retrying(); onRetry(); }} className="mt-1 inline-flex min-h-11 items-center rounded-md px-1 text-sm font-semibold text-fitx-primary-text hover:underline">Try again</button>
         </div>
       )}
 

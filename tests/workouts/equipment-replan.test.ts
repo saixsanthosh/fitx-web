@@ -6,7 +6,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { equipmentGapMessage, equipmentGaps, listChanged } from "@/app/(dashboard)/workouts/_lib/today-equipment";
+import { equipmentGapMessage, equipmentGaps, listChanged, replanAfterChange, replanLine, swapAdvice, type TodayReplan } from "@/app/(dashboard)/workouts/_lib/today-equipment";
 import { equipmentLabel, expandOwnedEquipment } from "@/lib/training/equipment";
 
 describe("the Today card's equipment check", () => {
@@ -31,11 +31,68 @@ describe("the Today card's equipment check", () => {
   });
 });
 
+test("the card says where its exercises can really be swapped (release 3 review: Details has no Swap)", () => {
+  // Details' Edit plan opens the builder, where each row has Swap; Details shows Edit plan only while no workout is in
+  // progress (PlanPreviewSheet), and a live workout has its own Swap.
+  assert.equal(swapAdvice({ canReplan: false, start: "start" }), "To swap them, open Details and choose Edit plan.");
+  assert.equal(swapAdvice({ canReplan: false, start: "other" }), "To swap them, finish your workout in progress, then open Details and choose Edit plan.");
+  assert.equal(swapAdvice({ canReplan: false, start: "continue" }), "You can swap them in your workout with Swap, before you log their sets.");
+  for (const start of ["start", "continue", "other"] as const) assert.equal(swapAdvice({ canReplan: true, start }), "", "Re-plan this day is the way");
+  const preview = readFileSync("src/components/workouts/PlanPreviewSheet.tsx", "utf8");
+  assert.match(preview, /\{onEdit && !done && !activeSession && <button type="button" onClick=\{\(\) => void edit\(\)\}[^>]*>[\s\S]*?"Edit plan"\}/, "Details' Edit plan, hidden while a workout is in progress");
+  assert.match(readFileSync("src/app/(dashboard)/workouts/active/page.tsx", "utf8"), /<ArrowRightLeft size=\{14\} aria-hidden="true" \/>Swap<\/button>/, "the live workout's Swap");
+});
+
 test("Workout setup changes the programme's list only when it saves a different one", () => {
   assert.equal(listChanged(["dumbbell", "barbell"], ["barbell"]), true);
   assert.equal(listChanged(["dumbbell", "barbell"], ["barbell", "dumbbell"]), false, "the same items in another order");
   assert.equal(listChanged(["dumbbell"], null), false, "a list the setup left unsaved");
   assert.equal(listChanged([], []), false);
+});
+
+describe("the Today card's re-plan line lasts while it describes the day and the list (re-check of release 3)", () => {
+  // "Push was re-planned for your gym list: …" stayed on the card after the list changed twice and an exercise needing
+  // dumbbells was added by hand, right under "1 exercise needs dumbbells, not on your gym list."
+  const fitted: TodayReplan = { planId: "push", busy: false, note: "Push was re-planned for your gym list: exercises it doesn’t allow were swapped for ones it does.", fitted: true };
+  const nothing: TodayReplan = { planId: "push", busy: false, note: "Nothing to change: this day has started, or every exercise fits your list.", fitted: false };
+
+  test("a saved plan, a reload or a saved list ends it; a re-plan still running stays", () => {
+    assert.equal(replanAfterChange(fitted), null);
+    assert.equal(replanAfterChange(nothing), null);
+    assert.equal(replanAfterChange(null), null);
+    const running: TodayReplan = { planId: "push", busy: true, note: "", fitted: false };
+    assert.equal(replanAfterChange(running), running);
+  });
+
+  test("never 're-planned for your list' beside a warning that the list rules exercises out", () => {
+    assert.equal(replanLine(fitted, 0), fitted.note);
+    assert.equal(replanLine(fitted, 1), "");
+    assert.equal(replanLine(nothing, 1), nothing.note, "why nothing changed stays beside the warning it explains");
+    assert.equal(replanLine({ ...fitted, busy: true }, 0), "");
+    assert.equal(replanLine(null, 2), "");
+  });
+
+  test("the page ends it wherever the day or a list changes, and works out 'fitted' from the outcome", () => {
+    const page = readFileSync("src/app/(dashboard)/workouts/page.tsx", "utf8");
+    const between = (start: string, end: string) => page.slice(page.indexOf(start), page.indexOf(end, page.indexOf(start)));
+    const load = between("const load = useCallback(", "useEffect(() => { void Promise.resolve().then(load); }, [load]);");
+    assert.match(load, /setLoading\(false\);\s+setError\(""\);[\s\S]{0,700}?setTodayReplan\(replanAfterChange\);\s+setProgrammeNote\(null\);\s+setLoadVersion/, "every reload, a save's included");
+    // The same mistake on the programme card: its "… were re-planned for your gym list" line outlived the list too.
+    assert.ok(load.indexOf("setProgrammeNote(null);") < load.indexOf("if (replanned) setProgrammeNote("), "this load's own re-plan is said after the clear");
+    const save = between("async function saveEquipment()", "async function replanToday(");
+    assert.match(save, /setProfiles\(\(current\) => \(\{ \.\.\.current, \[saved\.context\]: saved\.keys \}\)\);[\s\S]{0,240}?setTodayReplan\(replanAfterChange\);\s+if \(enrolment\?\.context === saved\.context\) setProgrammeNote\(null\);/);
+    // Programme actions say their result after their reload, so the reload never wipes it.
+    for (const start of ["async function enrol(", "async function planAhead()", "async function leave()", "async function pause()", "async function finish()"]) {
+      const action = between(start, "\n  }\n");
+      assert.ok(action.lastIndexOf("await load();") < action.lastIndexOf("setProgrammeNote({"), start);
+    }
+    assert.match(between("function setupSaved(", "async function replanAfterSetup("), /setProfiles\(next\.profiles\);\s+setTodayReplan\(replanAfterChange\);/);
+    const replan = between("async function replanToday(", "async function enrol(");
+    assert.match(replan, /fitted: !checked\.outcome\.error && checked\.outcome\.replanned\.some\(\(day\) => day\.planId === planId\) && !checked\.outcome\.unfixable\.length,/);
+    assert.match(page, /const todayReplanLine = replanLine\(todayReplanHere, todayGaps\?\.count \?\? 0\);/);
+    assert.match(page, /const todayGap = todayCard && \(todayGaps\?\.count \|\| todayReplanLine\) \? \{/);
+    assert.match(page, /note: todayReplanLine,/);
+  });
 });
 
 describe("the Workouts page (JSX, read from the source)", () => {
@@ -64,14 +121,16 @@ describe("the Workouts page (JSX, read from the source)", () => {
     assert.match(page, /equipmentGaps\(loadedToday\.rows, catalogById, ownedFor\(todayContext\)\)/);
     assert.match(page, /onReplan: todayGaps\?\.count && today\.kind !== "none" && today\.programme && enrolment\?\.status === "active" \? \(\) => void replanToday\(todayCard\.id\) : null/);
     assert.match(card, /\{gap\.replanning \? "Re-planning…" : "Re-plan this day"\}/);
-    assert.match(card, /" Open Details to swap them\."/, "the member's own plan points to Details, where each exercise can be swapped");
+    assert.match(card, /const canReplan = Boolean\(gap\?\.onReplan\);[\s\S]{0,160}?const advice = swapAdvice\(\{ canReplan, start: start\.kind \}\);/, "the member's own plan says where its exercises can be swapped");
+    assert.match(card, /\{gap\.message\}\{advice \? ` \$\{advice\}` : ""\}/);
+    assert.doesNotMatch(card, /Open Details to swap them/);
     assert.match(card, /if \(hadReplan\.current && !canReplan && \(!document\.activeElement \|\| document\.activeElement === document\.body\)\) startRef\.current\?\.focus\(\);/, "a fixed day's Re-plan button goes; focus moves to Start");
     assert.match(programmeCard, /<p role="status" className=\{note\?\.tone === "info"/);
   });
 
   test("Workout setup re-plans the days when it saves a different list for the programme's place, and says so with its own line", () => {
     const saved = page.slice(page.indexOf("function setupSaved("), page.indexOf("useEffect(() => {", page.indexOf("function setupSaved(")));
-    assert.match(saved, /if \(programmeList && listChanged\(programmeList, keys\)\) void replanAfterSetup\(next, keys!\);/);
+    assert.match(saved, /if \(programmeList && listChanged\(programmeList, keys\)\) \{\s+\/\/[^\n]*\n\s+setProgrammeNote\(null\);\s+void replanAfterSetup\(next, keys!\);\s+\}/);
     assert.match(saved, /owned: expandOwnedEquipment\(keys\), level: asLevel\(next\.level\)[\s\S]*mode: "list-saved"/);
     assert.match(saved, /if \(said\) setNotice\(\(current\) => \(current === SETUP_SAVED \? `\$\{SETUP_SAVED\} \$\{said\}` : current\)\);/);
     assert.match(page, /const SETUP_SAVED = "Setup saved\. Workouts now follows your answers\.";/);

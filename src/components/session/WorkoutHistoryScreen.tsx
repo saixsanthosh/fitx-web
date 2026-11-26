@@ -4,17 +4,21 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, ChevronRight, Dumbbell, Play } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
-import { PageHeading } from "@/components/app/PageHeading";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { HISTORY_PAGE_SIZE, groupByMonth, loadHistoryPage, loadInProgressSession, recordHref, statusBadge, type HistoryRow } from "@/app/(dashboard)/workouts/history/_lib/session-record";
 import { createClient } from "@/lib/supabase/client";
 import { regionLabel } from "@/lib/training/anatomy";
 import { formatClock } from "@/lib/training/session-stats";
+import { useRetryFocus } from "@/lib/workouts/retry-focus";
 import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 
 type State =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; userId: string; rows: HistoryRow[]; nextOffset: number | null; inProgress: { id: string; name: string; started_at: string } | null; completed: number | null };
+
+/** The page's h1, and History unavailable's Try again. */
+const HISTORY_FOCUS = { heading: "workout-history-title", retry: "workout-history-retry" };
 
 const monthName = (key: string) => {
   const [year, month] = key.split("-").map(Number);
@@ -68,6 +72,9 @@ export function WorkoutHistoryScreen() {
     setState({ status: "ready", userId, rows: page.page.rows, nextOffset: page.page.nextOffset, inProgress, completed: completed.error ? null : completed.count ?? null });
   }, []);
   useEffect(() => { void Promise.resolve().then(load); }, [load]);
+  // Try again swaps History unavailable for loading, taking the button with it: once the list has loaded, the page's h1
+  // takes focus, or the new Try again when it failed again (D5). The page was replaced, so it is shown from its h1.
+  const retrying = useRetryFocus(state.status === "error" ? "failed" : state.status, HISTORY_FOCUS);
 
   async function loadMore() {
     if (state.status !== "ready" || state.nextOffset === null || loadingMore) return;
@@ -92,12 +99,12 @@ export function WorkoutHistoryScreen() {
   const heading = (
     <>
       <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>
-      <PageHeading title="Workout history" description="Every workout you’ve finished or stopped, newest first. Open one to see its sets and the muscles it trained." />
+      <PageHeader title="Workout history" meta="Every workout you’ve finished or stopped, newest first. Open one to see its sets and the muscles it trained." titleId={HISTORY_FOCUS.heading} />
     </>
   );
 
   if (state.status === "loading") return <div className="mx-auto max-w-4xl space-y-3">{heading}<div role="status" className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading your workouts…</div></div>;
-  if (state.status === "error") return <div className="mx-auto max-w-4xl space-y-3">{heading}<EmptyState headingLevel={2} title="History unavailable" description={state.message} action={<button type="button" onClick={() => { setState({ status: "loading" }); void load(); }} className="fitx-button">Try again</button>} /></div>;
+  if (state.status === "error") return <div className="mx-auto max-w-4xl space-y-3">{heading}<EmptyState headingLevel={2} title="History unavailable" description={state.message} descriptionId="workout-history-problem" action={<button id={HISTORY_FOCUS.retry} type="button" aria-describedby="workout-history-problem" onClick={() => { retrying(); setState({ status: "loading" }); void load(); }} className="fitx-button">Try again</button>} /></div>;
 
   const groups = groupByMonth(state.rows);
   return (

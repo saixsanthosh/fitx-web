@@ -146,14 +146,15 @@ export function BodyMap({
       style: Object.keys(vars).length ? (vars as CSSProperties) : undefined,
     };
     const plates = paths.map((d, index) => <path key={index} className={styles.plate} d={d} />);
-    // A small muscle's invisible hit areas, under its plates, each clipped to leave out the other muscles' plates.
+    // A small muscle's invisible hit areas, under its plates, each clipped to leave out the other muscles' plates; two
+    // muscles' areas never overlap (hit-areas.ts), so the drawing order decides nothing.
     const hits = interactive ? hitAreas?.[side][key] ?? [] : [];
     const hitShapes = hits.map((hit, index) => {
       const clipId = `${clipPrefix}-${side}-${key}-${index}`;
       return (
         <g key={`hit-${index}`}>
           {hit.clip && <clipPath id={clipId}><path d={hit.clip} clipRule="evenodd" /></clipPath>}
-          <rect className={styles.hit} data-hit-area="" x={hit.x} y={hit.y} width={hit.width} height={hit.height} clipPath={hit.clip ? `url(#${clipId})` : undefined} />
+          <path className={styles.hit} data-hit-area="" d={hit.d} clipPath={hit.clip ? `url(#${clipId})` : undefined} />
         </g>
       );
     });
