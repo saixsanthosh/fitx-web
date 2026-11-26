@@ -55,13 +55,19 @@ describe("the shared context's status without a user", () => {
 
 describe("UserContextProvider's wiring", () => {
   const provider = readFileSync(new URL("../../src/components/app/UserContextProvider.tsx", import.meta.url), "utf8");
-  const refresh = provider.slice(provider.indexOf("const refresh = useCallback("), provider.indexOf("useEffect(() => {"));
+  // Since fix round 3e the provider's refresh runs refreshUserContext (user-context-refresh.ts), which adds the time limit
+  // (tests/shell/user-context-refresh-limit.test.ts runs it with stand-ins, these statuses included).
+  const refreshModule = readFileSync(new URL("../../src/components/app/user-context-refresh.ts", import.meta.url), "utf8");
+  const refresh = refreshModule.slice(refreshModule.indexOf("export function refreshUserContext("));
+  const providerRefresh = provider.slice(provider.indexOf("const refresh = useCallback("), provider.indexOf("useEffect(() => {"));
 
   test("refresh() checks the session with checkSession and sets the status from its state", () => {
+    assert.match(providerRefresh, /await refreshUserContext\(supabase, \(\) => ticket === request\.current, \{/);
     assert.match(refresh, /const \{ state, user \} = await checkSession<User>\(\(\) => supabase\.auth\.getUser\(\)\);/);
-    assert.match(refresh, /if \(!user\) \{\s*setData\(null\);\s*setFailedPart\(null\);\s*setStatus\(sharedStatusWithoutUser\(state\)\);\s*return;\s*\}/);
-    assert.match(refresh, /loadUserContext\(supabase, \{ id: user\.id, email: user\.email \?\? null \}\)/);
+    assert.match(refresh, /if \(!user\) \{\s*set\.setData\(null\);\s*set\.setFailedPart\(null\);\s*set\.setStatus\(sharedStatusWithoutUser\(state\)\);\s*return;\s*\}/);
+    assert.match(refresh, /load\(supabase, \{ id: user\.id, email: user\.email \?\? null \}\)/);
     assert.doesNotMatch(refresh, /setStatus\("signed_out"\)/, "only an ended session, through the session's state");
+    assert.doesNotMatch(providerRefresh, /setStatus\("signed_out"\)/);
   });
 
   test("a page brought back whole by Back or Forward checks again, and the listener goes with the provider", () => {
