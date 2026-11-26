@@ -375,11 +375,26 @@ body {
 .fitx-end-room { padding-bottom: var(--fitx-inset-consent, 0px); }
 .fitx-band-end { padding-bottom: calc(env(safe-area-inset-bottom) + var(--fitx-inset-consent, 0px)); }
 /* The privacy banner (AnalyticsConsent): it floats at the bottom of the screen, above the phone's bar when that
-   shows, so the bar's links are never under it. */
-.fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
+   shows, so the bar's links are never under it, and beside the app's menu column when that shows, so the column's
+   foot is never under it either. The column is sticky, so no scrolling could bring its foot clear: from 1024 to about
+   1250 px wide the banner, centred in the window, hid up to 39% of the sidebar's account card (bug 79). Centred over
+   the page beside the column instead, it keeps to the area whose controls the scroll padding keeps clear of it. */
+.fitx-consent { left: calc(var(--fitx-menu-inset, 0px) + 12px); right: 12px; bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
 @media (min-width: 640px) {
-  .fitx-consent { bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 12px), env(safe-area-inset-bottom), 24px); }
+  .fitx-consent { left: calc(var(--fitx-menu-inset, 0px) + 24px); right: 24px; bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 12px), env(safe-area-inset-bottom), 24px); }
 }
+/* The app's menu column down the left (Sidebar.tsx draws it this wide), with a landscape phone's notch inset: the
+   rail of icons from 768 px, the full sidebar from 1024 px. */
+:root { --fitx-menu-width: calc(88px + env(safe-area-inset-left)); }
+@media (min-width: 1024px) {
+  :root { --fitx-menu-width: calc(248px + env(safe-area-inset-left)); }
+}
+/* How far that column reaches into the screen while it shows: on the app's pages from 768 px, but not on Help in setup
+   mode, which hides the app's menu (see .fitx-app-only below). Unset, so 0, everywhere else. */
+@media (min-width: 768px) {
+  :root:has(.fitx-menu-column) { --fitx-menu-inset: var(--fitx-menu-width); }
+}
+:root:has([data-fitx-setup]) { --fitx-menu-inset: 0px; }
 /* Form controls inherit the page font through Tailwind's preflight (in @layer base), so size utilities
    such as text-sm still apply to buttons and inputs. Do not add an unlayered `font: inherit` here: it
    would override every text-* size utility on them. */
