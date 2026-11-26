@@ -1,3 +1,5 @@
+import { withTimeLimit } from "@/lib/auth/time-limit";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 import { applyTheme, currentTheme, isThemeMode, storedTheme, type ThemeMode } from "./theme";
 
@@ -13,7 +15,13 @@ import { applyTheme, currentTheme, isThemeMode, storedTheme, type ThemeMode } fr
  * - Otherwise the account's theme is shown on this device, so a choice follows the user.
  * - Saves and the on-load sync run one at a time, and a choice made while the account's theme was
  *   loading is never overwritten by it.
+ * - Each of them waits for the account at most THEME_TIME_LIMIT_MS, and its requests are cancelled past it (fix round
+ *   3d), so one that never answers can't leave Settings on "Saving…" or hold up the work queued after it. A choice is
+ *   pending on the device before its request goes, so one the account never confirmed is still pushed on a later load.
  */
+
+/** How long a theme save, or the on-load sync, waits for the account: the 20 seconds Profile's saves wait. */
+export const THEME_TIME_LIMIT_MS = 20_000;
 
 export type SaveResult = { stale: boolean } & ({ saved: true } | { saved: false; reason: "signed-out" | "not-available" | "failed" });
 
@@ -23,8 +31,9 @@ type ThemeRow = { theme: unknown; theme_updated_at: string | null };
 /** The account side: Supabase in the app, a stub in tests. */
 export type ThemeAccount = {
   userId(): Promise<string | null>;
-  read(userId: string): Promise<{ row: ThemeRow | null; error: DbError }>;
-  write(userId: string, mode: ThemeMode, chosenAt: string): Promise<{ error: DbError }>;
+  /** `signal`, when given, cancels the request once its task's time limit has passed (so does write's). */
+  read(userId: string, signal?: AbortSignal): Promise<{ row: ThemeRow | null; error: DbError }>;
+  write(userId: string, mode: ThemeMode, chosenAt: string, signal?: AbortSignal): Promise<{ error: DbError }>;
 };
 
 /** The device side: the page and localStorage in the app, plain objects in tests. */
@@ -44,15 +53,17 @@ const supabaseAccount: ThemeAccount = {
     const { data } = await supabase.auth.getSession();
     return data.session?.user.id ?? null;
   },
-  async read(userId) {
-    const supabase = createClient();
-    if (!supabase) return { row: null, error: { code: "unavailable" } };
+  async read(userId, signal) {
+    const client = createClient();
+    if (!client) return { row: null, error: { code: "unavailable" } };
+    const supabase = signal ? withAbortSignal(client, signal) : client;
     const { data, error } = await supabase.from("user_preferences").select("theme, theme_updated_at").eq("user_id", userId).maybeSingle();
     return { row: (data as ThemeRow | null) ?? null, error };
   },
-  async write(userId, mode, chosenAt) {
-    const supabase = createClient();
-    if (!supabase) return { error: { code: "unavailable" } };
+  async write(userId, mode, chosenAt, signal) {
+    const client = createClient();
+    if (!client) return { error: { code: "unavailable" } };
+    const supabase = signal ? withAbortSignal(client, signal) : client;
     const { error } = await supabase
       .from("user_preferences")
       .upsert({ user_id: userId, theme: mode, theme_updated_at: chosenAt, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
@@ -104,38 +115,55 @@ function isMissingColumn(error: DbError) {
 
 const offline = { code: "network" };
 
-/** Runs theme work one task at a time, in order. */
+/**
+ * Runs theme work one task at a time, in order. A task gets `ms` from its start: past that its promise rejects (sign-in's
+ * withTimeLimit), the requests it built with `signal` are cancelled, and the next task runs.
+ */
 let queue: Promise<unknown> = Promise.resolve();
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  const run = queue.then(task);
+function enqueue<T>(task: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+  const run = queue.then(() => {
+    const controller = new AbortController();
+    return withTimeLimit(task(controller.signal), ms).catch((problem: unknown) => {
+      controller.abort();
+      throw problem;
+    });
+  });
   queue = run.catch(() => undefined);
   return run;
 }
 let latestChoice = 0;
 
-/** Saves a choice made in Settings. A result is `stale` when a newer choice was made meanwhile. */
-export function saveAccountTheme(mode: ThemeMode, account: ThemeAccount = supabaseAccount, device: ThemeDevice = browserDevice): Promise<SaveResult> {
+/**
+ * Saves a choice made in Settings. A result is `stale` when a newer choice was made meanwhile. An account that doesn't
+ * answer within `ms` is a failed save: its request is cancelled and the choice stays pending on this device.
+ */
+export function saveAccountTheme(mode: ThemeMode, account: ThemeAccount = supabaseAccount, device: ThemeDevice = browserDevice, ms: number = THEME_TIME_LIMIT_MS): Promise<SaveResult> {
   const choice = ++latestChoice;
   const chosenAt = device.now().toISOString();
-  return enqueue(async (): Promise<SaveResult> => {
+  return enqueue(async (signal): Promise<SaveResult> => {
     // A newer choice is queued behind this one, and only that one needs saving.
     if (choice !== latestChoice) return { saved: true, stale: true };
     const userId = await account.userId().catch(() => null);
     if (!userId) return { saved: false, reason: "signed-out", stale: choice !== latestChoice };
-    const { error } = await account.write(userId, mode, chosenAt).catch(() => ({ error: offline }));
-    writePending(device, userId, error ? { mode, at: chosenAt } : null);
+    // Pending before the request goes, so a request that never answers (or a page closed meanwhile) leaves it to push.
+    writePending(device, userId, { mode, at: chosenAt });
+    const { error } = await account.write(userId, mode, chosenAt, signal).catch(() => ({ error: offline }));
+    if (!error) writePending(device, userId, null);
     const stale = choice !== latestChoice;
     return error ? { saved: false, reason: isMissingColumn(error) ? "not-available" : "failed", stale } : { saved: true, stale };
-  });
+  }, ms).catch((): SaveResult => ({ saved: false, reason: "failed", stale: choice !== latestChoice }));
 }
 
-/** Runs once when the signed-in app loads (see ShellEffects). */
-export function syncAccountTheme(account: ThemeAccount = supabaseAccount, device: ThemeDevice = browserDevice): Promise<void> {
-  return enqueue(async () => {
+/**
+ * Runs once when the signed-in app loads (see ShellEffects). An account that doesn't answer within `ms` changes
+ * nothing: its requests are cancelled and a pending choice stays pending.
+ */
+export function syncAccountTheme(account: ThemeAccount = supabaseAccount, device: ThemeDevice = browserDevice, ms: number = THEME_TIME_LIMIT_MS): Promise<void> {
+  return enqueue(async (signal) => {
     const userId = await account.userId().catch(() => null);
     if (!userId) return;
     const shownBefore = device.current();
-    const { row, error } = await account.read(userId).catch(() => ({ row: null, error: offline }));
+    const { row, error } = await account.read(userId, signal).catch(() => ({ row: null, error: offline }));
     // Missing columns, offline, or no preferences row yet (never create one here): change nothing.
     if (error || !row) return;
     const show = (mode: ThemeMode) => {
@@ -152,7 +180,7 @@ export function syncAccountTheme(account: ThemeAccount = supabaseAccount, device
         show(accountMode);
         return;
       }
-      const { error: pushError } = await account.write(userId, pending.mode, pending.at).catch(() => ({ error: offline }));
+      const { error: pushError } = await account.write(userId, pending.mode, pending.at, signal).catch(() => ({ error: offline }));
       if (!pushError) writePending(device, userId, null);
       show(pending.mode);
       return;
@@ -160,9 +188,9 @@ export function syncAccountTheme(account: ThemeAccount = supabaseAccount, device
     if (!accountMode) {
       // No theme on the account yet: keep the device's earlier choice and store it on the account.
       const local = device.stored();
-      if (local) await account.write(userId, local, device.now().toISOString()).catch(() => undefined);
+      if (local) await account.write(userId, local, device.now().toISOString(), signal).catch(() => undefined);
       return;
     }
     show(accountMode);
-  });
+  }, ms).catch(() => undefined);
 }
