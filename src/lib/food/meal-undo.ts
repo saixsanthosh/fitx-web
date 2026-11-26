@@ -26,9 +26,12 @@ export function restoreRow(entry: Pick<RemovedEntry, "row">, userId: string): Re
   return { ...entry.row, user_id: userId };
 }
 
-/** What a removal's Undo says while it waits, and after a failed attempt. */
+/**
+ * What a removal's Undo says while it waits, and after a failed attempt. A failed one points at Log food's search, not
+ * at Recent: Recent is built from logged entries, so a food logged only once has left it with its removal.
+ */
 export function removedText(entry: Pick<RemovedEntry, "name" | "failed">): string {
-  return entry.failed ? `${entry.name} couldn't be put back. Try Undo again, or log it again from Recent.` : `Removed ${entry.name}.`;
+  return entry.failed ? `${entry.name} couldn't be put back. Try Undo again, or search for it in Log food.` : `Removed ${entry.name}.`;
 }
 
 /**
