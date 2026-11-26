@@ -7,7 +7,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { addDays } from "@/lib/domain/day-keys";
-import { clientGoalValue, correctionProblem, entryRemovalProblem, goalWindow, goalWithoutEntry, isClientMetric, parseGoalRow, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
+import { clientGoalValue, correctionProblem, entryRemovalProblem, goalWindow, goalWithoutEntry, isClientMetric, parseGoalRow, withFoodCheck, type GoalActivityRow, type GoalInput, type GoalSessionRow, type GoalStatus, type GoalView } from "@/lib/domain/goals";
 import { macroValue, type MealValueRow } from "@/lib/domain/meal-totals";
 import { loadActivitiesBetween } from "./activities";
 import { browserTimeZone } from "./today";
@@ -60,7 +60,8 @@ async function loadMissingFood(db: Db, userId: string, window: Window): Promise<
  *  - Distance and Active minutes goals (stored as manual goals with a reserved unit): recorded activities and
  *    finished workouts in the goal's period; unknown (null) when activities cannot be read.
  *  - Calorie and protein goals: how many food entries in the period have no value for the goal (the database
- *    sum leaves them out), so the goal can say so instead of passing them off as 0.
+ *    sum leaves them out), so the goal can say so instead of passing them off as 0; when none of the period's
+ *    entries has it, the total is unknown (withFoodCheck), not the 0 that fitx_goal_progress's coalesce gives.
  * A failure here never hides the goals: the affected numbers stay unknown.
  */
 async function measureInBrowser(db: Db, userId: string, today: string, goals: GoalView[]): Promise<GoalView[]> {
@@ -86,8 +87,8 @@ async function measureInBrowser(db: Db, userId: string, today: string, goals: Go
     }
     if (food.includes(goal) && window && meals) {
       const key = goal.metric === "protein_g" ? "protein" : "calories";
-      const missing = meals.filter((row) => typeof row.date === "string" && row.date >= window.from && row.date <= window.to && macroValue(row, key) === null).length;
-      return { ...goal, missingEntries: missing };
+      const logged = meals.filter((row) => typeof row.date === "string" && row.date >= window.from && row.date <= window.to);
+      return withFoodCheck(goal, logged.length, logged.filter((row) => macroValue(row, key) === null).length);
     }
     return goal;
   });

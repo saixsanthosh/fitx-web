@@ -115,6 +115,8 @@ export type GoalView = {
    * read as 0); null when not checked.
    */
   missingEntries: number | null;
+  /** Calorie and protein goals: food entries logged in the period, when checked (withFoodCheck). */
+  foodEntries?: number;
   /**
    * The total fitx_goal_progress reports when logged corrections add up to less than zero (made before the app
    * refused that), while the goal shows 0. Progress history counts from it, so deleting minus entries is seen to
@@ -225,6 +227,58 @@ export function evaluateGoal(input: { current: number | null; target: number; di
 
 export function evaluateView(goal: GoalView): GoalEvaluation {
   return evaluateGoal({ current: goal.currentValue, target: goal.targetValue, direction: goal.direction, start: goal.startValue });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Calorie and protein goals: food without the value
+
+const isFoodGoal = (metric: GoalMetric) => metric === "protein_g" || metric === "calories_kcal";
+
+/**
+ * A calorie or protein goal once its period's food entries have been checked (src/lib/data/goals.ts): `entries` logged,
+ * `missing` of them without the goal's value. fitx_goal_progress adds up the known values with coalesce(sum, 0), so a
+ * period whose every entry lacks the value reads 0; here such a total is unknown (null), never "0 of 120 g", as
+ * meal-totals' unknownDayTotal and Nutrition say. A period with nothing logged keeps its true 0. (The SQL stays as it
+ * is until a later migration; the app works it out from the entries.)
+ */
+export function withFoodCheck(goal: GoalView, entries: number, missing: number): GoalView {
+  if (!isFoodGoal(goal.metric)) return goal;
+  const checked: GoalView = { ...goal, missingEntries: missing, foodEntries: entries };
+  return entries > 0 && missing >= entries ? { ...checked, currentValue: null } : checked;
+}
+
+/** Food is logged in the goal's period, but none of it gives the goal's value: its total is unknown. */
+export function foodValueUnknown(goal: Pick<GoalView, "metric" | "missingEntries" | "foodEntries">): boolean {
+  const entries = goal.foodEntries ?? 0;
+  return isFoodGoal(goal.metric) && entries > 0 && (goal.missingEntries ?? 0) >= entries;
+}
+
+/**
+ * The line under a calorie or protein goal about food without its value, in Nutrition's words: "Unknown: the food
+ * logged has no protein value." (none of it gives the value), or "2 foods without protein are left out." (the total
+ * counts the rest); null when nothing lacks it or it wasn't checked.
+ */
+export function foodValueNote(goal: Pick<GoalView, "metric" | "missingEntries" | "foodEntries">): string | null {
+  const missing = goal.missingEntries ?? 0;
+  if (!isFoodGoal(goal.metric) || missing <= 0) return null;
+  const protein = goal.metric === "protein_g";
+  if (foodValueUnknown(goal)) {
+    const value = protein ? "protein" : "calorie";
+    return goal.foodEntries === 1 ? `Unknown: the food logged has no ${value} value.` : `Unknown: none of the foods logged has a ${value} value.`;
+  }
+  return `${missing} ${missing === 1 ? "food" : "foods"} without ${protein ? "protein" : "calories"} ${missing === 1 ? "is" : "are"} left out.`;
+}
+
+/**
+ * The goal's progress bar in words (aria-valuetext): the summary, then what is left or the share done. A total that
+ * is unknown says why instead, and a goal with nothing measured yet never reads "0%".
+ */
+export function progressText(goal: GoalView, evaluation = evaluateView(goal), left = remainingLabel(goal, evaluation)): string {
+  const summary = progressSummary(goal);
+  const unknown = foodValueUnknown(goal) ? foodValueNote(goal) : null;
+  if (unknown) return `${summary}. ${unknown}`;
+  if (left) return `${summary}, ${left}`;
+  return evaluation.state === "no_data" ? summary : `${summary}, ${evaluation.percent}%`;
 }
 
 const trimNumber = (value: number, digits = 1) => {

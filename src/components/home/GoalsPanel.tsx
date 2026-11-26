@@ -14,7 +14,7 @@ import { addGoalEntry, deleteGoal, goalEntryDeleter, listGoalEntries, setGoalSta
 import type { SummaryResult } from "@/lib/data/today";
 import { inOtherYear } from "@/lib/activity/format";
 import {
-  afterEntryRemoved, checkProgressAmount, evaluateView, formatGoalValue, periodLabel, progressSummary, remainingLabel, sortGoals,
+  afterEntryRemoved, checkProgressAmount, evaluateView, foodValueNote, formatGoalValue, periodLabel, progressSummary, progressText, remainingLabel, sortGoals,
   type GoalContext, type GoalPeriod, type GoalTemplateKey, type GoalView,
 } from "@/lib/domain/goals";
 import { dailyTargets } from "@/lib/domain/today";
@@ -233,6 +233,7 @@ function GoalRow({ goal, today, onEdit, onStatus, onDelete, onHistory, onLog }: 
   const reached = active && goal.period === "long_term" && evaluation.achieved;
   const fill = over ? "var(--fitx-warning)" : evaluation.achieved ? "var(--fitx-success)" : "var(--fitx-primary)";
   const left = remainingLabel(goal, evaluation);
+  const food = foodValueNote(goal);
   const when = completed && goal.completedAt
     ? `Done ${new Date(goal.completedAt).toLocaleDateString(undefined, { day: "numeric", month: "short", ...(Number(today.slice(0, 4)) !== new Date(goal.completedAt).getFullYear() ? { year: "numeric" } : {}) })}`
     : goal.period === "long_term" ? periodLabel(goal, today) : null;
@@ -274,7 +275,7 @@ function GoalRow({ goal, today, onEdit, onStatus, onDelete, onHistory, onLog }: 
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={evaluation.percent}
-        aria-valuetext={`${progressSummary(goal)}, ${left || `${evaluation.percent}%`}`}
+        aria-valuetext={progressText(goal, evaluation, left)}
       >
         <m.span
           className={styles.fill}
@@ -288,7 +289,8 @@ function GoalRow({ goal, today, onEdit, onStatus, onDelete, onHistory, onLog }: 
         <span>{progressSummary(goal)}</span>
         <span className={over ? styles.overText : evaluation.achieved ? styles.doneText : undefined}>{[left, when].filter(Boolean).join(" · ")}</span>
       </p>
-      {goal.missingEntries ? <p className={styles.missing}>{goal.missingEntries} {goal.missingEntries === 1 ? "food has" : "foods have"} no {goal.metric === "protein_g" ? "protein" : "calorie"} value, not counted</p> : null}
+      {/* Food without the goal's value: an unknown total says so (never "0 of 120 g"), a partial one how many are left out. */}
+      {food ? <p className={styles.missing}>{food}</p> : null}
       {goal.negativeTotal !== undefined ? <p className={styles.missing}>Minus entries add up to less than zero, so this shows 0. Delete them in Progress history.</p> : null}
     </li>
   );
