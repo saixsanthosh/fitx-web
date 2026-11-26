@@ -136,15 +136,48 @@ function prescriptionFor(exercise: CatalogExercise, slot: SlotSpec, level: Level
 }
 
 /**
+ * The movement an exercise is a variant of. The imported catalogue names a variant after its movement and " - "
+ * ("Triceps Pushdown - Rope Attachment", "Dips - Chest Version", "Crunch - Hands Overhead"), so two exercises with the
+ * same movement in one day are that movement twice.
+ */
+export function movementOf(name: string): string {
+  return name.toLowerCase().split(" - ")[0].replace(/\s+/g, " ").trim();
+}
+
+const movementsByCatalog = new WeakMap<readonly CatalogExercise[], ReadonlyMap<string, string>>();
+
+/** The movements of the exercises already in the workout (`used` ids), from the catalogue. */
+function usedMovements(catalog: readonly CatalogExercise[], used: ReadonlySet<string>): Set<string> {
+  let byId = movementsByCatalog.get(catalog);
+  if (!byId) {
+    byId = new Map(catalog.map((exercise) => [exercise.id, movementOf(exercise.name)]));
+    movementsByCatalog.set(catalog, byId);
+  }
+  const movements = new Set<string>();
+  for (const id of used) {
+    const movement = byId.get(id);
+    if (movement) movements.add(movement);
+  }
+  return movements;
+}
+
+/**
  * The exercise generateDay puts in a slot: the best-scoring candidate at the user's level, else one level up
  * (a beginner with little equipment may only have intermediate options for a muscle group); null when
- * nothing fits. `used` holds the ids already in the workout.
+ * nothing fits. `used` holds the ids already in the workout. A variant of a movement the workout already has
+ * (Triceps Pushdown - Rope Attachment after Triceps Pushdown) is picked only when nothing else at that level fits the
+ * slot, so a day never does one movement twice while there is another to do (re-check of release 3).
  */
 export function pickForSlot(slot: SlotSpec, ctx: GenerationContext, used: ReadonlySet<string>): CatalogExercise | null {
-  let candidates = slotCandidates(slot, ctx, used);
-  if (!candidates.length) candidates = slotCandidates(slot, ctx, used, 1);
-  if (!candidates.length) return null;
-  return candidates.reduce((winner, exercise) => scoreForSlot(exercise, slot, ctx) > scoreForSlot(winner, slot, ctx) ? exercise : winner);
+  const movements = usedMovements(ctx.catalog, used);
+  for (const levelAllowance of [0, 1]) {
+    const candidates = slotCandidates(slot, ctx, used, levelAllowance);
+    if (!candidates.length) continue;
+    const fresh = movements.size ? candidates.filter((exercise) => !movements.has(movementOf(exercise.name))) : candidates;
+    const pool = fresh.length ? fresh : candidates;
+    return pool.reduce((winner, exercise) => scoreForSlot(exercise, slot, ctx) > scoreForSlot(winner, slot, ctx) ? exercise : winner);
+  }
+  return null;
 }
 
 /** Fills each slot, in order, with the best exercise the user can do. */

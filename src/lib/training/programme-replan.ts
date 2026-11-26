@@ -28,7 +28,7 @@ import { loadProgrammes } from "./data";
 import { loadCurrentEnrolment, type Enrolment } from "./enrolment";
 import { expandOwnedEquipment, isDoableWith } from "./equipment";
 import { survivingExerciseId } from "./exercise-merges";
-import { pickForSlot, type GenerationContext, type SlotSpec } from "./generator";
+import { movementOf, pickForSlot, type GenerationContext, type SlotSpec } from "./generator";
 import type { Programme } from "./programmes";
 import { TARGET_COLUMNS, planExerciseSelect, type PlanExerciseInput, type PlanExerciseRow } from "./plans";
 import { loadRecentExerciseDays } from "./recent-days";
@@ -79,6 +79,16 @@ function replacementRow(row: PlanExerciseRow, replacement: CatalogExercise, slot
   return { ...base, reps_min: repsMin, reps_max: Math.max(repsMin, Math.min(100, reps[1])), target_duration_seconds: null };
 }
 
+/**
+ * Swap's choice for an exercise added by hand (it fills none of the day's slots): its best substitute that is not a
+ * variant of a movement the day already has (as the planner picks, generator.ts pickForSlot), else the best one.
+ */
+function substituteFor(exercise: CatalogExercise, catalog: readonly CatalogExercise[], options: { owned: ReadonlySet<string>; level: Level; used: ReadonlySet<string>; byId: ReadonlyMap<string, CatalogExercise> }): CatalogExercise | null {
+  const ranked = rankSubstitutes(exercise, catalog, { owned: options.owned, level: options.level, exclude: options.used });
+  const movements = new Set([...options.used].flatMap((id) => { const known = options.byId.get(id); return known ? [movementOf(known.name)] : []; }));
+  return (ranked.find((substitute) => !movements.has(movementOf(substitute.exercise.name))) ?? ranked[0])?.exercise ?? null;
+}
+
 export function replanDayRows(input: {
   rows: readonly PlanExerciseRow[];
   /** The programme day's slots (programme.days[programme_day_index].slots). */
@@ -125,9 +135,7 @@ export function replanDayRows(input: {
     if (!exercise || !unfit[index]) { rows.push(asInput(row)); return; }
     if (keep[index]) { rows.push(asInput(row)); kept.push(row.exercise_name); return; }
     const slot = slotOf[index];
-    const pick = slot
-      ? pickForSlot(slot, ctx, used)
-      : rankSubstitutes(exercise, input.catalog, { owned: input.owned, level: input.level, exclude: used, limit: 1 })[0]?.exercise ?? null;
+    const pick = slot ? pickForSlot(slot, ctx, used) : substituteFor(exercise, input.catalog, { owned: input.owned, level: input.level, used, byId });
     if (!pick) { dropped.push(row.exercise_name); return; }
     used.add(pick.id);
     rows.push(replacementRow(row, pick, slot));
