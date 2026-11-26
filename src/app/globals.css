@@ -378,8 +378,12 @@ body {
    shows, so the bar's links are never under it, and beside the app's menu column when that shows, so the column's
    foot is never under it either. The column is sticky, so no scrolling could bring its foot clear: from 1024 to about
    1250 px wide the banner, centred in the window, hid up to 39% of the sidebar's account card (bug 79). Centred over
-   the page beside the column instead, it keeps to the area whose controls the scroll padding keeps clear of it. */
-.fitx-consent { left: calc(var(--fitx-menu-inset, 0px) + 12px); right: 12px; bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
+   the page beside the column instead, it keeps to the area whose controls the scroll padding keeps clear of it.
+   It is part of the page: above the page's bars and the AI Coach button (z-index 45 and lower), under every modal
+   sheet drawn in the page (z-index 50 and up: the workout builder and the workouts' sheets, the camera count), as it
+   is under a native modal <dialog>. Above them (z-index 100), it lay over the builder's Save buttons and took their
+   clicks (bug 79). Those sheets keep focus inside, so it waits for them, like the rest of the page. */
+.fitx-consent { z-index: 49; left: calc(var(--fitx-menu-inset, 0px) + 12px); right: 12px; bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 8px), env(safe-area-inset-bottom), 12px); }
 @media (min-width: 640px) {
   .fitx-consent { left: calc(var(--fitx-menu-inset, 0px) + 24px); right: 24px; bottom: max(calc(var(--fitx-inset-bottom-bar, 0px) + 12px), env(safe-area-inset-bottom), 24px); }
 }

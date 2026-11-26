@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 // Bug 79, re-check of release 3. The privacy banner was centred in the window (at most 768 px wide, 24 px from each
 // edge). The desktop sidebar is sticky and one window tall, its account card at its foot, so from 1024 px to about
@@ -75,4 +75,73 @@ test("globals.css places the banner beside the menu column while it shows, and n
   const classes = banner.match(/<aside ref=\{banner\}[^>]*className="([^"]+)"/)?.[1].split(/\s+/) ?? [];
   assert.ok(classes.includes("fitx-consent") && classes.includes("mx-auto") && classes.includes("max-w-3xl"));
   assert.ok(!classes.some((token) => /^(sm:|md:|lg:)?(inset-x|inset|left|right|start|end)-/.test(token)), classes.join(" "));
+});
+
+// The same bug's side note (workouts re-check of bug 85): while the banner was open it lay over the workout builder's
+// Save workout and Save and start buttons and took their clicks. The builder, like the workouts' own sheets and the
+// camera count, is a modal sheet drawn in the page (role="dialog" with aria-modal, z-index 50 and up), and the banner
+// sat above all of them at z-index 100. It is part of the page now: under every such sheet, as it is under a native
+// modal <dialog>, and above the page's own bars and the AI Coach button.
+
+/** The opening tag that contains `index`: from its "<" to the ">" that closes it (outside braces and quotes). */
+function openingTag(text: string, index: number): string {
+  const start = text.lastIndexOf("<", index);
+  let depth = 0;
+  let quote = "";
+  for (let at = start + 1; at < text.length; at += 1) {
+    const char = text[at];
+    if (quote) {
+      if (char === quote) quote = "";
+    } else if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === "{") depth += 1;
+    else if (char === "}") depth -= 1;
+    else if (char === ">" && depth === 0) return text.slice(start, at + 1);
+  }
+  return text.slice(start);
+}
+
+const zOf = (classes: string) => {
+  const match = classes.match(/(?:^|[\s"`])z-(?:\[(\d+)\]|(\d+))(?=[\s"`]|$)/);
+  return match ? Number(match[1] ?? match[2]) : null;
+};
+const cssZ = (file: string, selector: string) =>
+  Number(source(file).replace(/\/\*[\s\S]*?\*\//g, "").match(new RegExp(`^\\${selector} \\{[^}]*?z-index: (\\d+);`, "m"))?.[1]);
+
+test("the banner sits above the page's bars and the AI Coach button, under every modal sheet drawn in the page", () => {
+  const z = Number(globals.match(/^\.fitx-consent \{ z-index: (\d+);/m)?.[1]);
+  assert.equal(z, 49);
+  const classes = banner.match(/<aside ref=\{banner\}[^>]*className="([^"]+)"/)?.[1] ?? "";
+  assert.equal(zOf(classes), null, "no z-index utility of its own (it was z-[100])");
+
+  // Every modal sheet drawn in the page whose stacking a class on it sets.
+  const sheets: Array<{ file: string; z: number | null }> = [];
+  for (const file of readdirSync("src", { recursive: true }).map(String).filter((name) => name.endsWith(".tsx"))) {
+    const text = source(`src/${file}`);
+    for (const match of text.matchAll(/aria-modal="true"/g)) {
+      const tag = openingTag(text, match.index);
+      if (/role="dialog"/.test(tag) && !/^<dialog\b/.test(tag)) sheets.push({ file, z: zOf(tag) });
+    }
+  }
+  const byFile = new Map(sheets.map(({ file, z }) => [file, z]));
+  assert.equal(byFile.get("app/(dashboard)/workouts/page.tsx"), 50, "the workout builder");
+  assert.equal(byFile.get("components/workouts/Sheet.tsx"), 50, "the workouts' sheets (swap, details, setup, equipment)");
+  assert.equal(byFile.get("components/form-coach/CountWithCamera.tsx"), 65);
+  assert.equal(byFile.get("components/form-coach/CoachStage.tsx"), 110);
+  for (const { file, z: sheet } of sheets) if (sheet !== null) assert.ok(sheet > z, `${file}: z-index ${sheet} above the banner`);
+  // The full-screen welcome film and the logo reveal after setup set theirs in their own stylesheets.
+  assert.ok(cssZ("src/components/onboarding/PostOnboarding.module.css", ".stage") > z);
+  assert.ok(cssZ("src/components/brand/films/WelcomeFilm.module.css", ".stage") > z);
+
+  // The page's own bars and the AI Coach button stay under it.
+  const chrome: Array<[string, RegExp]> = [
+    ["src/components/layout/BottomNav.tsx", /<nav ref=\{bar\}[^>]*className="([^"]+)"/],
+    ["src/components/layout/WorkspaceHeader.tsx", /className=\{`\$\{scrolled \? "fitx-glass " : ""\}([^`$]+)/],
+    ["src/components/layout/PublicHeader.tsx", /<header[^>]*className="([^"]+)"/],
+    ["src/components/session/RestDock.tsx", /<section role="timer"[^>]*className="([^"]+)"/],
+  ];
+  for (const [file, pattern] of chrome) {
+    const level = zOf(source(file).match(pattern)?.[1] ?? "");
+    assert.ok(level !== null && level < z, `${file}: z-index ${level} under the banner`);
+  }
+  assert.ok(cssZ("src/components/layout/CoachLauncher.module.css", ".launcher") < z, "the AI Coach button");
 });
