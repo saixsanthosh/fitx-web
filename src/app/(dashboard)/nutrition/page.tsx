@@ -47,7 +47,7 @@ import { photoNotSavedText, shrinkPhoto, signedPhotoUrls } from "@/lib/food/food
 import { askFoodSearch, unansweredText } from "@/lib/food/food-request";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
-import { dayReadProblem, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
+import { dayReadProblem, memberForSave, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
@@ -77,6 +77,8 @@ async function loadPrefs(supabase: NonNullable<ReturnType<typeof createClient>>,
 }
 type Tab = "meals" | "foods" | "routines" | "history";
 type LogMode = "search" | "barcode";
+/** Who a dialog's save is for, with what the database has (saveMember), or why nothing was saved. */
+type DialogMember = { ok: true; uid: string; caps: NutritionCapabilities } | { ok: false; refused: string };
 type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "sheet" | "none" };
 
 const EXAMPLES = ["3 idli", "2 roti", "150 g rice", "1 cup dal", "2 eggs"];
@@ -972,12 +974,32 @@ export default function NutritionPage() {
     void refreshRecent();
   }
 
+  /**
+   * Who a dialog's save is for (memberForSave): the member the day's load found, or, until a load's sign-in check has
+   * found one, the answer of a check the save makes itself, so pressing Save again in the dialog works once the check
+   * can be made. A member found this way is the page's from then on, and what the database has is read for them as the
+   * day's load does, so the save writes every column there is (a food copied from the catalogue keeps where it came
+   * from). The day itself is read again after the save, as after any save.
+   */
+  async function saveMember(supabase: NonNullable<ReturnType<typeof createClient>>, what: string): Promise<DialogMember> {
+    const member = await memberForSave(userId, () => checkSession<User>(() => supabase.auth.getUser()), what);
+    if (!member.ok) { setCheckedSession(member.state); return { ok: false, refused: member.refused }; }
+    if (!member.found) return { ok: true, uid: member.uid, caps: capabilities };
+    const caps = await detectCapabilities(supabase);
+    setCheckedSession("signed_in");
+    setUserId(member.uid);
+    setCapabilities(caps);
+    return { ok: true, uid: member.uid, caps };
+  }
+
   /** Saves an edited entry. A refusal is returned to the dialog, which stays open and shows it (the page's messages are behind it). */
   async function saveEntry(entry: MealEntry, change: EntryChange): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return noMemberText(checkedSession, "change your entries");
+    if (!supabase) return noMemberText(checkedSession, "change your entries");
     setBusy(true); setError("");
-    const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
+    const member = await saveMember(supabase, "change your entries");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", member.uid);
     setBusy(false);
     if (result.error) return "That entry could not be changed. Please try again.";
     setEditingEntry(null);
@@ -994,24 +1016,27 @@ export default function NutritionPage() {
    */
   async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean): Promise<CustomFoodSaveProblem | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
+    if (!supabase) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
     const editing = foodForm?.editing ?? null;
     setBusy(true); setError("");
-    const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
+    const member = await saveMember(supabase, "save your own foods");
+    if (!member.ok) { setBusy(false); return { field: null, message: member.refused }; }
+    const v2 = member.caps.customFoodsV2;
+    const { row, error: saveError } = await saveCustomFood(supabase, member.uid, input, v2, editing?.id);
     if (saveError || !row) {
       setBusy(false);
       return customFoodSaveProblem(saveError);
     }
     let photoProblem = "";
     let photoUrl: string | null = null;
-    if (removePhoto && !photo && editing && capabilities.customFoodsV2) {
-      const removed = await removeCustomFoodPhoto(supabase, userId, editing);
+    if (removePhoto && !photo && editing && v2) {
+      const removed = await removeCustomFoodPhoto(supabase, member.uid, editing);
       if (removed.error) photoProblem = " The photo could not be removed. Please try again.";
     }
-    if (photo && capabilities.customFoodsV2) {
+    if (photo && v2) {
       try {
         // The food points at the new photo before its old one goes, so a failed save keeps the old photo.
-        const path = await replaceCustomFoodPhoto(supabase, userId, row, await shrinkPhoto(photo));
+        const path = await replaceCustomFoodPhoto(supabase, member.uid, row, await shrinkPhoto(photo));
         // Saved: a link that can't be made now waits for the next load, and never reads "not saved".
         photoUrl = await signedPhotoUrls(supabase, [path]).then((urls) => urls.get(path) ?? null, () => null);
       } catch (cause) {
@@ -1076,10 +1101,12 @@ export default function NutritionPage() {
     const prompt = namePrompt;
     const supabase = createClient();
     if (prompt?.kind === "section") { addSection(name, prompt.then); return null; }
-    if (!prompt || !supabase || !userId) return noMemberText(checkedSession, "save meals and routines");
+    if (!prompt || !supabase) return noMemberText(checkedSession, "save meals and routines");
     const items = prompt.kind === "meal" ? entries.filter((entry) => sameMeal(entry.meal, prompt.slot)) : entries;
     setBusy(true); setError("");
-    const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
+    const member = await saveMember(supabase, "save meals and routines");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = await saveTemplate(supabase, member.uid, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
     setBusy(false);
     if (result.error) return "That could not be saved. Please try again.";
     setNamePrompt(null);
@@ -1140,9 +1167,11 @@ export default function NutritionPage() {
   /** Saves the member's targets, or goes back to the estimate. A refusal is returned to the targets dialog. */
   async function updateTargets(next: ManualTargets | null): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return noMemberText(checkedSession, "set your targets");
+    if (!supabase) return noMemberText(checkedSession, "set your targets");
     setBusy(true); setError("");
-    const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
+    const member = await saveMember(supabase, "set your targets");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = next ? await saveTargets(supabase, member.uid, next) : await clearTargets(supabase, member.uid);
     setBusy(false);
     if (result.error) return next ? "Your targets could not be saved. Please try again." : "Your targets could not be cleared. Please try again.";
     setTargetsOpen(false);
@@ -1180,15 +1209,18 @@ export default function NutritionPage() {
   /** Saves the setup answers; the diet filter in Log food follows the new diet. */
   async function finishSetup(answers: NutritionSetupAnswers) {
     const supabase = createClient();
-    if (!supabase || !userId) return;
+    if (!supabase) return;
     setSetupBusy(true); setSetupError("");
     try {
-      const saved = await saveSetup(supabase, userId, answers, {
+      // As the other dialogs' saves (saveMember): with no member yet, Save here used to do nothing at all.
+      const member = await saveMember(supabase, "save your food preferences");
+      if (!member.ok) { setSetupError(member.refused); return; }
+      const saved = await saveSetup(supabase, member.uid, answers, {
         schema: context?.schema ?? { preferencesV2: true, onboardingV3: true },
         legacyDiet: context?.legacy.dietaryPreferences ?? [],
       });
       if (saved.error) { setSetupError("Your answers could not be saved. Please try again."); return; }
-      writeSnooze(userId, null);
+      writeSnooze(member.uid, null);
       setSetup((current) => ({ ...current, open: false }));
       notifyUserContextChanged();
       if (answers.diet) { dietFilterSet.current = true; setDietFilter(dietFilterFor(legacyDietaryPreferences(answers.diet, []))); }
