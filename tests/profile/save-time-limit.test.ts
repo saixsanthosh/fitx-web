@@ -316,6 +316,13 @@ describe("Profile's own load waits only so long too", () => {
     assert.match(view, /return \{ status: statusAfterWait\(status, overdue\), data: shared\.data, avatarUrl: shared\.avatarUrl, reload: reloadShared \};/);
     assert.match(view, /return \{ \.\.\.local, status: statusAfterWait\(local\.status, overdue\), reload: loadLocal \};/);
   });
+
+  test("a load that lands late, while focus is on Try again, hands focus to the profile's heading as a press does (D5)", () => {
+    const view = read("ProfileView.tsx");
+    assert.match(view, /onClick=\{\(\) => void retry\(\)\} aria-disabled=\{retrying \|\| undefined\} onFocus=\{\(\) => \{ retryFocus\.current = true; \}\}/);
+    // The hand-on itself is round 3a's (busy-buttons.test.ts): only when focus was lost, so focus put elsewhere stays.
+    assert.match(view, /if \(!retryFocus\.current \|\| retrying\) return;\s*const target = focusAfterRetry\(status\);/);
+  });
 });
 
 describe("Profile's saves are wired to it", () => {

@@ -154,7 +154,8 @@ export function ProfileView() {
   const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
   const alertBox = useRef<HTMLDivElement>(null);
-  // Set by Try again; cleared once focus has been handed on, or is found outside the alert (where the member put it).
+  // Set by Try again, pressed or only focused (a load that lands late replaces the alert on its own); cleared once focus
+  // has been handed on, or is found outside the alert (where the member put it).
   const retryFocus = useRef(false);
 
   // Back or Forward can bring Profile back from the browser's back/forward cache as it was when it was left, after
@@ -218,7 +219,7 @@ export function ProfileView() {
         <div ref={alertBox} role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
           <span>{text}</span>
           {status === "error" && (
-            <button type="button" onClick={() => void retry()} aria-disabled={retrying || undefined} className="fitx-alert-action inline-flex min-h-11 items-center gap-1 aria-disabled:cursor-progress aria-disabled:opacity-60">
+            <button type="button" onClick={() => void retry()} aria-disabled={retrying || undefined} onFocus={() => { retryFocus.current = true; }} className="fitx-alert-action inline-flex min-h-11 items-center gap-1 aria-disabled:cursor-progress aria-disabled:opacity-60">
               <RotateCcw size={14} aria-hidden="true" />{retrying ? "Trying again…" : "Try again"}
             </button>
           )}
