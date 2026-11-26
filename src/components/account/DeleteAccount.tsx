@@ -168,6 +168,9 @@ export function DeleteAccount({
   }
 
   async function signInAgain() {
+    // "Sign in again" stays focusable while it signs out (aria-disabled, not disabled: D5), so a second press does
+    // nothing, and if the member keeps recordings that aren't on their account yet, focus is still on it afterwards.
+    if (leaving) return;
     const supabase = createClient();
     setLeaving(true);
     // Signing out here works like Log out: this account's activity recordings on this device are uploaded where
@@ -183,7 +186,8 @@ export function DeleteAccount({
   }
 
   async function remove() {
-    if (typed !== DELETE_CONFIRMATION || !status?.userId) return;
+    // Delete permanently stays focusable while deleting (aria-disabled), so it must do nothing meanwhile.
+    if (step === "deleting" || typed !== DELETE_CONFIRMATION || !status?.userId) return;
     setStep("deleting");
     setError("");
     // Read before the request: whose activity recordings on this device to clear once the account is gone.
@@ -312,12 +316,14 @@ export function DeleteAccount({
             <button type="button" data-autofocus onClick={() => window.location.replace("/")} className="fitx-button">Go to the FITX home page</button>
           ) : (
             <>
-              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} disabled={step === "deleting" || leaving} className="fitx-button fitx-button-secondary">
+              {/* While deleting or signing out these stay focusable (aria-disabled) and do nothing; Delete permanently is
+                  disabled only until DELETE is typed. */}
+              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} aria-disabled={step === "deleting" || leaving || undefined} className="fitx-button fitx-button-secondary aria-disabled:opacity-60">
                 {step === "switched" ? "Close" : "Cancel"}
               </button>
-              {step === "reauth" && <button type="button" data-autofocus onClick={() => void signInAgain()} disabled={leaving} className="fitx-button">{leaving ? "Signing out…" : "Sign in again"}</button>}
+              {step === "reauth" && <button type="button" data-autofocus onClick={() => void signInAgain()} aria-disabled={leaving || undefined} className="fitx-button aria-disabled:opacity-60">{leaving ? "Signing out…" : "Sign in again"}</button>}
               {(step === "confirm" || step === "deleting") && (
-                <button type="submit" form="delete-account-form" disabled={typed !== DELETE_CONFIRMATION || step === "deleting"} className="fitx-button fitx-button-danger">
+                <button type="submit" form="delete-account-form" disabled={typed !== DELETE_CONFIRMATION} aria-disabled={step === "deleting" || undefined} className="fitx-button fitx-button-danger aria-disabled:opacity-60">
                   <Trash2 size={16} aria-hidden="true" />{step === "deleting" ? "Deleting…" : "Delete permanently"}
                 </button>
               )}
