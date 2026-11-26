@@ -5,10 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { Check, ChevronDown, ChevronLeft, CircleAlert, CopyCheck, FileUp, Info, LoaderCircle, ShieldCheck, TriangleAlert, Watch, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
+import { handsFocusOn } from "@/lib/activity/focus";
 import { formatActivityDate, formatDistance, formatDuration, formatDurationWords } from "@/lib/activity/format";
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
-import { checkImport, fullestOfEachSession, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, settleRepeat, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
+import { checkImport, fullestOfEachSession, importBarShown, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, settleRepeat, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
 import { buildImportRecord, checkStartTime, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
 import { timeRange } from "@/lib/activity/import/gpx";
@@ -288,6 +289,15 @@ export function ActivityImportScreen() {
   // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
   const [lookupFailed, setLookupFailed] = useState(false);
   const counter = useRef(0);
+  // Import was pressed. Once every file has its result the bar goes with its button (nothing is left for it to do), so
+  // the result ("2 imported.", partial results and failures too) takes focus if it fell to the page (D5).
+  const importPressed = useRef(false);
+  const summaryRef = useRef<HTMLParagraphElement | null>(null);
+  useEffect(() => {
+    if (importing || !importPressed.current) return;
+    importPressed.current = false;
+    if (handsFocusOn(document, { pressed: true, wentWithFocus: false })) summaryRef.current?.focus();
+  }, [importing]);
   // The newer sports only once the database takes them (migration 20261123100050).
   const v2 = useActivityV2(account.status === "ready" ? account.userId : null);
   const importSports: readonly Sport[] = v2 ? SPORTS : PRIMARY_SPORTS;
@@ -472,7 +482,7 @@ export function ActivityImportScreen() {
     const kind = checks.get(entry.key)?.kind;
     return entry.phase === "ready" && !entry.result && !entry.sport && entry.parsed?.sport.kind === "unknown" && kind !== "incomplete" && kind !== "fuller";
   }).length;
-  const settled = entries.some((entry) => !entry.result && (entry.phase === "failed" || entry.phase === "unsupported" || (entry.phase === "ready" && sportOf(entry) !== null)));
+  const barShown = importBarShown(entries.map((entry) => ({ phase: entry.phase, done: entry.result !== null, sport: sportOf(entry) })), importing);
 
   async function importAll() {
     // The button says aria-disabled while it imports, and once nothing is left to import (disabled would drop keyboard
@@ -480,6 +490,7 @@ export function ActivityImportScreen() {
     if (!userId || importing || reading || lookupFailed || toImport.length === 0) return;
     const supabase = createClient();
     if (!supabase) return;
+    importPressed.current = true;
     setImporting(true);
     setSummary("");
     const results: ImportResult[] = [];
@@ -637,8 +648,8 @@ export function ActivityImportScreen() {
             ))}
           </ul>
           {/* Floats above the phone's bar (from 768 px, near the window's foot), and 8 px above the privacy banner while
-              that is open (--fitx-inset-consent), so Import stays in reach on a long list. */}
-          {open && settled && (
+              that is open (--fitx-inset-consent), so Import stays in reach on a long list. Shown the whole time it imports. */}
+          {open && barShown && (
             <div data-coach-avoid="" className="sticky bottom-[max(5rem,calc(var(--fitx-inset-consent,0px)+8px))] z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))]">
               <button type="button" onClick={() => void importAll()} aria-disabled={importing || reading || toImport.length === 0 || undefined} className="fitx-button min-h-12 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
                 {importing ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Importing…</> : toImport.length ? `Import ${toImport.length} ${toImport.length === 1 ? "activity" : "activities"}` : "Nothing to import yet"}
@@ -648,7 +659,8 @@ export function ActivityImportScreen() {
         </section>
       )}
 
-      <p role="status" aria-live="polite" className={cn("text-sm font-medium text-fitx-text", !summary && "sr-only")}>{summary}</p>
+      {/* The import's result, where the Import bar ends: it takes focus once the bar has gone (importPressed). */}
+      <p ref={summaryRef} tabIndex={-1} role="status" aria-live="polite" className={cn("text-sm font-medium text-fitx-text", !summary && "sr-only")}>{summary}</p>
 
       <section className="fitx-panel p-4 sm:p-5" aria-labelledby="help-title">
         <h2 id="help-title" className="text-sm font-semibold text-fitx-text">How to get a file from your watch or app</h2>
