@@ -35,10 +35,11 @@ export const WELCOME_MAX_AGE = 120;
 
 /**
  * One word FITX leaves for the sign-in page just before it sends this browser there, naming what FITX itself just did:
- * "everywhere" after a Sign out everywhere that worked (LogoutButton). The page makes that stronger claim only with
- * this cookie, reads it once and removes it (src/lib/auth/address-messages.ts): a link can carry any address, but it
- * can't set FITX's cookies. Only the sign-in page sees it (its path), readable by page scripts on purpose; it grants
- * nothing. Two minutes, like WELCOME_COOKIE: long enough for the page to load, never long enough for a later visit.
+ * after Sign out everywhere (LogoutButton), "everywhere" once Auth confirmed it or "ended" when this device's session was
+ * already over. The page says either only with this cookie, reads it once and removes it
+ * (src/lib/auth/address-messages.ts): a link can carry any address, but it can't set FITX's cookies. Only the sign-in
+ * page sees it (its path), readable by page scripts on purpose; it grants nothing. Two minutes, like WELCOME_COOKIE: long
+ * enough for the page to load, never long enough for a later visit.
  */
 export const NOTICE_PROOF_COOKIE = "fitx_signin_notice";
 export const NOTICE_PROOF_MAX_AGE = 120;

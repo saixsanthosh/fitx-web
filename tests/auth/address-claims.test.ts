@@ -14,6 +14,7 @@ import {
   SIGNED_OUT_EVERYWHERE,
   SIGNED_OUT_HERE,
   signedOutAddress,
+  signedOutProof,
   takeNoticeProof,
 } from "@/lib/auth/address-messages";
 import { NOTICE_PROOF_COOKIE, noticeProofCookieOptions } from "@/lib/auth/cookies";
@@ -100,10 +101,13 @@ test("only a Sign out everywhere that worked leaves the proof, after the account
   const button = read("src/components/app/LogoutButton.tsx");
   assert.match(
     button,
-    /if \(outcome === "cancelled"\) \{[\s\S]*?return;\s*\}\s*if \(outcome === "failed"\) \{[\s\S]*?return;\s*\}\s*forgetAccountInBrowser\(\);[\s\S]*?if \(everywhere\) document\.cookie = noticeProofCookie\("everywhere", secure\);\s*window\.location\.replace\(signedOutAddress\(scope\)\);/,
+    /if \(outcome === "cancelled"\) \{[\s\S]*?return;\s*\}\s*if \(outcome === "failed"\) \{[\s\S]*?return;\s*\}\s*forgetAccountInBrowser\(\);[\s\S]*?const proof = signedOutProof\(scope, outcome\);\s*if \(proof\) document\.cookie = noticeProofCookie\(proof, secure\);\s*window\.location\.replace\(signedOutAddress\(scope, outcome\)\);/,
   );
   assert.equal(button.match(/noticeProofCookie\(/g)?.length, 1, "nowhere else");
   assert.match(button, /const secure = window\.location\.protocol === "https:";/);
+  // Log out leaves none: its line claims this device only.
+  assert.equal(signedOutProof("local", "signed_out"), null);
+  assert.equal(signedOutProof("global", "signed_out"), "everywhere");
 });
 
 test("the sign-in page reads the proof once per page and needs it for the stronger line", () => {

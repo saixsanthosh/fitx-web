@@ -51,7 +51,7 @@ test("the address's errors are the known ones only, never text from the address"
 
 test("both sign-out buttons go through the one address helper", () => {
   const button = read("src/components/app/LogoutButton.tsx");
-  assert.match(button, /window\.location\.replace\(signedOutAddress\(scope\)\);/);
+  assert.match(button, /window\.location\.replace\(signedOutAddress\(scope, outcome\)\);/);
   assert.doesNotMatch(button, /signed_out=1/, "no address of its own");
   assert.match(button, /const text = label \?\? \(everywhere \? "Sign out everywhere" : "Log out"\);/);
   assert.match(read("src/app/(auth)/signin/SignInForm.tsx"), /addressNotice\(window\.location\.search, noticeProof\(\)\)/);
