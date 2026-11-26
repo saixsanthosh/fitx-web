@@ -28,7 +28,7 @@ describe("every state has one h1", () => {
     for (const title of ["No workout in progress", "Workout not available", "Workout abandoned", "Opening the workout record"]) {
       assert.match(page, new RegExp(`<EmptyState headingLevel=\\{2\\} title="${title}"`), title);
     }
-    assert.match(page, /<PageHeading title="Workout complete"/, "the finish screen keeps its own h1");
+    assert.match(page, /<PageHeader title="Workout complete"/, "the finish screen keeps its own h1");
     assert.match(page, /<h1 className="[^"]*">\{session\.name\}<\/h1>/, "a running workout's h1 is its name");
   });
 
