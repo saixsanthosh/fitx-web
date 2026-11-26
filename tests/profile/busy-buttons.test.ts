@@ -62,8 +62,10 @@ describe("Profile's Try again", () => {
   });
 
   test("when the alert gives way, focus goes where focusAfterRetry says, only if it was lost", () => {
-    assert.match(view, /if \(!retryFocus\.current \|\| retrying\) return;\s*const target = focusAfterRetry\(status\);\s*if \(target === "wait"\) return;\s*retryFocus\.current = false;/);
-    assert.match(view, /const active = document\.activeElement;\s*if \(active && active !== document\.body\) return;/, "focus the member moved elsewhere stays there");
+    assert.match(view, /if \(!retryFocus\.current \|\| retrying\) return;\s*const target = focusAfterRetry\(status\);\s*if \(target === "wait"\) return;\s*const active = document\.activeElement;/);
+    // Focus still on Try again (a failed retry) keeps the watch, as the alert may still give way; focus the member
+    // moved elsewhere stays there and ends it.
+    assert.match(view, /if \(active && active !== document\.body\) \{\s*(?:\/\/[^\n]*\n\s*)*if \(!alertBox\.current\?\.contains\(active\)\) retryFocus\.current = false;\s*return;\s*\}\s*retryFocus\.current = false;/);
     assert.match(view, /target === "heading" \? document\.getElementById\("profile-name-title"\)\s*: target === "action" \? alertBox\.current\?\.querySelector<HTMLElement>\("a, button"\)/);
     assert.match(view, /\}, \[status, retrying\]\);/);
     assert.match(view, /<div ref=\{alertBox\} role="alert"/);

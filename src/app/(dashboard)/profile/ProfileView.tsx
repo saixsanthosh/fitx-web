@@ -134,7 +134,7 @@ export function ProfileView() {
   const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
   const alertBox = useRef<HTMLDivElement>(null);
-  // Set by Try again until focus has been handed on (or found where the member left it).
+  // Set by Try again; cleared once focus has been handed on, or is found outside the alert (where the member put it).
   const retryFocus = useRef(false);
 
   // Back or Forward can bring Profile back from the browser's back/forward cache as it was when it was left, after
@@ -153,9 +153,14 @@ export function ProfileView() {
     if (!retryFocus.current || retrying) return;
     const target = focusAfterRetry(status);
     if (target === "wait") return;
-    retryFocus.current = false;
     const active = document.activeElement;
-    if (active && active !== document.body) return;
+    if (active && active !== document.body) {
+      // Still on Try again (the retry failed): keep watching, for the alert may still give way. Anywhere else, the
+      // member moved it: leave it there.
+      if (!alertBox.current?.contains(active)) retryFocus.current = false;
+      return;
+    }
+    retryFocus.current = false;
     const element = target === "heading" ? document.getElementById("profile-name-title")
       : target === "action" ? alertBox.current?.querySelector<HTMLElement>("a, button")
       : null;
