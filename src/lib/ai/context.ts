@@ -419,44 +419,85 @@ function goalProgressText(goal: ContextSources["goals"][number]): string | null 
   return `${progress !== null ? round1(progress) : "unknown"} of ${round1(Number(goal.target_value))}${unit}${PERIOD_WORDS[String(goal.period)] ?? ""}`;
 }
 
+const FOOD_VALUES = ["calories", "protein", "carbs", "fat"] as const;
+type FoodValue = (typeof FOOD_VALUES)[number];
+
+/** Logged foods' values: the known ones added up, and how many of the foods lack each value. */
+type FoodTally = { items: number; sum: Record<FoodValue, number>; without: Record<FoodValue, number> };
+type WithoutCounts = Partial<Record<`foods_without_${FoodValue}`, number>>;
+
+/**
+ * Sent with the nutrition summary whenever a logged food lacks a value, so the coach reads a total for what it is (a
+ * member's own food may leave protein, carbs and fat blank, bug 4). The same rule as Nutrition's day and History
+ * (sumKnown, buildHistory): unknown is left out and said, never counted as 0.
+ */
+export const UNKNOWN_FOOD_VALUES_NOTE =
+  "Foods logged without a value are left out of that value's totals and averages, never counted as 0, so those figures may be low. The foods_without_ counts (calories, protein, carbs, fat) say how many foods have no value, and a day's total is left out when none of its foods has that value.";
+
+function tallyFoods(meals: ContextSources["meals"]): FoodTally {
+  const tally: FoodTally = { items: 0, sum: { calories: 0, protein: 0, carbs: 0, fat: 0 }, without: { calories: 0, protein: 0, carbs: 0, fat: 0 } };
+  for (const meal of meals) {
+    tally.items += 1;
+    for (const key of FOOD_VALUES) {
+      if (knownNumber(meal[key])) tally.sum[key] += num(meal[key]);
+      else tally.without[key] += 1;
+    }
+  }
+  return tally;
+}
+
+/** The total of one value, or null when none of the foods has it: unknown is never sent as 0. */
+function knownTotal(tally: FoodTally, key: FoodValue, round: (value: number) => number): number | null {
+  return tally.without[key] < tally.items ? round(tally.sum[key]) : null;
+}
+
+/** `foods_without_carbs: 1` and the like, for each value some of the foods lack (their totals leave those foods out). */
+function foodsWithout(tally: FoodTally, keys: readonly FoodValue[] = FOOD_VALUES): WithoutCounts {
+  return Object.fromEntries(keys.filter((key) => tally.without[key] > 0).map((key) => [`foods_without_${key}`, tally.without[key]])) as WithoutCounts;
+}
+
 function nutritionSummary(meals: ContextSources["meals"], today: string) {
   const start = shiftDate(today, -6);
   const inWeek = meals.filter((meal) => meal.date >= start && meal.date <= today);
-  const byDay = new Map<string, Macros>();
-  for (const meal of inWeek) {
-    const total = byDay.get(meal.date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0 };
-    total.calories += num(meal.calories);
-    total.protein += num(meal.protein);
-    total.carbs += num(meal.carbs);
-    total.fat += num(meal.fat);
-    byDay.set(meal.date, total);
-  }
-  const logged = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const average = logged.length
-    ? {
-        calories: Math.round(logged.reduce((sum, [, day]) => sum + day.calories, 0) / logged.length),
-        protein: round1(logged.reduce((sum, [, day]) => sum + day.protein, 0) / logged.length),
-        carbs: round1(logged.reduce((sum, [, day]) => sum + day.carbs, 0) / logged.length),
-        fat: round1(logged.reduce((sum, [, day]) => sum + day.fat, 0) / logged.length),
-      }
-    : null;
-  const todayTotal = byDay.get(today);
-  // A food logged without a calorie or protein value is left out of the totals, and the summary says how many.
-  const missing = (field: "calories" | "protein") => inWeek.filter((meal) => meal[field] === null || meal[field] === undefined).length;
+  const dates = [...new Set(inWeek.map((meal) => meal.date))].sort((a, b) => a.localeCompare(b));
+  const days = dates.map((date) => ({ date, tally: tallyFoods(inWeek.filter((meal) => meal.date === date)) }));
+  // A value's average counts the logged days on which at least one food has it, as Nutrition's History does: a day with
+  // no value at all is left out of that average, never averaged as 0.
+  const average = (key: FoodValue, round: (value: number) => number) => {
+    const known = days.map((day) => knownTotal(day.tally, key, (value) => value)).filter((value): value is number => value !== null);
+    return known.length ? round(known.reduce((sum, value) => sum + value, 0) / known.length) : null;
+  };
+  const todayTally = days.find((day) => day.date === today)?.tally;
+  // A food logged without a value is left out of that value's totals, and the summary says how many (week, day, today).
+  const week = tallyFoods(inWeek);
   const counts = new Map<string, number>();
   for (const meal of inWeek) {
     const name = cleanText(meal.food_name, 40);
     if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return {
-    days_logged_last_7: logged.length,
-    average_per_logged_day: average,
-    by_day: logged.map(([date, day]) => ({ date, kcal: Math.round(day.calories), protein_g: round1(day.protein) })),
-    today: todayTotal
-      ? { kcal: Math.round(todayTotal.calories), protein_g: round1(todayTotal.protein), carbs_g: round1(todayTotal.carbs), fat_g: round1(todayTotal.fat), items_logged: inWeek.filter((meal) => meal.date === today).length }
+    days_logged_last_7: days.length,
+    average_per_logged_day: days.length
+      ? compact({ calories: average("calories", Math.round), protein: average("protein", round1), carbs: average("carbs", round1), fat: average("fat", round1) })
+      : null,
+    by_day: days.map(({ date, tally }) => compact({
+      date,
+      kcal: knownTotal(tally, "calories", Math.round),
+      protein_g: knownTotal(tally, "protein", round1),
+      ...foodsWithout(tally, ["calories", "protein"]),
+    })),
+    today: todayTally
+      ? compact({
+          kcal: knownTotal(todayTally, "calories", Math.round),
+          protein_g: knownTotal(todayTally, "protein", round1),
+          carbs_g: knownTotal(todayTally, "carbs", round1),
+          fat_g: knownTotal(todayTally, "fat", round1),
+          items_logged: todayTally.items,
+          ...foodsWithout(todayTally),
+        })
       : { items_logged: 0 },
-    ...(missing("calories") ? { foods_without_calories: missing("calories") } : {}),
-    ...(missing("protein") ? { foods_without_protein: missing("protein") } : {}),
+    ...foodsWithout(week),
+    ...(FOOD_VALUES.some((key) => week.without[key] > 0) ? { unknown_values: UNKNOWN_FOOD_VALUES_NOTE } : {}),
     most_logged_foods: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name]) => name),
   };
 }
