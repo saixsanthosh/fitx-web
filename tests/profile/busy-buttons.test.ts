@@ -69,8 +69,10 @@ describe("Profile's Try again", () => {
     assert.match(view, /target === "heading" \? document\.getElementById\("profile-name-title"\)\s*: target === "action" \? alertBox\.current\?\.querySelector<HTMLElement>\("a, button"\)/);
     assert.match(view, /\}, \[status, retrying\]\);/);
     assert.match(view, /<div ref=\{alertBox\} role="alert"/);
-    // The heading takes focus from script only: it is no Tab stop.
-    assert.match(view, /<h1 id="profile-name-title" tabIndex=\{-1\} className="[^"]*\boutline-none\b/);
+    // The heading takes focus from script only (it is no Tab stop), and shows the focus ring when it has it.
+    const heading = view.match(/<h1 id="profile-name-title" tabIndex=\{-1\} className="([^"]*)"/)?.[1] ?? null;
+    assert.ok(heading !== null, "the profile's heading can take focus");
+    assert.doesNotMatch(heading, /outline-none/, "the focus ring stays");
   });
 });
 

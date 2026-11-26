@@ -425,7 +425,7 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
           ) : (
             <div className="flex items-start gap-1">
               {/* tabIndex -1: Try again hands focus here when it brings the profile back (profile-focus.ts). */}
-              <h1 id="profile-name-title" tabIndex={-1} className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text outline-none sm:text-[40px]">
+              <h1 id="profile-name-title" tabIndex={-1} className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text sm:text-[40px]">
                 {data.profile?.name || "Add your name"}
               </h1>
               <button ref={editNameButton} type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
