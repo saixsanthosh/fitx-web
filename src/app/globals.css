@@ -551,9 +551,17 @@ textarea.fitx-field { min-height: 88px; padding-top: 12px; padding-bottom: 12px;
   --fitx-space-block: clamp(24px, 3.2vw, 40px);
 }
 /* Smooth in-page scrolling (anchor links, scrollIntoView) only for visitors who have not asked for less
-   motion. CSS only: nothing takes over the scroll wheel. */
+   motion. CSS only: nothing takes over the scroll wheel.
+   Scrolling that follows a focus the member can see (Tab, a text field they tap or type in) is instant, as it is
+   with reduced motion. Chrome brings a focused text field into view in two scrolls: its box, then its caret. When
+   both are smooth, the caret's scroll replaces the box's before it has moved, so the field stopped as soon as its
+   caret cleared the scroll padding, with its lower edge and focus ring still under the phone's bar or the privacy
+   banner ("Search foods" on Nutrition at 390 x 844, bug 12). Instant, the box's scroll stands and the caret is already
+   in view. Chrome updates :has() before it scrolls to the new focus, so this holds from the first Tab. A link
+   clicked with a mouse or finger shows no focus ring, so its jump stays smooth. */
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
+  html:has(:focus-visible) { scroll-behavior: auto; }
 }
 .fitx-container { width: min(100% - 2 * var(--fitx-gutter), var(--fitx-container)); margin-inline: auto; }
 /* Horizontal padding that also clears a landscape notch; set --fitx-pad-inline per breakpoint. */
