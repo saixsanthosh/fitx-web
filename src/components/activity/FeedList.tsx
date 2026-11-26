@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { CalendarClock, CloudOff, Play } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
@@ -8,7 +9,7 @@ import { formatActivityDate, formatDuration, kmValue, paceValue, speedValue } fr
 import { FUTURE_DATE_MARK, startsInFuture } from "@/lib/activity/future";
 import { decodeRoute } from "@/lib/activity/polyline";
 import type { ActivityView } from "@/lib/activity/repository";
-import type { TimelineEntry } from "@/lib/activity/timeline";
+import { focusAfterOlder, type TimelineEntry } from "@/lib/activity/timeline";
 import type { Sport } from "@/lib/activity/types";
 import { groupByWeek, weekLabel } from "@/lib/activity/weeks";
 import { ActivitySourceBadge } from "./ActivitySourceBadge";
@@ -31,7 +32,7 @@ function Figure({ label, value, unit }: { label: string; value: string; unit?: s
  * One walk, run or ride in the feed: who-when line, title, the sport's figures and the route. One dated after
  * now says so: weekly, monthly and yearly totals leave it out until then (all time and bests count it).
  */
-export function ActivityCard({ activity, now }: { activity: ActivityView; now: number | null }) {
+export function ActivityCard({ activity, now, entryKey }: { activity: ActivityView; now: number | null; entryKey?: string }) {
   const href = activity.local ? `/activity/local-${activity.clientId}` : `/activity/${activity.id}`;
   const route = decodeRoute(activity.routePolyline);
   const hasRoute = route.some((segment) => segment.length > 1);
@@ -41,6 +42,7 @@ export function ActivityCard({ activity, now }: { activity: ActivityView; now: n
     <li>
       <Link
         href={href}
+        data-feed-entry={entryKey}
         className="group block overflow-hidden rounded-2xl border border-fitx-border bg-fitx-card transition-[border-color,transform] duration-200 hover:border-fitx-primary/40 motion-safe:active:scale-[.995]"
       >
         <div className="flex items-start gap-3 p-4 pb-3 sm:p-5 sm:pb-3">
@@ -89,11 +91,39 @@ type FeedListProps = {
   ready: boolean;
   more: boolean;
   loadingMore: boolean;
-  onLoadMore: () => void;
+  /** The last older page couldn't be read. */
+  moreFailed: boolean;
+  /** Starts reading older entries; false when nothing started (one is still loading, or nothing is left). */
+  onLoadMore: () => boolean;
 };
 
+/** The entry's link in the list, by its timeline key. */
+function entryLink(list: HTMLElement | null, key: string): HTMLElement | null {
+  return Array.from(list?.querySelectorAll<HTMLElement>("[data-feed-entry]") ?? []).find((link) => link.dataset.feedEntry === key) ?? null;
+}
+
 /** The history, newest first, in weeks. */
-export function FeedList({ entries, now, sport, loading, ready, more, loadingMore, onLoadMore }: FeedListProps) {
+export function FeedList({ entries, now, sport, loading, ready, more, loadingMore, moreFailed, onLoadMore }: FeedListProps) {
+  // "Show older activities" (D5): never disabled while it loads (aria-disabled, a press meanwhile does nothing), so
+  // keyboard focus stays on it; it keeps focus while there are more, and once it goes the first entry it brought
+  // takes focus, so the member carries on where the older entries start.
+  const list = useRef<HTMLDivElement>(null);
+  const pressed = useRef<{ shown: string[] } | null>(null);
+  const keys = entries.map((entry) => entry.key).join("\n");
+  useEffect(() => {
+    const press = pressed.current;
+    if (!press || loadingMore) return;
+    pressed.current = null;
+    const target = focusAfterOlder(press.shown, keys ? keys.split("\n") : [], more);
+    if (target) entryLink(list.current, target)?.focus();
+  }, [keys, more, loadingMore]);
+
+  function showOlder() {
+    if (loadingMore) return;
+    const shown = keys ? keys.split("\n") : [];
+    if (onLoadMore()) pressed.current = { shown };
+  }
+
   if (loading) {
     return (
       <div className="space-y-3" aria-hidden="true">
@@ -114,7 +144,7 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
   }
   const groups = groupByWeek(entries);
   return (
-    <div className="space-y-7">
+    <div ref={list} className="space-y-7">
       {groups.map((group) => {
         const label = now === null ? "" : weekLabel(group.weekStart, now);
         return (
@@ -122,15 +152,16 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-[.14em] text-fitx-text-secondary">{label}</h3>
             <ul className="grid gap-3 lg:grid-cols-2">
               {group.items.map((entry) => (entry.kind === "activity"
-                ? <ActivityCard key={entry.key} activity={entry.activity} now={now} />
-                : <StrengthRow key={entry.key} session={entry.session} />))}
+                ? <ActivityCard key={entry.key} entryKey={entry.key} activity={entry.activity} now={now} />
+                : <StrengthRow key={entry.key} entryKey={entry.key} session={entry.session} />))}
             </ul>
           </section>
         );
       })}
       {more && (
         <Reveal>
-          <button type="button" onClick={onLoadMore} disabled={loadingMore} className="fitx-button fitx-button-secondary min-h-11 w-full">{loadingMore ? "Loading…" : "Show older activities"}</button>
+          <button type="button" onClick={showOlder} aria-disabled={loadingMore || undefined} className="fitx-button fitx-button-secondary min-h-11 w-full aria-disabled:cursor-progress aria-disabled:opacity-60">{loadingMore ? "Loading…" : "Show older activities"}</button>
+          {moreFailed && <p role="alert" className="mt-2 text-sm text-fitx-danger">Older activities couldn’t load. Check your connection and try again.</p>}
         </Reveal>
       )}
     </div>

@@ -44,6 +44,11 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const [local, setLocal] = useState<StoredRecording[]>([]);
   const [now, setNow] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  // One older page at a time; `moreFailed`: the last one couldn't be read (said beside "Show older activities").
+  const loadingMoreNow = useRef(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  // Bumped whenever the history is read again from the first page, so an older page read before that is dropped.
+  const historyGeneration = useRef(0);
   const [recordingElsewhere, setRecordingElsewhere] = useState<Set<string>>(() => new Set());
   const filterRef = useRef(filter);
   useEffect(() => {
@@ -53,6 +58,8 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const loadHistory = useCallback(async (uid: string, which: SportFilter) => {
     const supabase = createClient();
     if (!supabase) return;
+    historyGeneration.current += 1;
+    setMoreFailed(false);
     setHistory({ status: "loading" });
     const sport = which === "all" ? null : which;
     const [list, strength] = await Promise.all([
@@ -111,24 +118,43 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     return () => window.clearTimeout(id);
   }, [userId, filter, loadHistory]);
 
-  const loadMore = useCallback(async () => {
-    if (!userId || history.status !== "ready") return;
+  /**
+   * "Show older activities": reads the next page of whichever list holds the timeline back. Says whether a read
+   * started (not while one is still loading, nor with nothing left to read), so the list knows a press is waiting
+   * for new entries. A failed page of activities is said beside the button and can be tried again; a failed page
+   * of strength sessions stops them there, so older activities never wait on them.
+   */
+  const loadMore = useCallback((): boolean => {
+    if (loadingMoreNow.current || !userId || history.status !== "ready") return false;
     const supabase = createClient();
-    if (!supabase) return;
+    if (!supabase) return false;
     const next = nextToLoad({ items: history.items, more: history.more }, { items: sessions.items, more: sessions.more });
-    if (!next) return;
+    if (!next) return false;
+    loadingMoreNow.current = true;
+    const generation = historyGeneration.current;
     setLoadingMore(true);
-    if (next === "activities") {
-      const before = history.items[history.items.length - 1].startedAt;
-      const page = await listActivities(supabase, userId, { limit: PAGE, before, sport: filter === "all" ? null : filter });
-      if (page.status === "ok") setHistory({ status: "ready", items: [...history.items, ...page.data], more: page.data.length === PAGE });
-    } else {
-      const before = sessions.items[sessions.items.length - 1].startedAt;
-      const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
-      if (page.status === "ok") setSessions({ status: "ready", items: [...sessions.items, ...page.data], more: page.data.length === PAGE });
-      else setSessions({ ...sessions, more: false });
-    }
-    setLoadingMore(false);
+    setMoreFailed(false);
+    void (async () => {
+      try {
+        if (next === "activities") {
+          const before = history.items[history.items.length - 1].startedAt;
+          const page = await listActivities(supabase, userId, { limit: PAGE, before, sport: filter === "all" ? null : filter });
+          if (generation !== historyGeneration.current) return;
+          if (page.status === "ok") setHistory({ status: "ready", items: [...history.items, ...page.data], more: page.data.length === PAGE });
+          else setMoreFailed(true);
+        } else {
+          const before = sessions.items[sessions.items.length - 1].startedAt;
+          const page = await listStrengthSessions(supabase, userId, { limit: PAGE, before });
+          if (generation !== historyGeneration.current) return;
+          if (page.status === "ok") setSessions({ status: "ready", items: [...sessions.items, ...page.data], more: page.data.length === PAGE });
+          else setSessions({ ...sessions, more: false });
+        }
+      } finally {
+        loadingMoreNow.current = false;
+        setLoadingMore(false);
+      }
+    })();
+    return true;
   }, [userId, history, sessions, filter]);
 
   const unfinished = local.find((r) => r.state === "active") ?? null;
@@ -148,6 +174,6 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     history, sessions, recentStrength, statRows, statsComplete: stats?.complete ?? true, now, unfinished,
     statsStatus: figuresStatus(statRows, statsFailure !== null), statsOffline: statsFailure?.offline ?? false,
     unfinishedElsewhere: Boolean(unfinished && recordingElsewhere.has(unfinished.clientId)),
-    waiting, timeline, loadMore, loadingMore, reload: load,
+    waiting, timeline, loadMore, loadingMore, moreFailed, reload: load,
   };
 }

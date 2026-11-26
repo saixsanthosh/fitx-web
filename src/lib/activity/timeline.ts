@@ -1,3 +1,4 @@
+import { addedIds, focusAfterShowMore } from "@/lib/workouts/show-more";
 import type { ActivityView } from "./repository";
 import type { StrengthSession } from "./strength";
 
@@ -47,4 +48,14 @@ export function mergeTimeline(activities: Paged<ActivityView>, sessions: Paged<S
     .filter((entry) => boundary === null || entry.startedAt >= boundary)
     .sort((a, b) => b.startedAt - a.startedAt || a.key.localeCompare(b.key));
   return { entries, more: activities.more || sessions.more };
+}
+
+/**
+ * Where keyboard focus goes once "Show older activities" has read its page (D5, FITX's rule for every "show more"
+ * button, show-more.ts): nowhere new while older entries remain, since the button stays and keeps focus; once it goes,
+ * the first entry the press brought (by its key), or the last entry shown when it brought none.
+ */
+export function focusAfterOlder(shown: readonly string[], next: readonly string[], more: boolean): string | null {
+  const target = focusAfterShowMore({ more, shown, added: addedIds(shown, next) });
+  return target === "button" ? null : target;
 }

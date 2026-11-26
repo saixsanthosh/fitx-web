@@ -210,7 +210,8 @@ export function ActivityHome() {
             ready={history.status === "ready"}
             more={history.status === "ready" && timeline.more}
             loadingMore={feed.loadingMore}
-            onLoadMore={() => void feed.loadMore()}
+            moreFailed={feed.moreFailed}
+            onLoadMore={feed.loadMore}
           />
           {filter === "all" && feed.sessions.status === "missing" && history.status === "ready" && <p className="text-xs text-fitx-text-secondary">Strength sessions couldn’t load here. They’re in Workouts.</p>}
         </section>

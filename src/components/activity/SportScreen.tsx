@@ -147,7 +147,8 @@ export function SportScreen({ sport }: { sport: Sport }) {
           ready={feed.history.status === "ready" || feed.history.status === "unavailable"}
           more={feed.history.status === "ready" && feed.timeline.more}
           loadingMore={feed.loadingMore}
-          onLoadMore={() => void feed.loadMore()}
+          moreFailed={feed.moreFailed}
+          onLoadMore={feed.loadMore}
         />
       </section>
     </div>
