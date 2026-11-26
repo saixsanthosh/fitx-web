@@ -146,6 +146,40 @@
   }
 }
 
+/*
+ * The privacy banner's room (layout CSS only; the shell's bug 79). While the banner is open the page keeps room after
+ * its last control, as tall as the banner, so that control can be scrolled clear of it (globals.css: body and
+ * .auth-main). From 1024 px the stage is a column one window tall, sticky inside .layout, and it cannot reach past
+ * .layout: room added after the frame showed as a strip of page colour under the photo (175 px at 1440 x 900, with
+ * the legal note), and every step scrolled by it. Here the room goes inside .layout instead, at the foot of the
+ * form's column, and the legal note sits just above it, centred in that column: the stage reaches the bottom of the
+ * window, a step that fits the window doesn't scroll, and the note's links and the form's last control still clear the
+ * banner. --onboarding-legal is the band kept for the note: its line and the 28 px under it, with room to spare.
+ * Without the banner the note keeps the bottom of the form's column. Narrower windows have no sticky stage: there the
+ * room stays after the note.
+ */
+@media (min-width: 1024px) {
+  :global(.auth-main):has(.layout) {
+    padding-bottom: 0;
+  }
+
+  :global(.auth-content):has(.layout) {
+    --onboarding-legal: 3.5rem;
+    position: relative;
+  }
+
+  :global(.auth-content):has(.layout) > :global(.auth-legal-note) {
+    position: absolute;
+    right: 0;
+    bottom: var(--fitx-inset-consent, 0px);
+    left: calc(100% * 5 / 12);
+  }
+
+  .layout > :not(.stage) {
+    padding-bottom: calc(var(--onboarding-legal) + var(--fitx-inset-consent, 0px));
+  }
+}
+
 /* The stage's photograph: under the measuring grid, drifting slowly, washed towards the stage colour so the
    title and readouts stay readable. */
 .photoLayer {
