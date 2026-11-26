@@ -45,7 +45,7 @@ test("the address's errors are the known ones only, never text from the address"
   for (const code of ["", "unknown", "constructor", "__proto__", "toString", "hasOwnProperty", "Your session has ended"]) {
     assert.equal(addressError(`?error=${encodeURIComponent(code)}`), "", `?error=${code}: an inherited name or free text is not a message`);
   }
-  assert.equal(addressError("?setup=supabase"), SETUP_MISSING);
+  assert.equal(addressError("?setup=supabase", false), SETUP_MISSING, "where the page finds Supabase unset");
   assert.equal(addressError(""), "");
 });
 

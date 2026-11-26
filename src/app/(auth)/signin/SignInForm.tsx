@@ -32,10 +32,11 @@ function subscribeLocation(onChange: () => void) {
 
 /**
  * What the address says happened (src/lib/auth/address-messages.ts): a sign-in that came back, or signing out. A claim
- * a link could make falsely ("signed out everywhere") also needs the proof this browser's own sign-out left, read once.
+ * a link could make falsely needs more than the address: "signed out everywhere" the proof this browser's own sign-out
+ * left (read once), "not configured" this page's own finding.
  */
 const noticeProof = () => takeNoticeProof(document, window.location.protocol === "https:");
-const getLocationError = () => addressError(window.location.search);
+const getLocationError = () => addressError(window.location.search, isSupabaseConfigured);
 const getLocationNotice = () => addressNotice(window.location.search, noticeProof());
 
 /** The page the visitor was heading to; every consumer cleans it with safeNext. */

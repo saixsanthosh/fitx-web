@@ -9,8 +9,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  ADDRESS_ERRORS,
+  addressError,
   addressNotice,
   noticeProofCookie,
+  SETUP_MISSING,
   SIGNED_OUT_EVERYWHERE,
   SIGNED_OUT_HERE,
   signedOutAddress,
@@ -116,4 +119,19 @@ test("the sign-in page reads the proof once per page and needs it for the strong
   assert.match(form, /const getLocationNotice = \(\) => addressNotice\(window\.location\.search, noticeProof\(\)\);/);
   // Read after hydration only: the server's draw (and the hydration render) has no notice.
   assert.match(form, /useSyncExternalStore\(subscribeLocation, getLocationNotice, \(\) => ""\)/);
+});
+
+// The same mistake elsewhere on the page: ?setup= made FITX's own page say "Account access is not configured in this
+// environment yet." wherever a link sent it, sign-in working or not. The page knows its own configuration, so it says
+// that only where Supabase really is unset.
+test("a link can't make a working sign-in page say sign-in isn't set up", () => {
+  for (const address of ["/signin?setup=supabase", "/signin?setup=1&next=%2Fdashboard"]) {
+    assert.equal(addressError(search(address)), "", `${address}: the address alone`);
+    assert.equal(addressError(search(address), true), "", `${address} where Supabase is set up`);
+    assert.equal(addressError(search(address), false), SETUP_MISSING, `${address} where it isn't (the proxy's own redirect)`);
+  }
+  // The known ?error= lines are unchanged either way (they are about the sign-in that came back).
+  for (const code of Object.keys(ADDRESS_ERRORS)) assert.equal(addressError(`?error=${code}`, true), ADDRESS_ERRORS[code], code);
+  const form = read("src/app/(auth)/signin/SignInForm.tsx");
+  assert.match(form, /const getLocationError = \(\) => addressError\(window\.location\.search, isSupabaseConfigured\);/);
 });

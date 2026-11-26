@@ -10,10 +10,11 @@ import { NOTICE_PROOF_COOKIE, NOTICE_PROOF_MAX_AGE, noticeProofCookieOptions } f
  *
  * Any link can carry any of these addresses, and FITX's own page would then vouch for it. So the address alone makes the
  * page say only what is true for everyone the proxy shows it to ("You’re signed out on this device": the proxy sends a
- * signed-in member on). Saying that every device is signed out also needs the proof FITX leaves in this browser just
- * before it sends it here (NOTICE_PROOF_COOKIE, src/lib/auth/cookies.ts), which a link can't set (review
- * security:R3-SEC-1): otherwise a mail saying "we've secured your account" could link to FITX's own page to confirm it,
- * and the member would see no reason to press Sign out everywhere themselves.
+ * signed-in member on). What Sign out everywhere did (every device signed out, or this one already was) also needs the
+ * proof FITX leaves in this browser just before sending it here (NOTICE_PROOF_COOKIE, src/lib/auth/cookies.ts), which a
+ * link can't set (review security:R3-SEC-1): otherwise a mail saying "we've secured your account" could link to FITX's
+ * own page to confirm it, and the member would see no reason to press Sign out everywhere themselves. "Not configured"
+ * needs the page's own finding (addressError).
  */
 
 /** ?error= values, set by /auth/callback and the proxy. Anything else in the address is ignored. */
@@ -54,12 +55,23 @@ export function signedOutProof(scope: "local" | "global", outcome: "signed_out" 
   return outcome === "ended" ? "ended" : "everywhere";
 }
 
-/** The error the address carries, or "". Only known codes count: nothing else from the address is shown. */
-export function addressError(search: string): string {
+/**
+ * The error the address carries, or "". Only known codes count: nothing else from the address is shown. ?setup= ("not
+ * configured") counts only where the page itself finds Supabase unset (`configured`: isSupabaseConfigured): a link can
+ * carry it to a page where sign-in works, and FITX's own page would then say that it doesn't (review security:R3-SEC-1,
+ * the same mistake).
+ *
+ * The ?error= lines are about the sign-in that came back (cancelled, expired, another browser…): a false one only invites
+ * another try on this page. "This account is suspended" is the exception, and stays: Supabase reports a suspended
+ * account's Google sign-in only in the address of its redirect back to FITX (/auth/callback?error_code=user_banned),
+ * which any link can reproduce, so FITX can't prove it; the line names FITX's real support address, and signing in shows
+ * the truth (Auth refuses a suspended account, and the form says so from Auth's own answer).
+ */
+export function addressError(search: string, configured = true): string {
   const query = new URLSearchParams(search);
   const code = query.get("error");
   if (code !== null && Object.hasOwn(ADDRESS_ERRORS, code)) return ADDRESS_ERRORS[code];
-  return query.has("setup") ? SETUP_MISSING : "";
+  return query.has("setup") && !configured ? SETUP_MISSING : "";
 }
 
 /** The query without its one-time messages (?error=, ?signed_out=), keeping everything else: ?next= above all. */

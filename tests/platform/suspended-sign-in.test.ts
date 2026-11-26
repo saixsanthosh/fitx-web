@@ -93,7 +93,7 @@ test("the sign-in page shows the message for ?error=suspended and for password a
   // The address's messages live in src/lib/auth/address-messages.ts since bug 42; the sign-in page shows them.
   assert.match(source("src/lib/auth/address-messages.ts"), /suspended: SUSPENDED_MESSAGE,/);
   const form = source("src/app/(auth)/signin/SignInForm.tsx");
-  assert.match(form, /addressError\(window\.location\.search\)/);
+  assert.match(form, /addressError\(window\.location\.search, isSupabaseConfigured\)/);
   assert.match(form, /setError\(passwordSignInProblem\(authError\)\)/);
   const codeFlow = source("src/components/auth/useEmailCode.ts");
   assert.match(codeFlow, /sendCodeProblem\(authError\)/);
