@@ -2,8 +2,9 @@
 // result (a code, and a count it made itself) for the operator who acted (src/lib/notice.ts); a page shows its own
 // fixed words for a result only from such a token, made in the last 10 minutes. Text, numbers and codes typed into a
 // link show nothing. Refused forms (Explore's challenge, template and community forms, its reversible moderation
-// actions and Add moderator, Settings) answer beside their button and keep what was typed (BUGS.md 63, admin-2), so
-// their refusals never travel in the address either.
+// actions and Add moderator, Settings, Support's reply, the member page's account actions, the Users list's selection
+// and Add operator) answer beside their button and keep what was typed (BUGS.md 63, admin-2), so their refusals never
+// travel in the address either.
 import test, { beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
@@ -110,14 +111,13 @@ test("a page shows only its own words: an unknown code, or none, shows nothing",
 
 test("bulk suspension: the count shown is the action's own, sealed with its result", async () => {
   const ids = ["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"];
-  const url = await redirectOf(users.suspendSelected(form([...ids.map((id) => ["ids", id]), ["reason", "Spam accounts"], ["confirm", "yes"], ["return", "/users?status=active&count=500"]])));
+  const url = await redirectOf(users.suspendSelected(IDLE, form([...ids.map((id) => ["ids", id]), ["reason", "Spam accounts"], ["confirm", "yes"], ["return", "/users?status=active&count=500"]])));
   const result = sealedRedirect(url, OPERATOR);
   assert.deepEqual(result.notice, { code: "bulk_suspended", count: 2 });
   assert.equal(new URL(result.path, "https://admin.invalid").pathname, "/users");
   assert.equal(rpcCalls("fitx_admin_op_revoke_user_sessions").length, 2);
-  // Refused before anything happens: no selection.
-  const none = sealedRedirect(await redirectOf(users.suspendSelected(form([["reason", "Spam accounts"], ["confirm", "yes"]]))), OPERATOR);
-  assert.deepEqual(none, { path: "/users", notice: { code: "none_selected", count: null } });
+  // Refused before anything happens (no selection): beside the buttons, never in the address (BUGS.md 63).
+  assert.deepEqual(await users.suspendSelected(IDLE, form([["reason", "Spam accounts"], ["confirm", "yes"]])), { status: "error", message: "Select at least one account.", fieldErrors: undefined });
 });
 
 test("Explore actions go back with a sealed result, never with words in the address", async () => {
@@ -217,7 +217,8 @@ test("no page reads words, numbers or plain codes from the address, and no actio
   // The forms that keep what was typed: client forms on useActionState, submitting through keepTyped.
   for (const file of [
     "components/explore/challenge-forms.tsx", "components/explore/community-form.tsx", "components/explore/reversible-actions-form.tsx",
-    "components/explore/add-moderator-form.tsx", "components/settings/settings-form.tsx",
+    "components/explore/add-moderator-form.tsx", "components/settings/settings-form.tsx", "components/support/reply-form.tsx",
+    "components/users/account-forms.tsx", "components/users/bulk-users-form.tsx", "components/security/add-operator-form.tsx",
   ]) {
     const source = await readFile(new URL(file, root), "utf8");
     assert.match(source, /useActionState\(/, file);

@@ -117,7 +117,7 @@ beforeEach(() => {
 
 test("Admin's deleteAccount removes the member's Explore photos before it deletes the login", async () => {
   fake.handler = deletionHandler();
-  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => {
+  await assert.rejects(userActions.deleteAccount({ status: "idle" }, deletionForm()), (error) => {
     assert.deepEqual(sealedRedirect(error.url, operator.id), { path: "/users", notice: { code: "deleted", count: null } });
     return true;
   });
@@ -132,10 +132,13 @@ test("Admin's deleteAccount removes the member's Explore photos before it delete
 
 test("when the Explore photos cannot be removed, the account is kept and the failure is audited", async () => {
   fake.handler = deletionHandler({ socialListError: { message: "storage unavailable" } });
-  await assert.rejects(userActions.deleteAccount(deletionForm()), (error) => {
-    assert.deepEqual(sealedRedirect(error.url, operator.id), { path: `/users/${MEMBER}`, notice: { code: "delete_failed", count: null } });
-    return true;
-  });
+  // Refused beside the Delete button, with the reason and the typed confirmation kept (BUGS.md 63).
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => errors.push(args.join(" "));
+  const refused = await userActions.deleteAccount({ status: "idle" }, deletionForm()).finally(() => { console.error = original; });
+  assert.deepEqual(refused, { status: "error", message: "The account was not deleted. The audit log and server log have the details.", fieldErrors: undefined });
+  assert.ok(errors.some((line) => line.includes("people.delete_social_storage")), "the failure is logged");
   assert.equal(fake.calls.some((call) => call.auth === "deleteUser"), false);
   const failed = rpcCalls("fitx_admin_op_log_event").find((call) => call.args.p_action === "user_delete_failed");
   assert.equal(failed.args.p_details.step, "social_storage");

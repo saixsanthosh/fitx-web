@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Notice, Panel, consoleStyles as ui } from "@/components/console/ui";
+import { DeleteAccountForm, SignOutEverywhereForm, SuspensionForm } from "@/components/users/account-forms";
 import { deleteConfirmation, formatPhone, methodLabels, METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
+import { ACCOUNT_NOTICES } from "@/components/users/people-notices";
 import styles from "@/components/users/users.module.css";
 import { ModuleState } from "@/components/module-state";
 import { requireAdmin } from "@/lib/admin-auth";
@@ -12,37 +14,13 @@ import { can, ROLE_LABELS } from "@/lib/roles";
 import { noticeWords, pageNotice } from "@/lib/notice";
 import { MIGRATIONS } from "@/lib/schema";
 import { formatIstDate, formatIstDateTime } from "@/lib/time";
-import { deleteAccount, revokeSessions, sendPasswordReset, suspendAccount, unsuspendAccount } from "../actions";
+import { sendPasswordReset } from "../actions";
 
 export const metadata: Metadata = { title: "Account" };
 
 const GOALS: Record<string, string> = {
   muscle_gain: "Muscle gain", weight_gain: "Weight gain", fat_loss: "Fat loss", weight_loss: "Weight loss", strength: "Strength",
   general_fitness: "General fitness", endurance: "Endurance", maintain_weight: "Maintain weight",
-};
-
-
-const notices: Record<string, { tone: "success" | "error"; text: string }> = {
-  suspended: { tone: "success", text: "Suspended and signed out on every device. A page already open works until its access token runs out, within an hour." },
-  suspended_sessions_pending: { tone: "success", text: `The account is suspended. Its open sessions stop at their next refresh, within an hour, because signing out everywhere needs migration ${MIGRATIONS.people}.` },
-  suspended_sessions_failed: { tone: "error", text: "The account is suspended, but Supabase refused to end its open sessions (the server log has the details). They stop at their next refresh, within an hour." },
-  unsuspended: { tone: "success", text: "The suspension is lifted. The person can sign in again." },
-  sessions_revoked: { tone: "success", text: "Signed out on every device. Access already granted runs out within an hour." },
-  reset_sent: { tone: "success", text: "Supabase sent a password reset email to this address." },
-  reset_disabled: { tone: "error", text: "Password reset emails are switched off until FITX accepts token links (see the README, Password reset emails)." },
-  no_password: { tone: "error", text: "This account signs in with Google only, so it has no password to reset." },
-  no_email: { tone: "error", text: "This account has no email address." },
-  reset_failed: { tone: "error", text: "Supabase did not send the email. Its email rate limit may have been reached; try again later." },
-  reason_required: { tone: "error", text: "Give a reason of 3 to 200 characters. It is kept in the audit log." },
-  billing_active: { tone: "error", text: "Nothing was deleted: Razorpay is still billing this account's FITX subscription. Ask the person to cancel it on the Subscription page in FITX, or cancel it in the Razorpay dashboard, then try again." },
-  confirm_mismatch: { tone: "error", text: "What you typed does not match this account, so nothing was deleted." },
-  audit_migration: { tone: "error", text: `Nothing was changed: account actions are recorded first, and the audit function needs migration ${MIGRATIONS.adminV2}.` },
-  audit_failed: { tone: "error", text: "Nothing was changed because the audit log could not record the action." },
-  people_migration: { tone: "error", text: `Signing out everywhere needs migration ${MIGRATIONS.people}.` },
-  revoke_refused: { tone: "error", text: "Supabase refused to end the sessions. The server log has the details." },
-  delete_failed: { tone: "error", text: "The account was not deleted. The audit log and server log have the details." },
-  configuration: { tone: "error", text: "Server data access is not configured." },
-  failed: { tone: "error", text: "The change did not complete. The server log has the details." },
 };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -76,7 +54,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
   const person = result.person;
   const suspended = isSuspended(person.bannedUntil);
   const resetEnabled = process.env.FITX_ADMIN_PASSWORD_RESET_EMAILS === "on";
-  const message = noticeWords(notices, pageNotice(notice, actor.id));
+  const message = noticeWords(ACCOUNT_NOTICES, pageNotice(notice, actor.id));
   const title = person.email ?? formatPhone(person.phone) ?? "No email or phone";
   const deleteCheck = deleteConfirmation(person);
   const plan = subscriptionLabel(person.subscriptionStatus, person.premium);
@@ -151,22 +129,14 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
           <article className={`table-panel action-card${suspended ? "" : " action-danger"}`}>
             <h2>{suspended ? "Lift the suspension" : "Suspend access"}</h2>
             <p>{suspended ? "They can sign in again straight away." : "Bans sign-in in Supabase Auth and ends every session on every device."}</p>
-            <form action={suspended ? unsuspendAccount : suspendAccount} className="stack-form">
-              <input type="hidden" name="userId" value={person.id} />
-              <label>Reason (audit log)<input name="reason" required minLength={3} maxLength={200} /></label>
-              <button className={suspended ? "primary-button" : "danger-button"} type="submit">{suspended ? "Lift suspension" : "Suspend account"}</button>
-            </form>
+            <SuspensionForm userId={person.id} suspended={suspended} />
           </article>
         )}
         {can(actor.role, "people.support") && (
           <article className="table-panel action-card">
             <h2>Sign out everywhere</h2>
             <p>Ends every session. They can sign in again unless suspended.</p>
-            <form action={revokeSessions} className="stack-form">
-              <input type="hidden" name="userId" value={person.id} />
-              <label>Reason (audit log)<input name="reason" required minLength={3} maxLength={200} placeholder="For example: lost phone" /></label>
-              <button className="quiet-button" type="submit">Sign out everywhere</button>
-            </form>
+            <SignOutEverywhereForm userId={person.id} />
           </article>
         )}
         {can(actor.role, "people.support") && person.hasPasswordSignIn && (
@@ -183,12 +153,7 @@ export default async function PersonPage({ params, searchParams }: { params: Pro
           <article className="table-panel action-card action-danger">
             <h2>Delete the account</h2>
             <p>Deletes the account, its FITX data and private photos. Payment records stay, unlinked. Cannot be undone.</p>
-            <form action={deleteAccount} className="stack-form">
-              <input type="hidden" name="userId" value={person.id} />
-              <label>Reason (audit log)<input name="reason" required minLength={3} maxLength={200} /></label>
-              <label>{deleteCheck.label}<input name="confirmEmail" required autoComplete="off" placeholder={deleteCheck.expected} /></label>
-              <button className="danger-button" type="submit">Delete permanently</button>
-            </form>
+            <DeleteAccountForm userId={person.id} confirmLabel={deleteCheck.label} expected={deleteCheck.expected} />
           </article>
         )}
       </section>

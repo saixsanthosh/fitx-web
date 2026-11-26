@@ -24,6 +24,22 @@ export function fieldAria(state: FormState, name: string, resultId: string): { "
 }
 
 /**
+ * Empties a form's password fields. A refused form keeps what was typed (keepTyped), but never a password: after a
+ * refusal it is typed again, as on the sign-in page. Only fields of type password are touched. True when one was emptied.
+ */
+export function clearPasswords(form: { querySelectorAll(selector: string): ArrayLike<unknown> } | null | undefined): boolean {
+  let cleared = false;
+  for (const element of Array.from(form?.querySelectorAll('input[type="password"]') ?? [])) {
+    const field = element as { value?: unknown };
+    if (typeof field.value === "string" && field.value !== "") {
+      field.value = "";
+      cleared = true;
+    }
+  }
+  return cleared;
+}
+
+/**
  * A form's data with the pressed button's name and value, as the browser sends them on a submit: `new FormData(form)`
  * leaves the button out, and a form with one button per action (Explore's moderation) reads which one it was. Nothing
  * is added for a button without a name, or when no button was pressed.

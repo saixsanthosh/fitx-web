@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { operatorRefusal } from "@/components/security/operator-notices";
 import { requireAdmin } from "@/lib/admin-auth";
+import type { FormState } from "@/lib/content/form";
 import { isUuid } from "@/lib/data/people";
 import { noticeHref } from "@/lib/notice";
 import { createOperator, resetOperatorPassword, updateOperator, type OperatorError } from "@/lib/operators";
@@ -19,16 +21,22 @@ function readOperatorId(actorId: string, formData: FormData): string {
   return id.toLowerCase();
 }
 
-/** Adds an operator with a temporary password; they choose their own at first sign-in. */
-export async function addOperator(formData: FormData) {
+/**
+ * Adds an operator with a temporary password; they choose their own at first sign-in. For useActionState: a refusal (a
+ * username that breaks the rule, is reserved or is taken, a weak password, a failure) comes back beside the button and
+ * the form keeps the username and role as typed (BUGS.md 63), never the password; an operator added goes back to the
+ * page with the result sealed. The database checks access.manage again and audits.
+ */
+export async function addOperator(_previous: FormState, formData: FormData): Promise<FormState> {
   const actor = await requireAdmin("access.manage");
   const result = await createOperator(actor, {
     username: formData.get("username"),
     role: formData.get("role"),
     password: formData.get("password"),
   });
+  if (!result.ok) return operatorRefusal(result.error);
   revalidatePath("/audit");
-  done(actor.id, result.ok ? "created" : result.error);
+  done(actor.id, "created");
 }
 
 /** Changes another operator's role or status. Lowering access or switching someone off needs the box ticked. */

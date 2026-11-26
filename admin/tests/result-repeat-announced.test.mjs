@@ -43,6 +43,7 @@ test("FormResult takes the pending flag and draws its words through resultText; 
   for (const file of [
     "components/settings/settings-form.tsx", "components/explore/challenge-forms.tsx", "components/explore/community-form.tsx",
     "components/explore/reversible-actions-form.tsx", "components/explore/add-moderator-form.tsx", "components/support/reply-form.tsx",
+    "components/users/account-forms.tsx", "components/users/bulk-users-form.tsx", "components/security/add-operator-form.tsx",
   ]) {
     const form = await source(file);
     const uses = form.match(/<FormResult [^>]*\/>/g) ?? [];

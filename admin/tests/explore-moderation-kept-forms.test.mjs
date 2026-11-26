@@ -185,7 +185,7 @@ test("the pressed button goes with the form's data, as the browser sends it (the
 
 test("the field a refusal is about is drawn marked, focused or not", async () => {
   const css = await readFile(new URL("../src/app/globals.css", import.meta.url), "utf8");
-  const marked = css.indexOf('.stack-form :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--red); }');
+  const marked = css.indexOf(':is(.stack-form, .member-form) :is(input, select, textarea)[aria-invalid="true"] { border-color: var(--red); }');
   assert.ok(marked > 0, "a refused field has a red border");
   assert.ok(marked > css.indexOf(":is(input, select, textarea):focus-visible {"), "after the focus rule (same weight), so it stays red while focused");
 });
