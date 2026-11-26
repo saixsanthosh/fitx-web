@@ -96,10 +96,10 @@ const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
  * The newest file production has applied since its copy was made (2026-11-25; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest. There is no rest now:
- * #55, 20261125100000 (release 2c: members' read of their reports' evidence taken away), was applied on 2026-11-25,
- * so THIS_SITTING is empty and the runbook says nothing is pending. When a new file is written, THIS_SITTING is that
- * file and the runbook names it as pending (as #55 was from its writing until 2026-11-25).
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest: #56, 20261126100000
+ * (release 3: members' own foods may keep protein, carbs or fat unknown), not applied anywhere yet, so THIS_SITTING is
+ * that one file and the runbook names it as pending. With nothing pending (as from 2026-11-25, when #55 was applied,
+ * until #56 was written) THIS_SITTING is empty and the runbook says nothing is pending.
  */
 const LAST_APPLIED = "20261125100000";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
@@ -116,6 +116,11 @@ const FOOD_PARTS = PENDING.filter((name) => /_fitx_food_catalog_seed_part_\d+\.s
 const RAJMA = "20261118200000_fitx_food_catalog_rajma_keywords.sql";
 const RAJMA_FOODS = [...readFileSync(path.join(MIGRATIONS_DIR, RAJMA), "utf8").matchAll(/'(\d+)',?\s+--/g)].map((match) => match[1]).sort();
 const RUNBOOK = path.join(ROOT, "docs", "runbooks", "platform-database.md");
+/**
+ * #56 (release 3): protein, carbs and fat of members' own foods may be unknown. Section 3 also says what its Check
+ * gives right before it ("Before #56 it gives ..."), so the session can run the Check first.
+ */
+const UNKNOWN_MACROS = "20261126100000_fitx_custom_food_unknown_macros.sql";
 
 // Tables that have row level security on but no policy, on purpose. With no policy, anon and
 // authenticated can reach no row even if granted; the test also checks they hold no privileges at all.
@@ -621,8 +626,8 @@ const RUNBOOK_PINNED = {
   "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  // Before the first file of its sitting (#55, kept as the 2026-11-25 sitting's record) its Expect line holds ("no
-  // rows"); after the last file (section 6.1) it lists every row.
+  // Before the first file of its sitting (#56) its Expect line holds ("no rows"); after the last file (section 6.1) it
+  // lists every row.
   "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
@@ -705,7 +710,7 @@ const APPLY_DAY = (() => {
  * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #55): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
  * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 72 rows, the
- * connector records this sitting's files under their times (none: nothing is pending), then History 0 to 2. `ask`
+ * connector records this sitting's files under their times (#56's one row), then History 0 to 2. `ask`
  * runs a runbook query and keeps its result; returns whether History 1 ran both times, and how many rows each run
  * gave their file's number.
  */
@@ -793,15 +798,25 @@ select jsonb_build_object(
   'foods_with_a_barcode', (select count(*) from public.custom_foods where barcode is not null)
 )::text;`;
 
-// A member as the new app leaves them before section 5's undo: a workout paused through #1's fields, and a food with a
-// barcode. The undo must leave no workout paused (applied again, #1 would read it as paused with no time) and keep the
-// barcode.
+// A member as the new app leaves them before section 5's undo: a workout paused through #1's fields, a food with a
+// barcode, and a food with its protein and fat left unknown (#56, release 3). The undo must leave no workout paused
+// (applied again, #1 would read it as paused with no time), keep the barcode, and turn the unknown values into the 0
+// the app saved for a blank before #56, so the three columns can refuse NULL again.
 const UNDO_MEMBER = "a5000000-0000-4000-8000-0000000000a5";
 const MEMBER_BEFORE_THE_UNDO = `
 insert into auth.users (id, email) values ('${UNDO_MEMBER}', 'undo@example.test');
 insert into public.workout_sessions (user_id, name, active_duration_seconds, paused_at, resumed_at)
   values ('${UNDO_MEMBER}', 'Paused in the new app', 2701, now(), null);
-insert into public.custom_foods (user_id, name, barcode) values ('${UNDO_MEMBER}', 'Parle-G', '8901063011366');`;
+insert into public.custom_foods (user_id, name, barcode) values ('${UNDO_MEMBER}', 'Parle-G', '8901063011366');
+insert into public.custom_foods (user_id, name, serving_size, serving_grams, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g)
+  values ('${UNDO_MEMBER}', 'Masala chai (home)', '1 cup', 150, 60, null, 8, null);`;
+/** The undo member's food with unknown values (#56), and whether each of its three columns refuses NULL. */
+const UNKNOWN_FOOD_NOW = `
+select jsonb_build_object(
+  'values', (select jsonb_build_object('protein', protein_per_100g, 'carbs', carbs_per_100g, 'fat', fat_per_100g)
+             from public.custom_foods where user_id = '${UNDO_MEMBER}' and name = 'Masala chai (home)'),
+  'not_null', (select jsonb_object_agg(attname, attnotnull) from pg_attribute
+               where attrelid = 'public.custom_foods'::regclass and attname in ('protein_per_100g', 'carbs_per_100g', 'fat_per_100g')));`;
 
 /** Section 5's history step for a file: the delete the runbook gives, with the file's name in its placeholder. */
 const HISTORY_DELETE = readFileSync(RUNBOOK, "utf8").match(/`(delete from supabase_migrations\.schema_migrations where name = '<the file name without number>'[^`]*)`/)?.[1];
@@ -1046,9 +1061,10 @@ test("Start 2 checks one object of each file of this sitting, or with nothing pe
 });
 
 test("each Statements block in the runbook is exactly what its file runs, without the file's comments and blank lines", (t) => {
-  // Section 3 shows a small file's statements for the owner to read (#55); the session still applies the file itself.
+  // Section 3 shows a small file's statements for the owner to read (#55, #56); the session still applies the file
+  // itself.
   const blocks = RUNBOOK_BLOCKS.filter((block) => /^Statements \d{14}$/.test(block.key));
-  assert.ok(blocks.length > 0, "section 3 shows #55's statements");
+  assert.ok(blocks.length > 0, "section 3 shows the statements of #55 and #56");
   for (const block of blocks) {
     const version = block.key.slice("Statements ".length);
     const name = PENDING.find((file) => file.startsWith(`${version}_`));
@@ -1236,6 +1252,10 @@ describe("every pending migration on a copy of production's database", { skip },
     catalogue: {},
     barcodes: {},
     undo: [],
+    /** #56's Check right before #56 (section 3 says what it gives then). */
+    checkBeforeUnknownMacros: null,
+    /** UNKNOWN_FOOD_NOW with the undo member's rows, and after section 5. */
+    unknownFood: {},
   };
   const notChecked = () => run.failure && `not checked: ${run.failure.name} failed on the first run`;
 
@@ -1256,8 +1276,8 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    // Start 2 runs before the first file of its sitting (START_2_SITTING: with nothing pending, the latest sitting's,
-    // #55).
+    // Start 2 runs before the first file of its sitting (START_2_SITTING: this sitting's, #56; with nothing pending,
+    // the latest sitting's).
     for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
@@ -1266,6 +1286,8 @@ describe("every pending migration on a copy of production's database", { skip },
         if (name === START_2_SITTING[0]) ask(blockOf("Start 2"), `before ${number(name)}`);
         for (const block of RUNBOOK_BLOCKS) if (block.key === `Before ${name.slice(0, 14)}`) ask(block, `before ${number(name)}`);
         if (name.startsWith("20261118130010_")) runbook.backup = pg.run(blockOf("Backup 20261118130010").sql);
+        // Not through `ask`: the session runs it before #56 only if it chooses to; its Expect line is for after.
+        if (name === UNKNOWN_MACROS) runbook.checkBeforeUnknownMacros = runbookQuery(pg, blockOf(`Check ${name.slice(0, 14)}`));
       },
       afterFile: (name) => {
         const version = name.slice(0, 14);
@@ -1295,8 +1317,10 @@ describe("every pending migration on a copy of production's database", { skip },
     // Section 5, last: a member's paused workout and barcode food, then every undo, then the history and catalogue.
     pg.exec(MEMBER_BEFORE_THE_UNDO);
     runbook.shared.member = pg.json(SHARED_NOW);
+    runbook.unknownFood.member = pg.json(UNKNOWN_FOOD_NOW);
     runbook.undo = undoEverything(pg, ask, cron);
     runbook.shared.undone = pg.json(SHARED_NOW);
+    runbook.unknownFood.undone = pg.json(UNKNOWN_FOOD_NOW);
     ask(blockOf("Start 1"), "after section 5");
     runbook.catalogue.undone = rowDigests(pg, catalogue);
   });
@@ -1320,6 +1344,27 @@ describe("every pending migration on a copy of production's database", { skip },
     const problems = rerunProblems(t, run.status, stillDiffers);
     assert.deepEqual(stillDiffers, [], "after the second run, production's copy must be as the first run left it");
     assert.ok(problems.length === 0, problems.join("\n"));
+  });
+
+  test("this sitting's files apply twice on production's copy, and the second run changes nothing (section 3)", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    if (THIS_SITTING.length === 0) return t.skip("nothing is pending");
+    for (const name of THIS_SITTING) {
+      assert.equal(KNOWN_RERUN_PROBLEMS[name], undefined, `${name} is this sitting's file: the runbook says a second run changes nothing`);
+      const { first, second } = run.status.get(name) ?? {};
+      assert.equal(first?.ok, true, `${name} applies the first time`);
+      assert.deepEqual({ ok: second?.ok, error: second?.error, moved: second?.moved }, { ok: true, error: null, moved: [] }, `${name}, applied a second time`);
+      t.diagnostic(`${name}: applied twice; the second run moved nothing`);
+    }
+  });
+
+  test("#56's Check, run right before #56, gives what section 3 says it gives then", (t) => {
+    if (!runbook.checkBeforeUnknownMacros && run.failure) return t.skip(`not checked: ${run.failure.name} failed before ${UNKNOWN_MACROS}`);
+    const said = readFileSync(RUNBOOK, "utf8").match(/^Before #56 it gives `([^`]+)`/m)?.[1];
+    assert.ok(said, "section 3 (#56) says what its Check gives before #56");
+    const { rows, error } = runbook.checkBeforeUnknownMacros ?? { error: `${UNKNOWN_MACROS} was not reached` };
+    assert.equal(error, undefined, `Check 20261126100000 failed before #56: ${error}`);
+    assert.ok(saysExactly(said, rows), `before #56 the Check gives ${JSON.stringify(rows)}, but section 3 says ${said}`);
   });
 
   test("what #51's file moves when it runs again by mistake, #52's and then #55's files, run again after it, put back (section 0.1)", (t) => {
@@ -1491,6 +1536,15 @@ describe("every pending migration on a copy of production's database", { skip },
       "after section 5: what experience 2.0 had, its one food per barcode included, #18's barcode check in place of its own, no workout left paused, the member's barcode kept");
   });
 
+  test("section 5's undo of #56 turns a member's unknown protein, carbs or fat into 0 and the three columns refuse NULL again", (t) => {
+    if (run.failure) return t.skip(notChecked());
+    const { member, undone } = runbook.unknownFood;
+    const allThree = (value) => ({ protein_per_100g: value, carbs_per_100g: value, fat_per_100g: value });
+    assert.deepEqual(member, { values: { protein: null, carbs: 8, fat: null }, not_null: allThree(false) }, "with #56 in place a member saved a food with protein and fat unknown");
+    assert.deepEqual(undone, { values: { protein: 0, carbs: 8, fat: 0 }, not_null: allThree(true) },
+      "after section 5 the unknowns are 0, what the app saved for a blank before #56, and the rule is back as the September file made it");
+  });
+
   test("the undo of #18 stops while a member has one barcode on two foods, and goes through after the runbook's fix", (t) => {
     if (run.failure) return t.skip(notChecked());
     const { withoutFix, withFix } = runbook.barcodes;
@@ -1508,7 +1562,7 @@ describe("every pending migration on a copy of production's database", { skip },
     if (run.failure) return t.skip(notChecked());
     assert.equal(runbook.history1.outcome, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
     // It renumbers only the rows the connector recorded under a time: the earlier sittings' (the SQL editor's six files
-    // are recorded under their own numbers), then this sitting's, none while nothing is pending (section 6.3).
+    // are recorded under their own numbers), then this sitting's: #56's one row (none while nothing is pending; 6.3).
     assert.equal(runbook.history1.earlier, APPLIED_SINCE.filter((name) => !inSqlEditor(name)).length, "after the earlier sittings");
     assert.equal(runbook.history1.thisSitting, THIS_SITTING.filter((name) => !inSqlEditor(name)).length, "after this sitting");
   });
