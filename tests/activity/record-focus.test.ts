@@ -108,7 +108,8 @@ test("a sport page: Try again stays focusable while it reloads, and focus moves 
   const sport = read("src/components/activity/SportScreen.tsx");
   assert.match(sport, /onClick=\{\(\) => void retryFigures\(\)\} aria-disabled=\{retrying \|\| undefined\}/);
   assert.match(sport, /async function retryFigures\(\) \{\s+if \(!userId \|\| retrying\) return;\s+refocusFigures\.current = true;\s+setRetrying\(true\);/);
-  assert.match(sport, /if \(retrying \|\| !refocusFigures\.current\) return;\s+refocusFigures\.current = false;\s+if \(statsStatus === "ready" && focusDropped\(document\)\) figuresRef\.current\?\.focus\(\);/);
+  // Round 3d: the same hand-off also serves figures that came back by themselves (tests/activity/reload-focus.test.ts).
+  assert.match(sport, /if \(retrying\) return;\s+const pressed = refocusFigures\.current;\s+refocusFigures\.current = false;\s+const wentWithFocus = figuresRetryWent\(\);\s+if \(statsStatus === "ready" && handsFocusOn\(document, \{ pressed, wentWithFocus \}\)\) figuresRef\.current\?\.focus\(\);/);
   assert.match(sport, /<section ref=\{figuresRef\} tabIndex=\{-1\} aria-label=\{`\$\{SPORT_LABEL\[sport\]\} statistics`\}/);
   // The hooks come before the page's early returns.
   assert.ok(sport.indexOf("const [retrying, setRetrying]") < sport.indexOf('if (account.status === "loading")'));

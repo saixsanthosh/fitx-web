@@ -11,7 +11,7 @@ import { ACTIVITY_MEDIA, type ActivityMediaId } from "@/data/activity-media";
 import { StatRow, StatTile } from "@/components/ui/StatTile";
 import { SPORT_LABEL, SPORT_NOUN, sportFamily, usesPace } from "@/lib/activity/config";
 import { sportSummary } from "@/lib/activity/feed";
-import { focusDropped } from "@/lib/activity/focus";
+import { focusWitness, handsFocusOn } from "@/lib/activity/focus";
 import { durationFigure, paceValue } from "@/lib/activity/format";
 import { personalBests } from "@/lib/activity/stats";
 import type { Sport } from "@/lib/activity/types";
@@ -95,16 +95,20 @@ export function SportScreen({ sport }: { sport: Sport }) {
   const feed = useActivityFeed(userId, sport);
   const efforts = useStoredEfforts(userId);
   // The figures' Try again: one reload at a time (aria-disabled meanwhile, so focus stays on it; D5). Once the figures
-  // load, the alert and its button go, so focus moves to the figures themselves.
+  // load, the alert and its button go, so focus moves to the figures themselves: after a press, and when they came back
+  // by themselves (the "online" reload) while Try again had focus. Focus anywhere else stays where it is.
   const [retrying, setRetrying] = useState(false);
   const figuresRef = useRef<HTMLElement | null>(null);
   const refocusFigures = useRef(false);
+  const [{ ref: figuresRetryRef, wentWithFocus: figuresRetryWent }] = useState(() => focusWitness<HTMLButtonElement>());
   const statsStatus = feed.statsStatus;
   useEffect(() => {
-    if (retrying || !refocusFigures.current) return;
+    if (retrying) return;
+    const pressed = refocusFigures.current;
     refocusFigures.current = false;
-    if (statsStatus === "ready" && focusDropped(document)) figuresRef.current?.focus();
-  }, [retrying, statsStatus]);
+    const wentWithFocus = figuresRetryWent();
+    if (statsStatus === "ready" && handsFocusOn(document, { pressed, wentWithFocus })) figuresRef.current?.focus();
+  }, [retrying, statsStatus, figuresRetryWent]);
 
   async function retryFigures() {
     if (!userId || retrying) return;
@@ -136,7 +140,7 @@ export function SportScreen({ sport }: { sport: Sport }) {
         {feed.statsStatus === "error" ? (
           <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>{feed.statsOffline ? "You’re offline. Your figures will load when you’re back online." : "Your figures couldn’t load right now."}</span>
-            {userId && <button type="button" onClick={() => void retryFigures()} aria-disabled={retrying || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>}
+            {userId && <button type="button" ref={figuresRetryRef} onClick={() => void retryFigures()} aria-disabled={retrying || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>}
           </div>
         ) : !known ? (
           <StatRow>
