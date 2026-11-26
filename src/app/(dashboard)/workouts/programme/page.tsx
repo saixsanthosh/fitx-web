@@ -64,19 +64,30 @@ export default function ProgrammeJourneyPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  // Why "Show earlier weeks" couldn't load them, beside it (D6); the page keeps what it shows.
+  const [earlierError, setEarlierError] = useState("");
   // "Show earlier weeks" goes once the first week is shown: the earliest week it brought then takes focus (D5).
   const [weekFocus, setWeekFocus] = useState<{ shown: string[]; seq: number } | null>(null);
   const handledWeekFocus = useRef(0);
 
-  const load = useCallback(async (backTo?: string) => {
+  // A load that fails says why in place of the page, with Try again. Earlier weeks (`backTo`) are different: the page
+  // keeps what it shows and the reason goes beside "Show earlier weeks" (D6), so that button, and keyboard focus on
+  // it, stay (D5). False when it failed.
+  const load = useCallback(async (backTo?: string): Promise<boolean> => {
+    const fail = (text: string, earlier = text) => {
+      if (backTo) setEarlierError(earlier);
+      else { setMessage(text); setState("error"); }
+      return false;
+    };
+    const offline = "Earlier weeks couldn’t be loaded. Check your connection and try again.";
     const supabase = createClient();
-    if (!supabase) { setMessage("FITX is not connected to Supabase in this environment."); setState("error"); return; }
+    if (!supabase) return fail("FITX is not connected to Supabase in this environment.");
     const auth = await supabase.auth.getUser();
     const user = auth.data.user;
-    if (!user) { setMessage("Sign in to see your programme."); setState("error"); return; }
+    if (!user) return fail("Sign in to see your programme.");
     const current = await loadCurrentEnrolment(supabase, user.id);
-    if (current.error) { setMessage("Your programme couldn’t be loaded. Check your connection and try again."); setState("error"); return; }
-    if (!current.enrolment) { setState("none"); return; }
+    if (current.error) return fail("Your programme couldn’t be loaded. Check your connection and try again.", offline);
+    if (!current.enrolment) { setState("none"); return true; }
     const enrolment = current.enrolment;
     const earliest = mondayOf(enrolment.started_on);
     const wanted = backTo ?? mondayOf(addDays(todayKey, -7 * (WEEKS_BACK - 1)));
@@ -90,8 +101,8 @@ export default function ProgrammeJourneyPage() {
       supabase.from("workout_sessions").select("id,name").eq("user_id", user.id).eq("status", "in_progress").limit(1).maybeSingle(),
     ]);
     const programme = programmes.programmes.find((item) => item.id === enrolment.programme_id) ?? programmeById(enrolment.programme_id);
-    if (plans.error) { setMessage("Your programme days couldn’t be loaded. Check your connection and try again."); setState("error"); return; }
-    if (!programme) { setMessage("The programme you follow is no longer available. Your finished workouts stay in your history."); setState("error"); return; }
+    if (plans.error) return fail("Your programme days couldn’t be loaded. Check your connection and try again.", offline);
+    if (!programme) return fail("The programme you follow is no longer available. Your finished workouts stay in your history.");
     const row = preferences.data as { equipment?: string[] | null; fitness_level?: string | null } | null;
     const words = row?.equipment;
     const legacyEquipment = Array.isArray(words) ? words : null;
@@ -117,6 +128,7 @@ export default function ProgrammeJourneyPage() {
       legacyEquipment, activeSession: (active.data as { id: string; name: string } | null) ?? null, replanNote,
     });
     setState("ready");
+    return true;
   }, [todayKey]);
 
   useEffect(() => { void Promise.resolve().then(() => load()); }, [load]);
@@ -169,9 +181,11 @@ export default function ProgrammeJourneyPage() {
     if (!loaded || loadingEarlier) return;
     const shown = view?.weeks.map((week) => week.weekStart) ?? [];
     setLoadingEarlier(true);
-    await load(mondayOf(addDays(loaded.fromKey, -7 * WEEKS_BACK)));
+    setEarlierError("");
+    const loadedEarlier = await load(mondayOf(addDays(loaded.fromKey, -7 * WEEKS_BACK)));
     setLoadingEarlier(false);
-    setWeekFocus((current) => ({ shown, seq: (current?.seq ?? 0) + 1 }));
+    // When it failed, the button stays with focus and its reason beside it.
+    if (loadedEarlier) setWeekFocus((current) => ({ shown, seq: (current?.seq ?? 0) + 1 }));
   }
 
   const back = <Link href="/workouts" className="inline-flex min-h-11 items-center gap-2 text-sm text-fitx-text-secondary hover:text-fitx-text"><ArrowLeft size={15} aria-hidden="true" />Workouts</Link>;
@@ -201,7 +215,8 @@ export default function ProgrammeJourneyPage() {
         { label: "Training days", value: weekdays || "—", note: startedLabel(enrolment.started_on) },
       ]} />
       <Legend />
-      {canGoBack && <button type="button" onClick={() => void showEarlier()} aria-disabled={loadingEarlier || undefined} className="fitx-button fitx-button-secondary min-h-11 text-sm aria-disabled:opacity-60">{loadingEarlier ? "Loading…" : "Show earlier weeks"}</button>}
+      {canGoBack && <button type="button" onClick={() => void showEarlier()} aria-disabled={loadingEarlier || undefined} aria-describedby={earlierError ? "programme-earlier-problem" : undefined} className="fitx-button fitx-button-secondary min-h-11 text-sm aria-disabled:opacity-60">{loadingEarlier ? "Loading…" : "Show earlier weeks"}</button>}
+      {canGoBack && earlierError && <p id="programme-earlier-problem" role="alert" className="-mt-3 text-sm text-fitx-danger">{earlierError}</p>}
       <ProgrammeJourney weeks={view.weeks} startedOn={enrolment.started_on} selected={selected} onSelect={setSelected} busy={starting} onPreview={setPreview} nextTraining={view.status.nextTraining} />
       {view.target !== null && !view.status.complete && <p className="text-xs text-fitx-text-secondary">The plan ends after its {view.target} sessions. Days after the ones planned are not planned yet: FITX plans each training day about a week ahead when you open Workouts.</p>}
       <p className="text-xs text-fitx-text-secondary">{programme.sourceNotes}</p>
