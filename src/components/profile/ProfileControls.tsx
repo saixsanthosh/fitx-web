@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Check, Plus, X } from "lucide-react";
 import {
   ageFromBirthDate,
@@ -16,6 +16,7 @@ import {
   type Option,
   type WeightUnit,
 } from "@/lib/domain/profile-options";
+import { focusAfterRemovingEntry } from "@/lib/onboarding/entry-focus";
 import { measureRead, measureText, measureValue } from "@/lib/onboarding/measure-field";
 
 /**
@@ -78,14 +79,20 @@ export function ChoiceGroup<V extends string | number>({
   clearLabel?: string;
 }) {
   const name = useId();
+  const group = useRef<HTMLFieldSetElement>(null);
   const hintId = `${name}-hint`;
   const errorId = `${name}-error`;
   const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ") || undefined;
+  // Clear goes once nothing is chosen, and focus would fall to the page with it: it moves to the first choice first.
+  const clear = () => {
+    group.current?.querySelector<HTMLInputElement>('input[type="radio"]:not(:disabled)')?.focus({ preventScroll: true });
+    onClear?.();
+  };
   return (
-    <fieldset aria-describedby={describedBy} aria-invalid={error ? true : undefined}>
+    <fieldset ref={group} aria-describedby={describedBy} aria-invalid={error ? true : undefined}>
       <Legend legend={legend} hint={hint} hintId={hintId} />
       {onClear && value !== null && (
-        <button type="button" onClick={onClear} className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text underline-offset-4 hover:underline">
+        <button type="button" onClick={clear} className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-fitx-primary-text underline-offset-4 hover:underline">
           {clearLabel}
         </button>
       )}
@@ -210,7 +217,10 @@ export function TagInput({
 }) {
   const id = useId();
   const setDraft = onDraftChange;
+  const addButton = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
   const full = values.length >= max;
+  const canAdd = draft.trim() !== "" && !full;
   const add = () => {
     onChange(commitDraft(values, draft, { max, maxLength }));
     setDraft("");
@@ -218,37 +228,48 @@ export function TagInput({
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter" || event.key === ",") {
       event.preventDefault();
-      if (draft.trim()) add();
+      if (canAdd) add();
     }
+  };
+  // An entry's Remove goes with it, and focus would fall to the page: it moves on first (focusAfterRemovingEntry).
+  const remove = (value: string) => {
+    const target = focusAfterRemovingEntry(values.length, values.indexOf(value));
+    const next = target === "add" ? addButton.current : list.current?.querySelectorAll<HTMLButtonElement>(":scope > li > button")[target];
+    next?.focus({ preventScroll: true });
+    onChange(values.filter((item) => item !== value));
   };
   return (
     <fieldset aria-describedby={hint ? `${id}-hint` : undefined}>
       <Legend legend={legend} hint={hint} hintId={`${id}-hint`} />
       <div className="mt-3 flex gap-2">
+        {/* Full, the box is read-only and aria-disabled, not disabled, and + is aria-disabled whenever there is
+            nothing to add: a control that becomes disabled under focus drops it to the page (after Enter adds the
+            last entry, or + adds one and empties the box). A press of either then does nothing. */}
         <input
           id={`${id}-input`}
-          className="fitx-field"
+          className="fitx-field aria-disabled:opacity-[.72]"
           value={draft}
           maxLength={maxLength}
-          disabled={full}
+          readOnly={full}
+          aria-disabled={full || undefined}
           placeholder={full ? `Up to ${max} entries` : placeholder}
           aria-label={addLabel}
           enterKeyHint="done"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKey}
         />
-        <button type="button" onClick={add} disabled={!draft.trim() || full} aria-label={addLabel} className="fitx-button fitx-button-secondary min-w-12 shrink-0 px-3">
+        <button ref={addButton} type="button" onClick={() => { if (canAdd) add(); }} aria-disabled={!canAdd || undefined} aria-label={addLabel} className="fitx-button fitx-button-secondary min-w-12 shrink-0 px-3 aria-disabled:cursor-not-allowed aria-disabled:opacity-[.58]">
           <Plus size={18} aria-hidden="true" />
         </button>
       </div>
       {values.length > 0 && (
-        <ul className="mt-3 flex flex-wrap gap-2" aria-label={typeof legend === "string" ? legend : undefined}>
+        <ul ref={list} className="mt-3 flex flex-wrap gap-2" aria-label={typeof legend === "string" ? legend : undefined}>
           {values.map((value) => (
             <li key={value} className="inline-flex min-h-11 items-center rounded-full border border-fitx-border bg-fitx-surface-variant pl-4 text-sm text-fitx-text">
               <span className="max-w-[16rem] truncate">{value}</span>
               <button
                 type="button"
-                onClick={() => onChange(values.filter((item) => item !== value))}
+                onClick={() => remove(value)}
                 aria-label={`Remove ${value}`}
                 className="grid min-h-11 min-w-11 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text"
               >
