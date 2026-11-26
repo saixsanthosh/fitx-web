@@ -165,6 +165,16 @@ export function exerciseAfterTick(exercises: readonly Pick<ProgressExercise, "se
   return nextExerciseWithOpenSets(exercises, index) ?? index;
 }
 
+/**
+ * Whether a tick on exercise `ticked` moves the page on to another exercise (exerciseAfterTick), as the page does only
+ * while the member is still on it (`shown`). The set list the member ticked in is then replaced by the next
+ * exercise's, taking focus with it (D5), so the page hands focus on.
+ */
+export function tickMovesOn(exercises: readonly Pick<ProgressExercise, "sets">[], ticked: number, shown: number): boolean {
+  if (ticked < 0 || ticked >= exercises.length) return false;
+  return Math.max(0, Math.min(shown, exercises.length - 1)) === ticked && exerciseAfterTick(exercises, ticked) !== ticked;
+}
+
 // ---------------------------------------------------------------- prescriptions
 
 const trim = (value: number) => String(Math.round(value * 100) / 100);

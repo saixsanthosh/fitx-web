@@ -42,7 +42,7 @@ import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/ses
 import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
-  sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, timerSecondsDone, updateSet, workTarget,
+  sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, tickMovesOn, timerSecondsDone, updateSet, workTarget,
 } from "./_lib/session-progress";
 import { useScreenWakeLock, useWorkoutCues } from "./session-device";
 
@@ -178,6 +178,12 @@ export default function ActiveWorkoutPage() {
   // action fails: the button then stays, with the problem beside it, and keeps focus.
   const [closedFocus, setClosedFocus] = useState<string | null>(null);
   useEffect(() => { if (closedFocus) focusHeading(document, closedFocus); }, [closedFocus]);
+  // The same when ticking an exercise's last open set moves the page on: the set list that held focus is replaced by
+  // the next exercise's, whose name takes focus (a touch or mouse user's page does not scroll for it).
+  const exerciseIndexRef = useRef(exerciseIndex);
+  useEffect(() => { exerciseIndexRef.current = exerciseIndex; }, [exerciseIndex]);
+  const [movedOn, setMovedOn] = useState(0);
+  useEffect(() => { if (movedOn) focusHeading(document, "current-exercise-title", { keepScroll: true }); }, [movedOn]);
   const restCueRef = useRef<{ endsAt: number | null; cued: boolean }>({ endsAt: null, cued: true });
   useEffect(() => { timerRef.current = setTimer; }, [setTimer]);
   useEffect(() => { restCueRef.current = { endsAt: restEndsAt, cued: restEndsAt === null || restEndsAt <= Date.now() }; }, [restEndsAt]);
@@ -547,6 +553,7 @@ export default function ActiveWorkoutPage() {
       setRestHeldSeconds(0);
       // Moves on only when the member is still on this exercise.
       const index = nextExercises.findIndex((item) => item.id === exerciseId);
+      if (tickMovesOn(nextExercises, index, exerciseIndexRef.current)) setMovedOn((value) => value + 1);
       setExerciseIndex((current) => (index >= 0 && Math.max(0, Math.min(current, nextExercises.length - 1)) === index ? exerciseAfterTick(nextExercises, index) : current));
     } else { setRestEndsAt(null); setRestHeldSeconds(0); }
   }

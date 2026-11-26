@@ -19,10 +19,23 @@ function body(name: string): string {
 
 describe("focusHeading", () => {
   const body = { tag: "body" };
-  const heading = () => {
+  type StandIn = { tabIndex: number; focus(options?: { preventScroll?: boolean }): void; matches(selector: string): boolean; scrollIntoView(options?: { block?: "nearest" }): void };
+  /** A stand-in heading: what focus() was asked (its tabIndex then, preventScroll) and each scrollIntoView. */
+  const heading = (focusVisible: boolean | "unsupported" = true) => {
     const focusedAt: number[] = [];
-    const element: { tabIndex: number; focus(): void } = { tabIndex: 0, focus: () => { focusedAt.push(element.tabIndex); } };
-    return { element, focusedAt };
+    const preventScroll: Array<boolean | undefined> = [];
+    const scrolled: Array<string | undefined> = [];
+    const element: StandIn = {
+      tabIndex: 0,
+      focus: (options?: { preventScroll?: boolean }) => { focusedAt.push(element.tabIndex); preventScroll.push(options?.preventScroll); },
+      matches: (selector: string) => {
+        assert.equal(selector, ":focus-visible");
+        if (focusVisible === "unsupported") throw new SyntaxError("unknown pseudo-class");
+        return focusVisible;
+      },
+      scrollIntoView: (options?: { block?: "nearest" }) => { scrolled.push(options?.block); },
+    };
+    return { element, focusedAt, preventScroll, scrolled };
   };
 
   test("focus is lost when the page body has it, or nothing does", () => {
@@ -32,12 +45,27 @@ describe("focusHeading", () => {
   });
 
   test("once focus is lost, focuses the heading, made focusable by script only (tabIndex -1: not a Tab stop)", () => {
-    const { element, focusedAt } = heading();
+    const { element, focusedAt, preventScroll, scrolled } = heading();
     const asked: string[] = [];
     const page = { activeElement: body, body, getElementById: (id: string) => { asked.push(id); return id === "workout-complete-title" ? element : null; } };
     assert.equal(focusHeading(page, "workout-complete-title"), true);
     assert.deepEqual(asked, ["workout-complete-title"]);
     assert.deepEqual(focusedAt, [-1]);
+    assert.deepEqual(preventScroll, [undefined], "a screen that replaced the page is shown from its heading");
+    assert.deepEqual(scrolled, []);
+  });
+
+  test("keepScroll: a touch or mouse user's page stays put; after a key press the heading is scrolled into view", () => {
+    const pointer = heading(false);
+    assert.equal(focusHeading({ activeElement: body, body, getElementById: () => pointer.element }, "current-exercise-title", { keepScroll: true }), true);
+    assert.deepEqual([pointer.focusedAt, pointer.preventScroll, pointer.scrolled], [[-1], [true], []]);
+    const keyboard = heading(true);
+    assert.equal(focusHeading({ activeElement: body, body, getElementById: () => keyboard.element }, "current-exercise-title", { keepScroll: true }), true);
+    assert.deepEqual([keyboard.focusedAt, keyboard.preventScroll, keyboard.scrolled], [[-1], [true], ["nearest"]]);
+    // A browser without :focus-visible: shown, as for a key press.
+    const older = heading("unsupported");
+    focusHeading({ activeElement: body, body, getElementById: () => older.element }, "current-exercise-title", { keepScroll: true });
+    assert.deepEqual(older.scrolled, ["nearest"]);
   });
 
   test("focus the member has moved somewhere that is still there stays there", () => {
