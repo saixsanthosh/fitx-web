@@ -85,6 +85,8 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
   const [photo, setPhoto] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [removePhoto, setRemovePhoto] = useState(false);
+  /** "Remove photo" and "Keep it" take each other's place: the one pressed goes, so the other takes the focus (D5). */
+  const photoSwapped = useRef(false);
   const first = useRef<HTMLInputElement>(null);
   const set = (key: keyof typeof form, value: string | boolean) => {
     setForm((old) => ({ ...old, [key]: value }));
@@ -113,6 +115,11 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
 
   // The dialog is open by now (Sheet opens it in a layout effect).
   useEffect(() => { first.current?.focus(); }, []);
+  useEffect(() => {
+    if (!photoSwapped.current) return;
+    photoSwapped.current = false;
+    document.getElementById(removePhoto ? "custom-food-keep-photo" : "custom-food-remove-photo")?.focus();
+  }, [removePhoto]);
 
   async function submit() {
     // Saving: a second press does nothing, and the button keeps the focus (it is never disabled under it).
@@ -165,9 +172,9 @@ export function CustomFoodForm({ editing, prefill, photoUrl = null, v2, busy, on
       {shownPhoto && <div className={styles.photo}>
         <Image src={shownPhoto} alt="" width={72} height={72} unoptimized/>
         <p className={styles.credit}>{shownCredit}</p>
-        {canRemovePhoto && <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(true)}>Remove photo</button>}
+        {canRemovePhoto && <button type="button" id="custom-food-remove-photo" className={styles.textButton} onClick={() => { photoSwapped.current = true; setRemovePhoto(true); }}>Remove photo</button>}
       </div>}
-      {removePhoto && !preview && <p className={styles.hint}>The photo is removed when you save. <button type="button" className={styles.textButton} onClick={() => setRemovePhoto(false)}>Keep it</button></p>}
+      {removePhoto && !preview && <p className={styles.hint}>The photo is removed when you save. <button type="button" id="custom-food-keep-photo" className={styles.textButton} onClick={() => { photoSwapped.current = true; setRemovePhoto(false); }}>Keep it</button></p>}
       <form className={styles.form} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <label className={styles.wide}>Name<input ref={first} className="fitx-field" required maxLength={160} value={form.name} onChange={(event) => set("name", event.target.value)}/></label>
         <label className={styles.wide}>Brand (optional)<input className="fitx-field" maxLength={160} value={form.brand} onChange={(event) => set("brand", event.target.value)}/></label>

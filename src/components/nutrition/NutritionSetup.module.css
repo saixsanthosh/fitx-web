@@ -69,6 +69,9 @@
 .tagList button:focus-visible { outline: 2px solid var(--fitx-primary); outline-offset: -4px; }
 .tagRow { display: flex; gap: .5rem; }
 .tagRow input { min-width: 0; flex: 1 1 auto; }
+/* Add with nothing to add: marked unavailable (aria-disabled), not disabled, so it keeps the focus after adding. */
+.tagRow :global(.fitx-button)[aria-disabled="true"] { opacity: .58; cursor: not-allowed; }
+.tagRow :global(.fitx-button-secondary)[aria-disabled="true"]:hover { border-color: var(--fitx-border); }
 
 .actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding-top: .25rem; }
 /* Save while saving: marked unavailable (aria-disabled), not disabled, so it keeps the focus. */

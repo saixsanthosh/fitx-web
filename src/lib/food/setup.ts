@@ -112,6 +112,18 @@ export function addTag(list: readonly string[], draft: string, kind: "allergy" |
 }
 
 /**
+ * Where the focus goes when an allergy or dislike is removed with its own Remove, which goes with it (D5): the next
+ * entry's Remove (its place in the list as it was), else the one before, else "add", the list's Add button (a button,
+ * so a phone's keyboard doesn't open).
+ */
+export function tagFocusAfterRemoving(values: readonly string[], removed: string): number | "add" {
+  const at = values.indexOf(removed);
+  if (at < 0) return "add";
+  if (at + 1 < values.length) return at + 1;
+  return at > 0 ? at - 1 : "add";
+}
+
+/**
  * The preference columns the answers write. `legacyDiet` is the stored dietary_preferences, kept in step with
  * the diet (its other entries stay). `at` is the setup time, sent only when the column exists.
  */
