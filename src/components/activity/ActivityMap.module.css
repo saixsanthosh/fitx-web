@@ -40,6 +40,12 @@
   right: 66px;
 }
 
+/* While re-centre shows (bottom left, after the live map is dragged), the notice starts 10 px right of its column, so
+   on the shortest map (the phone Record screen while recording) the button never covers the notice's words. */
+.notice.clearOfRecenter {
+  left: 64px;
+}
+
 /* Re-centre sits bottom-left: the right-hand side has the zoom column at the top and the attribution at the
    bottom, and on a short map (the phone Record screen while recording) there is no room between them. It stays
    44 px up, clear of the attribution, which can run the width of a phone's map. */

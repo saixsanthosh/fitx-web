@@ -1,5 +1,5 @@
 import { formatDistance, formatDuration } from "@/lib/activity/format";
-import type { LocationIssue, RecorderSnapshot, SignalQuality, WakeLockState } from "@/lib/activity/recorder";
+import type { LocationIssue, RecorderPhase, RecorderSnapshot, SignalQuality, WakeLockState } from "@/lib/activity/recorder";
 import type { Gap } from "@/lib/activity/types";
 
 /** Plain-language help for each location problem, with the exact settings to change. */
@@ -109,6 +109,35 @@ export const GAP_LABEL: Record<Gap["kind"], string> = {
  */
 export const LOCATION_USE_NOTE =
   "FITX uses your location while this screen is open, to show the GPS signal and then to record, until you finish or leave. Only the positions from while you record are kept.";
+
+/**
+ * What a map shows: the Record screen before Start ("ready"), while recording, paused or finished (saving), or an
+ * activity's page, saved to the account or only on this device.
+ */
+export type MapState = "ready" | "recording" | "paused" | "finished" | "saved" | "on-device";
+
+const TILES_NOTICE: Record<MapState, string> = {
+  ready: "Map tiles couldn’t load. You can still record your route.",
+  recording: "Map tiles couldn’t load. Your route is still being recorded.",
+  paused: "Map tiles couldn’t load. Your route so far is kept.",
+  finished: "Map tiles couldn’t load. Your route is kept with the activity.",
+  saved: "Map tiles couldn’t load. Your route is saved with this activity.",
+  "on-device": "Map tiles couldn’t load. Your route is saved on this device.",
+};
+
+/** The Record screen's map for the recorder's phase: before Start (also while it looks for a first position) is "ready". */
+export function recordMapState(phase: RecorderPhase): MapState {
+  return phase === "recording" || phase === "paused" || phase === "finished" ? phase : "ready";
+}
+
+/**
+ * The note over a map whose images failed ("tiles": the map's tiles; "no-map": no WebGL, so only the route is drawn),
+ * saying what is true for the route in each state: never "still being recorded" before Start or on a saved activity.
+ */
+export function mapNotice(problem: "tiles" | "no-map", state: MapState): string {
+  if (problem === "tiles") return TILES_NOTICE[state];
+  return state === "ready" ? "Map unavailable on this device: your route will be drawn here as you record." : "Map unavailable on this device: showing the route only.";
+}
 
 /** Map tiles are the one outside request the maps make (Record screen and activity pages). */
 export const MAP_TILES_NOTE =

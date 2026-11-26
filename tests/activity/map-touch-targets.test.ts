@@ -104,5 +104,29 @@ test("the notice shown when map tiles fail stops short of the zoom column", () =
     assert.equal(overlaps(notice, zoomColumn(width)), false, `${width} px wide`);
     assert.ok(zoomColumn(width).left - notice.right >= 10, "with a gap");
   }
-  assert.match(readFileSync("src/components/activity/ActivityMap.tsx", "utf8"), /tilesFailed && <p className=\{`\$\{styles\.notice\} \$\{styles\.clearOfZoom\}`\}>/);
+  assert.match(readFileSync("src/components/activity/ActivityMap.tsx", "utf8"), /tilesFailed && <p className=\{`\$\{styles\.notice\} \$\{styles\.clearOfZoom\}\$\{recentre \? ` \$\{styles\.clearOfRecenter\}` : ""\}`\}>/);
+});
+
+// Round 3c: on the Record screen's shortest live map, once the map was dragged, re-centre (bottom left) sat over the
+// start of the tiles notice's second line. While it shows, the notice now starts right of its column.
+const INSET_TOP = number(screen.match(/\[--fitx-map-inset-top:(\d+)px\]/)?.[1], "the Record screen's top inset");
+
+test("while re-centre shows, the tiles notice keeps clear of it, down to the shortest live map", () => {
+  const left = px(rule(".notice.clearOfRecenter"), "left") ?? 0;
+  const right = px(rule(".notice.clearOfZoom"), "right") ?? 0;
+  const top = number(rule(".notice").match(/top: calc\((\d+)px \+ var\(--fitx-map-inset-top, 0px\)\)/)?.[1], "the notice's top") + INSET_TOP;
+  // The place the re-check found: a 343 px wide, 192 px tall map, the notice's two lines over the button.
+  const before: Box = { left: px(rule(".notice"), "left") ?? 0, right: 343 - right, top, bottom: top + 52 };
+  assert.equal(overlaps(before, recenter(343, LIVE_MIN, PHONE_INSET)), true, "the overlap the re-check saw");
+  for (let width = 248; width <= 1000; width += 25) {
+    for (let height = LIVE_MIN; height <= 900; height += 4) {
+      const button = recenter(width, height, PHONE_INSET);
+      // However many lines its words take (down to the map's foot), the notice starts right of the button.
+      const notice: Box = { left, right: width - right, top, bottom: height };
+      assert.equal(overlaps(notice, button), false, `${width} × ${height}`);
+      assert.ok(notice.left - button.right >= 10, "with a gap");
+      assert.ok(notice.right - notice.left >= 100, `room for the words at ${width} px`);
+    }
+  }
+  assert.match(readFileSync("src/components/activity/ActivityMap.tsx", "utf8"), /const recentre = follow && !following && current !== null;/);
 });

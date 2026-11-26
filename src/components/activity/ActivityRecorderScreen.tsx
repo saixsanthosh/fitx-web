@@ -25,7 +25,7 @@ import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { AccountError } from "./AccountError";
 import { FinishedResult } from "./FinishedResult";
-import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, SCREEN_ON_NOTE, signalChip, WAKE_LOCK_TEXT, type SignalChip } from "./messages";
+import { gapSentence, ISSUE_TEXT, LOCATION_USE_NOTE, MAP_TILES_NOTE, recordMapState, SCREEN_ON_NOTE, signalChip, WAKE_LOCK_TEXT, type SignalChip } from "./messages";
 import { SPORT_PLURAL, sportHref } from "./sports";
 import { AUDIO_CUES_KEY, AUTO_PAUSE_KEY, SettingSwitch, SportPicker, UnlockButton, useCueVoice, useDeviceSwitch } from "./RecordingExtras";
 import { useActivityV2 } from "./useActivityV2";
@@ -572,6 +572,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                   live ? "h-[32dvh] min-h-48" : "h-[50dvh] min-h-72",
                 )}
                 label={recording ? "Map of your route so far" : "Map of your current position"}
+                routeState={recordMapState(phase)}
               />
               <button type="button" onClick={toggleMap} aria-label="Hide map (saves battery)" className="absolute left-2.5 top-2.5 z-[3] inline-flex min-h-11 items-center gap-2 rounded-full border border-fitx-border bg-fitx-elevated/95 px-3.5 text-sm font-medium text-fitx-text-secondary shadow-sm hover:text-fitx-text">
                 <EyeOff size={16} aria-hidden="true" />Hide map

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { destination } from "@/lib/activity/geo";
 import { isDarkTheme, mapStyleUrl, themeToken, usesDefaultDarkStyle, watchTheme } from "@/lib/activity/map-style";
 import type { LatLng } from "@/lib/activity/types";
+import { mapNotice, type MapState } from "./messages";
 import { RouteSvg } from "./RouteSvg";
 import styles from "./ActivityMap.module.css";
 
@@ -32,6 +33,8 @@ export type ActivityMapProps = {
   showEnds?: boolean;
   className?: string;
   label: string;
+  /** What the map shows (before Start, recording, paused, finished, a saved activity), so a notice over it is true. */
+  routeState: MapState;
 };
 
 type RouteFeatures = GeoJSON.FeatureCollection<GeoJSON.LineString>;
@@ -118,7 +121,7 @@ function addLayers(map: MapLibreMap) {
   if (!map.getLayer("fitx-position")) map.addLayer({ id: "fitx-position", type: "circle", source: "fitx-position", paint: { "circle-radius": 8, "circle-color": primary, "circle-stroke-color": surface, "circle-stroke-width": 3 } });
 }
 
-export default function ActivityMap({ segments, version = 0, current = null, follow = false, showEnds = false, className, label }: ActivityMapProps) {
+export default function ActivityMap({ segments, version = 0, current = null, follow = false, showEnds = false, className, label, routeState }: ActivityMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const readyRef = useRef(false);
@@ -247,16 +250,18 @@ export default function ActivityMap({ segments, version = 0, current = null, fol
     return (
       <div className={`${styles.frame} ${className ?? ""}`} role="img" aria-label={label}>
         <RouteSvg segments={segments} className="h-full w-full" />
-        <p className={styles.notice}>Map unavailable on this device: showing the route only.</p>
+        <p className={styles.notice}>{mapNotice("no-map", routeState)}</p>
       </div>
     );
   }
 
+  // Re-centre (bottom left) shows once the live map has been dragged; the tiles notice then keeps clear of it too.
+  const recentre = follow && !following && current !== null;
   return (
     <div className={`${styles.frame} ${className ?? ""}`}>
       <div ref={containerRef} className={styles.map} role="region" aria-label={label} />
-      {tilesFailed && <p className={`${styles.notice} ${styles.clearOfZoom}`}>Map tiles couldn’t load. Your route is still being recorded.</p>}
-      {follow && !following && current && (
+      {tilesFailed && <p className={`${styles.notice} ${styles.clearOfZoom}${recentre ? ` ${styles.clearOfRecenter}` : ""}`}>{mapNotice("tiles", routeState)}</p>}
+      {recentre && (
         <button type="button" className={styles.recenter} onClick={() => setFollowing(true)} aria-label="Centre the map on your position">
           <LocateFixed size={18} aria-hidden="true" />
         </button>

@@ -313,7 +313,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div>
           {route.some((segment) => segment.length > 1) ? (
-            <ActivityMap segments={route} version={detailed ? 2 : 1} showEnds className="h-[46vh] min-h-72 w-full lg:h-[560px]" label={`Map of the route of ${view.title}`} />
+            <ActivityMap segments={route} version={detailed ? 2 : 1} showEnds className="h-[46vh] min-h-72 w-full lg:h-[560px]" label={`Map of the route of ${view.title}`} routeState={view.local ? "on-device" : "saved"} />
           ) : (
             <div className="grid h-48 place-items-center rounded-xl border border-dashed border-fitx-border bg-fitx-surface px-6 text-center text-sm text-fitx-text-secondary">No route was recorded for this activity.</div>
           )}
