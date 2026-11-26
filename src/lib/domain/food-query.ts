@@ -315,6 +315,40 @@ export function portionFromLabel(label: string, grams: number): FoodPortion | nu
   return { label: label.trim(), unit, grams: round2(grams) };
 }
 
+/** A length in a measure's name ("10\" dia", "2-1/2\"", "1/4\" thick", "7 inch", "15 cm"): the size of one, not a count. */
+const LENGTH_IN_LABEL = /\d+(?:[.,]\d+)?(?:\s*-\s*\d+(?:\/\d+)?|\/\d+)?\s*(?:["”″]|''|(?:inch(?:es)?|in|cm|mm)\b)/gi;
+/** A price in a measure's name ("Rs 10", "₹20"): not a count either. */
+const PRICE_IN_LABEL = /(?:₹|\b(?:rs|inr)\b\.?)\s*\d+(?:[.,]\d+)?/gi;
+
+/**
+ * Whether a measure's name counts more than one of something anywhere in it, not only in its first amount: "1 plate
+ * (2 idli)", "1 serving (2 pcs)", "1 plate - 2 idli", "1 thali (3 roti, rice)". Sizes are not counts: a weight, a
+ * volume or a vessel ("1 bowl (250 g)", "1 cup (240 ml)", "1 thali (2 katori dal)"), a length ("1 naan (10\" dia)"),
+ * a price ("Rs 10"), or a part of one ("1 piece (1/4 of a pizza)", "half"). A member's saved serving that counts
+ * several never answers a bare count (saved-foods.ts): "3 idli" is not 3 plates of 2 idlis.
+ */
+export function countsSeveral(label: string): boolean {
+  const text = String(label ?? "")
+    .replace(LENGTH_IN_LABEL, " ")
+    .replace(PRICE_IN_LABEL, " ")
+    .replace(/~/g, " ")
+    // "2-3 idli" counts 2 or more; "1-1/2 cups" is 1 1/2 cups.
+    .replace(/(\d)\s*[-–]\s*(?=\d)/g, "$1 ");
+  const tokens = tokenizeWithSigns(text).map((item) => item.token);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const read = readAmount(tokens, index);
+    if (!read) continue;
+    let next = read.next;
+    if (tokens[next] === "x") next += 1;
+    if (SIZE_WORDS[tokens[next]]) next += 1;
+    const unit = UNIT_WORDS[tokens[next]];
+    const size = unit !== undefined && (isMassUnit(unit) || isVolumeUnit(unit) || HOUSEHOLD_UNITS.has(unit));
+    if (read.value > 1 && !size) return true;
+    index = read.next - 1;
+  }
+  return false;
+}
+
 /**
  * Picks which piece portion a bare count uses when a source does not say: the only one, else a medium or regular
  * one. A container ("1 can", "1 pack") is never picked.
