@@ -74,7 +74,9 @@ export function waitWithin(work: () => PromiseLike<unknown>, ms: number = PROFIL
 
 /**
  * Profile's page state once loading has gone on past PROFILE_TIME_LIMIT_MS.reload (`overdue`): a load that failed, with
- * Try again, until the profile comes. The shared profile's own load (UserContextProvider) has no limit of its own.
+ * Try again, until the profile comes. The shared profile's own load (UserContextProvider) stops waiting after 20 s by
+ * the same rule (user-context-refresh.ts statusPastLimit). Profile's wait still covers what that limit doesn't: its own
+ * session check once the shared profile says "signed out", and its own load where no provider is mounted.
  */
 export function statusAfterWait<S extends string>(status: S, overdue: boolean): S | "error" {
   return status === "loading" && overdue ? "error" : status;

@@ -137,8 +137,10 @@ function useProfileData() {
     if (shared) return;
     void Promise.resolve().then(loadLocal);
   }, [shared, loadLocal]);
-  // Neither load has a time limit of its own (the shared one is the provider's): still loading past Profile's reload
-  // limit, the page shows the load as failed, with Try again, until the profile comes (profile-save.ts).
+  // The shared load stops waiting after 20 s by the same rule (the provider's limit, user-context-refresh.ts). Profile's own
+  // session check (once the shared load says "signed out") and its own load (no provider) have no limit of their own.
+  // Whichever it waits for, still loading past Profile's reload limit, the page shows the load as failed, with Try
+  // again, until the profile comes (profile-save.ts).
   const loaded = shared ? confirmSignedOut(shared.status, own) : local.status;
   const overdue = useOverdue(loaded === "loading", PROFILE_TIME_LIMIT_MS.reload);
   if (shared) {
