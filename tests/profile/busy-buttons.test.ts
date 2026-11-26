@@ -57,7 +57,8 @@ describe("Profile's Try again", () => {
     assert.match(retryButton, /onClick=\{\(\) => void retry\(\)\} aria-disabled=\{retrying \|\| undefined\}/);
     assert.doesNotMatch(retryButton.replace(/aria-disabled=\{[^}]*\}/g, ""), /\bdisabled=/);
     assert.match(retryButton, /aria-disabled:opacity-60/, "it still looks busy");
-    assert.match(view, /async function retry\(\) \{\s*if \(retrying\) return;\s*retryFocus\.current = true;\s*setRetrying\(true\);\s*try \{\s*await reload\(\);\s*\} finally \{\s*setRetrying\(false\);\s*\}/);
+    // Within the reload's limit since fix round 3d, so "Trying again…" never stays up for good (save-time-limit.test.ts).
+    assert.match(view, /async function retry\(\) \{\s*if \(retrying\) return;\s*retryFocus\.current = true;\s*setRetrying\(true\);\s*try \{\s*(?:\/\/[^\n]*\n\s*)*await waitWithin\(reload\);\s*\} finally \{\s*setRetrying\(false\);\s*\}/);
     assert.match(view, /\{retrying \? "Trying again…" : "Try again"\}/, "the label still says it is trying");
   });
 

@@ -9,11 +9,13 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { checkSession, confirmSignedOut, type SessionState } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
-import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
+import { PHOTO_HEADER_BYTES, PHOTO_LINK_TIMED_OUT, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto, signedUrlWithin, uploadLimitMs } from "@/components/profile/photo-file";
+import { NAME_SAVE, PHOTO_REMOVE, headerNotice, noticeAfterReload, saveWithin, waitWithin } from "@/components/profile/profile-save";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
 import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
 import { loadUserContext, targetsFor, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 import type { SectionNotice } from "./ProfileParts";
 import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
@@ -172,7 +174,8 @@ export function ProfileView() {
     retryFocus.current = true;
     setRetrying(true);
     try {
-      await reload();
+      // Within the reload's limit, so "Trying again…" never stays up for good; a later answer still shows (profile-save.ts).
+      await waitWithin(reload);
     } finally {
       setRetrying(false);
     }
@@ -219,14 +222,17 @@ export function ProfileView() {
     onEdit: () => open(id),
     onClose: () => setEditing((current) => (current === id ? null : current)),
     onSaved: async (notice) => {
-      await reload();
-      setNotices((current) => ({ ...current, [id]: notice }));
+      // The card shows the change once the profile has reloaded. Past the reload's limit the save still counts: the
+      // section says it is saved and how to see it (profile-save.ts).
+      const reloaded = await waitWithin(reload);
+      setNotices((current) => ({ ...current, [id]: noticeAfterReload(notice, reloaded) }));
     },
+    onNotice: (notice) => setNotices((current) => ({ ...current, [id]: notice })),
   });
 
   return (
     <div className="mx-auto max-w-5xl">
-      <ProfileHeader data={data} avatarUrl={avatarUrl} onSaved={async () => { await reload(); }} />
+      <ProfileHeader data={data} avatarUrl={avatarUrl} onSaved={() => waitWithin(reload)} />
       <TargetsStrip data={data} targets={targets} onEditBody={() => { open("body"); document.getElementById("body")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
       <div className="mt-8 grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-10">
         <nav aria-label="Profile sections" className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:overflow-visible lg:px-0">
@@ -258,7 +264,11 @@ export function ProfileView() {
   );
 }
 
-function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
+/**
+ * `onSaved` reloads the profile after a name or photo save, within the reload's limit: true when it came back in time,
+ * so the header already shows the change.
+ */
+function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: () => Promise<boolean> }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraButton = useRef<HTMLButtonElement>(null);
   const editNameButton = useRef<HTMLButtonElement>(null);
@@ -304,13 +314,18 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     setBusy("name");
     setError("");
     setNotice("");
-    const saved = await updateProfileRow(supabase, data.userId, { name: value });
-    if (saved.error) {
+    // Within Profile's time limit, its request built with the save's signal (profile-save.ts). Past it, "Saving…" ends
+    // with a message, the name stays as typed and focus stays on Save.
+    const problem = await saveWithin(async (signal) => {
+      const saved = await updateProfileRow(withAbortSignal(supabase, signal), data.userId, { name: value });
+      return saved.error ? NAME_SAVE.failed : null;
+    }, NAME_SAVE);
+    if (problem) {
       setBusy("");
-      return setError("Your name couldn't be saved. Try again.");
+      return setError(problem);
     }
-    await onSaved("Name saved.");
-    setNotice("Name saved");
+    const reloaded = await onSaved();
+    setNotice(headerNotice("name", reloaded));
     setBusy("");
     setEditingName(false);
   }
@@ -343,24 +358,25 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     const supabase = createClient();
     if (!supabase) return stop("Your photo couldn't be uploaded right now.");
     const bucket = supabase.storage.from(MEDIA_BUCKET);
+    // Each step waits only so long (photo-file.ts): the upload as long as this file needs on a slow connection, the
+    // link to the stored copy and the profile's save (cancelled at its limit) Profile's 20 seconds.
     const outcome = await replacePhoto({
       // A Blob of the real type: storage takes the stored type from the Blob, not from the contentType option.
       upload: (path, type) => bucket.upload(path, file.slice(0, file.size, type), { contentType: type, upsert: false }),
       // The stored copy comes back in full however slow the connection (only a stalled download gives up), must be
       // exactly the picked file's size, and must open as a picture here.
       opens: async (path) => {
-        const signed = await bucket.createSignedUrl(path, 120);
-        const url = signed.data?.signedUrl;
-        if (!url) return false;
+        const url = await signedUrlWithin(bucket.createSignedUrl(path, 120));
+        if (!url || url === "timed_out") return false;
         const stored = await downloadUnlessStalled((signal) => fetch(url, { signal, cache: "no-store" }));
         return stored !== null && stored.size === file.size && fileOpens(stored);
       },
-      save: (path) => updateProfileRow(supabase, data.userId, { avatar: path }),
+      save: (path, signal) => updateProfileRow(withAbortSignal(supabase, signal), data.userId, { avatar: path }),
       remove: (paths) => bucket.remove(paths),
-    }, { userId: data.userId, type: check.type, previous: storedAvatar, now: Date.now() });
+    }, { userId: data.userId, type: check.type, previous: storedAvatar, now: Date.now(), limits: { upload: uploadLimitMs(file.size) } });
     if (!outcome.ok) return stop(outcome.message);
-    await onSaved("Photo updated.");
-    setNotice("Photo updated");
+    const reloaded = await onSaved();
+    setNotice(headerNotice("photo", reloaded));
     setBusy("");
   }
 
@@ -372,10 +388,12 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     setBusy("photo");
     setError("");
     const fileName = storedAvatar.split("/").pop() || "fitx-photo";
-    const signed = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(storedAvatar, 60, { download: fileName });
+    // Within Profile's time limit; a link that comes later is never followed.
+    const url = await signedUrlWithin(supabase.storage.from(MEDIA_BUCKET).createSignedUrl(storedAvatar, 60, { download: fileName }));
     setBusy("");
-    if (signed.error || !signed.data?.signedUrl) return setError("Your photo couldn't be downloaded. Try again.");
-    window.location.assign(signed.data.signedUrl);
+    if (url === "timed_out") return setError(PHOTO_LINK_TIMED_OUT);
+    if (!url) return setError("Your photo couldn't be downloaded. Try again.");
+    window.location.assign(url);
   }
 
   async function removePhoto() {
@@ -384,14 +402,20 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     if (!supabase) return;
     setBusy("photo");
     setError("");
-    const saved = await updateProfileRow(supabase, data.userId, { avatar: null });
-    if (saved.error) {
+    // Within Profile's time limit, its request built with the save's signal (profile-save.ts).
+    const problem = await saveWithin(async (signal) => {
+      const saved = await updateProfileRow(withAbortSignal(supabase, signal), data.userId, { avatar: null });
+      return saved.error ? PHOTO_REMOVE.failed : null;
+    }, PHOTO_REMOVE);
+    if (problem) {
       setBusy("");
-      return setError("Your photo couldn't be removed. Try again.");
+      return setError(problem);
     }
-    if (isOwnPhoto(storedAvatar, data.userId)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
-    await onSaved("Photo removed.");
-    setNotice("Photo removed");
+    // The stored file goes once the profile no longer points at it. A removal that doesn't answer in time is left to
+    // finish on its own: a leftover in the member's own folder is harmless.
+    if (isOwnPhoto(storedAvatar, data.userId)) await waitWithin(() => supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]));
+    const reloaded = await onSaved();
+    setNotice(headerNotice("removed", reloaded));
     setBusy("");
     // Remove photo and Download photo are gone now: keep the keyboard on the photo control, now "Add photo".
     cameraButton.current?.focus();

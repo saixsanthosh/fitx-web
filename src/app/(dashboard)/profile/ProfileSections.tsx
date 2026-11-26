@@ -66,7 +66,9 @@ import {
   type WorkoutSplit,
   unavailableProfileGoals,
 } from "@/lib/domain/profile-options";
-import { changedFields, loadBirthDate, logWeighIn, markNutritionSetupAnswered, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { SECTION_SAVE, logWeighInOnce, saveWithin } from "@/components/profile/profile-save";
+import { changedFields, loadBirthDate, markNutritionSetupAnswered, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
 import { focusAfterRemoval } from "@/lib/social/focus";
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
@@ -83,11 +85,22 @@ export type SectionProps = {
   notice: SectionNotice | null;
   onEdit: () => void;
   onClose: () => void;
-  /** Reloads the shared context after a save, then shows the notice in the section. */
+  /**
+   * Reloads the shared context after a save, then shows the notice in the section; when the reload runs out of time,
+   * that it is saved and how to see it (profile-save.ts noticeAfterReload).
+   */
   onSaved: (notice: SectionNotice) => Promise<void>;
+  /** Shows a notice without reloading: nothing was saved ("No changes"). */
+  onNotice: (notice: SectionNotice) => void;
 };
 
-const WRITE_FAILED = "Your changes couldn't be saved. Check your connection and try again.";
+/**
+ * What a section says when the database refuses its save. Each section's save runs within Profile's time limit, with
+ * every request built from the save's signal (profile-save.ts saveWithin): past the limit "Saving…" ends with
+ * SECTION_SAVE's message beside the buttons, the form keeps everything as typed, and focus stays on Save, which is
+ * aria-disabled meanwhile (D5).
+ */
+const WRITE_FAILED = SECTION_SAVE.failed;
 const SAVED: SectionNotice = { tone: "saved", text: "Saved" };
 const NO_CHANGES: SectionNotice = { tone: "saved", text: "No changes" };
 
@@ -111,7 +124,7 @@ type BodyDraft = {
   weightUnit: WeightUnit;
 };
 
-export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }: SectionProps) {
+export function BodySection({ data, editing, notice, onEdit, onClose, onSaved, onNotice }: SectionProps) {
   const { profile, preferences: prefs } = data;
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
@@ -184,31 +197,38 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
     const weightChanged = !sameWeightKg(draft.weightKg, data.currentWeightKg);
     if (!Object.keys(profilePatch).length && !Object.keys(prefsPatch).length && !weightChanged) {
       onClose();
-      return void onSaved(NO_CHANGES);
+      return onNotice(NO_CHANGES);
     }
 
     setSaving(true);
     setError("");
-    if (Object.keys(profilePatch).length) {
-      const saved = await updateProfileRow(supabase, data.userId, profilePatch);
-      // A date of birth saved meanwhile (on another device or in Explore) is not replaced: the form takes the saved
-      // one, so saving again keeps it and saves the rest.
-      if (isBirthDateLocked(saved.error)) {
-        const kept = await loadBirthDate(supabase, data.userId);
-        if (kept) setDraft((current) => ({ ...current, birthDate: kept }));
-        return failed(setSaving, setError, BIRTH_DATE_SAVED_ERROR);
+    const weightKg = weightChanged ? draft.weightKg : null;
+    const problem = await saveWithin(async (signal) => {
+      const db = withAbortSignal(supabase, signal);
+      if (Object.keys(profilePatch).length) {
+        const saved = await updateProfileRow(db, data.userId, profilePatch);
+        // A date of birth saved meanwhile (on another device or in Explore) is not replaced: the form takes the saved
+        // one, so saving again keeps it and saves the rest. Not once the save has stopped waiting: the form stays as typed.
+        if (isBirthDateLocked(saved.error)) {
+          const kept = await loadBirthDate(db, data.userId);
+          if (kept && !signal.aborted) setDraft((current) => ({ ...current, birthDate: kept }));
+          return BIRTH_DATE_SAVED_ERROR;
+        }
+        if (saved.error) return WRITE_FAILED;
       }
-      if (saved.error) return failed(setSaving, setError);
-    }
-    if (Object.keys(prefsPatch).length) {
-      const saved = await savePreferences(supabase, data.userId, prefsPatch, { v2, v3 });
-      if (saved.error) return failed(setSaving, setError);
-    }
-    if (weightChanged && draft.weightKg !== null) {
-      // A changed weight is a new weigh-in for today (on Progress too), and keeps profiles.weight in step.
-      const logged = await logWeighIn(supabase, data.userId, draft.weightKg, "Profile update");
-      if (logged.error) return failed(setSaving, setError, "Your details were saved, but the new weight couldn't be added to your progress. Try saving again.");
-    }
+      if (Object.keys(prefsPatch).length) {
+        const saved = await savePreferences(db, data.userId, prefsPatch, { v2, v3 });
+        if (saved.error) return WRITE_FAILED;
+      }
+      if (weightKg !== null) {
+        // A changed weight is a new weigh-in for today (on Progress too), and keeps profiles.weight in step. Never twice:
+        // a save that ran out of time may already have logged it.
+        const logged = await logWeighInOnce(db, data.userId, weightKg, "Profile update");
+        if (logged.error) return "Your details were saved, but the new weight couldn't be added to your progress. Try saving again.";
+      }
+      return null;
+    }, SECTION_SAVE);
+    if (problem) return failed(setSaving, setError, problem);
     await onSaved(age !== null && draft.heightCm !== null ? SAVED : { tone: "note", text: "Saved. Add your date of birth and height for daily targets." });
     setSaving(false);
     onClose();
@@ -264,7 +284,7 @@ export function BodySection({ data, editing, notice, onEdit, onClose, onSaved }:
 
 // ─── Goal ────────────────────────────────────────────────────────────────────────────────────────
 
-export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }: SectionProps) {
+export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved, onNotice }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
@@ -289,14 +309,18 @@ export function GoalSection({ data, editing, notice, onEdit, onClose, onSaved }:
     const patch = changedFields({ primary_goal: prefs.primary_goal, activity_level: prefs.activity_level }, { primary_goal: goal, activity_level: activity });
     if (!Object.keys(patch).length) {
       onClose();
-      return void onSaved(NO_CHANGES);
+      return onNotice(NO_CHANGES);
     }
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
-    if (saved.error) return failed(setSaving, setError, saved.error.code === "23514" ? "That goal isn't available yet. Choose another for now." : undefined);
+    const problem = await saveWithin(async (signal) => {
+      const saved = await savePreferences(withAbortSignal(supabase, signal), data.userId, patch, { v2, v3 });
+      if (!saved.error) return null;
+      return saved.error.code === "23514" ? "That goal isn't available yet. Choose another for now." : WRITE_FAILED;
+    }, SECTION_SAVE);
+    if (problem) return failed(setSaving, setError, problem);
     await onSaved(data.targets ? { tone: "saved", text: "Saved · targets updated" } : SAVED);
     setSaving(false);
     onClose();
@@ -346,7 +370,7 @@ type TrainingDraft = {
 /** What auto workouts on the Workouts page read (location, equipment, level, session length, split). */
 const AUTO_WORKOUT_COLUMNS = ["workout_location", "fitness_level", "session_duration_minutes", "workout_split"];
 
-export function TrainingSection({ data, editing, notice, onEdit, onClose, onSaved }: SectionProps) {
+export function TrainingSection({ data, editing, notice, onEdit, onClose, onSaved, onNotice }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
@@ -420,26 +444,31 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
     if (homeChanged || unknownChanged) patch.equipment = [...draft.homeEquipment, ...draft.unknownEquipment];
     if (!Object.keys(patch).length && !homeChanged && !gymChanged) {
       onClose();
-      return void onSaved(NO_CHANGES);
+      return onNotice(NO_CHANGES);
     }
     setSaving(true);
     setError("");
-    if (lists.available) {
-      // The lists Workouts uses. One that was never saved stays a starting point unless it changed here.
-      for (const [context, changed, keys] of [["home", homeChanged, draft.homeEquipment], ["gym", gymChanged, draft.gymEquipment]] as const) {
-        if (!changed) continue;
-        const result = await saveEquipmentProfile(supabase, data.userId, context, keys);
-        if (result.error) return failed(setSaving, setError);
+    const problem = await saveWithin(async (signal) => {
+      const db = withAbortSignal(supabase, signal);
+      if (lists.available) {
+        // The lists Workouts uses. One that was never saved stays a starting point unless it changed here.
+        for (const [context, changed, keys] of [["home", homeChanged, draft.homeEquipment], ["gym", gymChanged, draft.gymEquipment]] as const) {
+          if (!changed) continue;
+          const result = await saveEquipmentProfile(db, data.userId, context, keys);
+          if (result.error) return WRITE_FAILED;
+        }
       }
-    }
-    if (Object.keys(patch).length) {
-      const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
-      if (saved.error) return failed(setSaving, setError);
-    }
-    if (!answersKnown) {
-      const marked = await markWorkoutSetupAnswered(supabase, data.userId);
-      if (marked.error) return failed(setSaving, setError);
-    }
+      if (Object.keys(patch).length) {
+        const saved = await savePreferences(db, data.userId, patch, { v2, v3 });
+        if (saved.error) return WRITE_FAILED;
+      }
+      if (!answersKnown) {
+        const marked = await markWorkoutSetupAnswered(db, data.userId);
+        if (marked.error) return WRITE_FAILED;
+      }
+      return null;
+    }, SECTION_SAVE);
+    if (problem) return failed(setSaving, setError, problem);
     const usedByAutoWorkouts = homeChanged || gymChanged || AUTO_WORKOUT_COLUMNS.some((column) => column in patch);
     await onSaved(usedByAutoWorkouts ? { tone: "saved", text: "Saved · new auto workouts use it" } : SAVED);
     setSaving(false);
@@ -531,7 +560,7 @@ type FoodDraft = {
   dislikeDraft: string;
 };
 
-export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }: SectionProps) {
+export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved, onNotice }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
@@ -611,7 +640,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
     if ("diet_type" in patch) patch.dietary_preferences = legacyDietaryPreferences(draft.diet, data.legacy.dietaryPreferences);
     if (!Object.keys(patch).length) {
       onClose();
-      return void onSaved(NO_CHANGES);
+      return onNotice(NO_CHANGES);
     }
     // Saving here answers the Nutrition setup, which needs the diet first (profile-answers.ts foodSaveProblem).
     const dietProblem = foodSaveProblem(data, draft.diet);
@@ -622,14 +651,21 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
     }
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
-    if (saved.error) return failed(setSaving, setError);
-    if (foodSaveMarksSetup(data)) {
-      const marked = await markNutritionSetupAnswered(supabase, data.userId);
-      if (marked.error) return failed(setSaving, setError);
-    }
+    let skipped: readonly string[] = [];
+    const problem = await saveWithin(async (signal) => {
+      const db = withAbortSignal(supabase, signal);
+      const saved = await savePreferences(db, data.userId, patch, { v2, v3 });
+      if (saved.error) return WRITE_FAILED;
+      if (foodSaveMarksSetup(data)) {
+        const marked = await markNutritionSetupAnswered(db, data.userId);
+        if (marked.error) return WRITE_FAILED;
+      }
+      skipped = saved.skipped;
+      return null;
+    }, SECTION_SAVE);
+    if (problem) return failed(setSaving, setError, problem);
     // The diet type is also kept in the original column, so only the other new answers can be pending.
-    const pending = saved.skipped.filter((column) => column !== "diet_type");
+    const pending = skipped.filter((column) => column !== "diet_type");
     const focusChanged = "nutrition_focus" in patch && !pending.includes("nutrition_focus");
     await onSaved(pending.length
       ? { tone: "note", text: "Saved. Some answers save after the next FITX update." }
@@ -697,7 +733,7 @@ export function FoodSection({ data, editing, notice, onEdit, onClose, onSaved }:
 
 // ─── Injuries and limitations ────────────────────────────────────────────────────────────────────
 
-export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved }: SectionProps) {
+export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved, onNotice }: SectionProps) {
   const prefs = data.preferences;
   const v2 = data.schema.preferencesV2;
   const v3 = data.schema.onboardingV3;
@@ -724,15 +760,21 @@ export function LimitsSection({ data, editing, notice, onEdit, onClose, onSaved 
     const patch = changedFields({ limitations: prefs.limitations }, { limitations: next });
     if (!Object.keys(patch).length) {
       onClose();
-      return void onSaved(NO_CHANGES);
+      return onNotice(NO_CHANGES);
     }
     const supabase = createClient();
     if (!supabase) return setError(WRITE_FAILED);
     setSaving(true);
     setError("");
-    const saved = await savePreferences(supabase, data.userId, patch, { v2, v3 });
-    if (saved.error) return failed(setSaving, setError);
-    await onSaved(saved.skipped.includes("limitations") ? { tone: "note", text: "These save after the next FITX update." } : SAVED);
+    let skipped: readonly string[] = [];
+    const problem = await saveWithin(async (signal) => {
+      const saved = await savePreferences(withAbortSignal(supabase, signal), data.userId, patch, { v2, v3 });
+      if (saved.error) return WRITE_FAILED;
+      skipped = saved.skipped;
+      return null;
+    }, SECTION_SAVE);
+    if (problem) return failed(setSaving, setError, problem);
+    await onSaved(skipped.includes("limitations") ? { tone: "note", text: "These save after the next FITX update." } : SAVED);
     setSaving(false);
     onClose();
   }

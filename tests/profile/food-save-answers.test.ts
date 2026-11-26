@@ -112,9 +112,10 @@ describe("Profile > Food uses the rules", () => {
   test("the diet is asked for before the first answering save, next to the field, and the setup is recorded after it", () => {
     assert.match(save, /const dietProblem = foodSaveProblem\(data, draft\.diet\);/);
     assert.match(save, /setErrors\(\{ diet: dietProblem \}\);\s*focusFirstInvalid\(formRef\.current\);/);
-    assert.match(save, /if \(foodSaveMarksSetup\(data\)\) \{\s*const marked = await markNutritionSetupAnswered\(supabase, data\.userId\);/);
+    assert.match(save, /if \(foodSaveMarksSetup\(data\)\) \{\s*const marked = await markNutritionSetupAnswered\(db, data\.userId\);/);
     assert.match(save, /legend="Diet" hint=\{foodKnown \? undefined : "Needed to save your food answers\."\}[^\n]*error=\{errors\.diet\} \/>/);
     // Nothing to save closes the form as before, without asking for the diet.
-    assert.ok(save.indexOf("return void onSaved(NO_CHANGES);") < save.indexOf("const dietProblem"));
+    assert.ok(save.indexOf("return onNotice(NO_CHANGES);") > 0);
+    assert.ok(save.indexOf("return onNotice(NO_CHANGES);") < save.indexOf("const dietProblem"));
   });
 });
