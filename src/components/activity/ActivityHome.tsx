@@ -254,8 +254,9 @@ export function ActivityHome() {
             loadingMore={feed.loadingMore}
             moreFailed={feed.moreFailed}
             onLoadMore={feed.loadMore}
+            sessionsFailed={feed.sessionsFailed}
+            onRetrySessions={feed.retrySessions}
           />
-          {filter === "all" && feed.sessions.status === "missing" && history.status === "ready" && <p className="text-xs text-fitx-text-secondary">Strength sessions couldn’t load here. They’re in Workouts.</p>}
         </section>
 
         <BestEffortsOverview state={storedEfforts} />

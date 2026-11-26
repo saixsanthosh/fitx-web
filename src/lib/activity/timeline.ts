@@ -59,3 +59,57 @@ export function focusAfterOlder(shown: readonly string[], next: readonly string[
   const target = focusAfterShowMore({ more, shown, added: addedIds(shown, next) });
   return target === "button" ? null : target;
 }
+
+/*
+ * Strength sessions that couldn't be read. A failed page of them stops them holding the timeline back (`more: false`),
+ * so older activities still show; the list says so, with Try again. Try again reads on from the last session it has,
+ * page by page, until the sessions reach the oldest entry the list already shows: with more pages of sessions the
+ * boundary moves back to their oldest one, and an entry already on screen must never be held back again.
+ */
+
+/** The oldest time the timeline shows (its last entry), or null when it shows nothing. */
+export function shownFloor(entries: readonly { startedAt: number }[]): number | null {
+  return entries.length ? entries[entries.length - 1].startedAt : null;
+}
+
+/** Whether Try again must read another page of sessions: there are more, and the oldest read is still newer than the floor. */
+export function sessionsBehind(more: boolean, oldestRead: number | null, floor: number | null): boolean {
+  return more && floor !== null && oldestRead !== null && oldestRead > floor;
+}
+
+/**
+ * Try again's read: pages of `pageSize` sessions older than the last one it has (`read(before)`, null when a page
+ * fails), until the sessions reach `floor` or there are no more. A failed page ends it with what was read (`failed`);
+ * null when the list was read again from the start meanwhile (`stillWanted`), so its result is dropped. At most
+ * `maxPages` pages, a stop for a server that ignores `before`.
+ */
+export async function readSessionsOn(
+  start: readonly StrengthSession[],
+  floor: number | null,
+  pageSize: number,
+  read: (before: number | null) => Promise<StrengthSession[] | null>,
+  options: { maxPages: number; stillWanted: () => boolean },
+): Promise<{ items: StrengthSession[]; more: boolean; failed: boolean } | null> {
+  let items = [...start];
+  let more = true;
+  for (let page = 0; page < options.maxPages; page += 1) {
+    const rows = await read(items.length ? items[items.length - 1].startedAt : null);
+    if (!options.stillWanted()) return null;
+    if (!rows) return { items, more: false, failed: true };
+    items = [...items, ...rows];
+    more = rows.length === pageSize;
+    if (!sessionsBehind(more, items.length ? items[items.length - 1].startedAt : null, floor)) break;
+  }
+  return { items, more, failed: false };
+}
+
+/**
+ * Where focus goes once Try again has read the sessions (D5): its line and button go, so to the first entry it brought;
+ * when it brought none, to "Show older activities" if that stays ("older"), else to the last entry shown.
+ */
+export function focusAfterSessionsRetry(shown: readonly string[], next: readonly string[], more: boolean): string | "older" | null {
+  const added = addedIds(shown, next);
+  if (added.length) return added[0];
+  if (more) return "older";
+  return next[next.length - 1] ?? null;
+}

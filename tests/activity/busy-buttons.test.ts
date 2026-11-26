@@ -66,8 +66,9 @@ describe("Show older activities", () => {
     const list = read("src/components/activity/FeedList.tsx");
     assert.match(list, /<button type="button" onClick=\{showOlder\} aria-disabled=\{loadingMore \|\| undefined\}/);
     assert.doesNotMatch(list, /disabled=\{loadingMore\}/);
-    assert.match(list, /function showOlder\(\) \{\s+if \(loadingMore\) return;\s+const shown = keys \? keys\.split\("\\n"\) : \[\];\s+if \(onLoadMore\(\)\) pressed\.current = \{ shown \};/);
-    assert.match(list, /const target = focusAfterOlder\(press\.shown, keys \? keys\.split\("\\n"\) : \[\], more\);\s+if \(target && focusDropped\(document\)\) entryLink\(list\.current, target\)\?\.focus\(\);/);
+    assert.match(list, /function showOlder\(\) \{\s+if \(loadingMore\) return;\s+const shown = keys \? keys\.split\("\\n"\) : \[\];\s+if \(onLoadMore\(\)\) pressed\.current = \{ shown, from: "older" \};/);
+    // Round 3c: the strength sessions' Try again shares the hand-off (tests/activity/older-strength-sessions.test.ts).
+    assert.match(list, /const target = press\.from === "sessions" \? focusAfterSessionsRetry\(press\.shown, next, more\) : focusAfterOlder\(press\.shown, next, more\);\s+if \(!target \|\| !focusDropped\(document\)\) return;\s+if \(target === "older"\) olderButton\.current\?\.focus\(\);\s+else entryLink\(list\.current, target\)\?\.focus\(\);/);
     assert.match(list, /<ActivityCard key=\{entry\.key\} entryKey=\{entry\.key\}/);
     assert.match(list, /<StrengthRow key=\{entry\.key\} entryKey=\{entry\.key\}/);
     assert.match(list, /data-feed-entry=\{entryKey\}/);
