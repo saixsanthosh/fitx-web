@@ -96,6 +96,9 @@ test("a photo that wasn't saved says why in FITX's words", () => {
   const page = read("src/app/(dashboard)/nutrition/page.tsx");
   const save = page.slice(page.indexOf("async function saveFood("), page.indexOf("async function removeFood("));
   assert.doesNotMatch(save, /new Error\("not saved"\)/, "it said \"The photo was not saved: not saved\"");
-  assert.match(save, /if \(updated\.error\) throw new FoodPhotoError\(photoRetryText\(updated\.status === 0\)\);/);
+  // The food is pointed at its photo in replaceCustomFoodPhoto now (food-photo-order.test.ts tries each failure).
+  const data = read("src/lib/food/client-data.ts");
+  const replace = data.slice(data.indexOf("export async function replaceCustomFoodPhoto("), data.indexOf("async function removePhotoFile("));
+  assert.match(replace, /throw new FoodPhotoError\(photoRetryText\(updated\.status === 0\)\);/);
   assert.match(save, /photoProblem = ` \$\{photoNotSavedText\(cause\)\}`;/);
 });

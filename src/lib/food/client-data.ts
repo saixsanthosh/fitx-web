@@ -9,7 +9,7 @@ import { DEFAULT_MEALS, mealSections, SECTION_DAYS } from "@/lib/domain/meal-tim
 import { MACRO_KEYS, scaleMacros, type MacroKey } from "@/lib/domain/nutrition";
 import { localDateKey } from "@/lib/domain/dates";
 import { parseExtraNutrients } from "@/lib/food/custom-nutrients";
-import { FOOD_PHOTO_BUCKET } from "@/lib/food/food-photos";
+import { FOOD_PHOTO_BUCKET, FoodPhotoError, photoRetryText, uploadFoodPhoto } from "@/lib/food/food-photos";
 import type { CustomFoodOrigin, DietType, FoodResult, ValueBasis } from "@/lib/food/types";
 import { basisForDataType, basisInfo, customValueBasis } from "@/lib/food/value-basis";
 import { catalogueCopies } from "@/lib/food/catalogue-copies";
@@ -478,8 +478,43 @@ export async function removeCustomFoodPhoto(supabase: SupabaseClient, userId: st
   return result;
 }
 
+/**
+ * Gives a custom food a new photo of the member's own (a Blob from shrinkPhoto) and returns its storage path. The order
+ * keeps the food from ever pointing at a deleted file (bug 21's rule): the new photo is uploaded, the food is pointed
+ * at it, and only then is the photo it had removed. When the upload fails nothing changes; when the food can't be
+ * pointed at the new photo, the new upload is removed and the food keeps its old one. Every failure is a
+ * FoodPhotoError, which photoNotSavedText says in FITX's words.
+ */
+export async function replaceCustomFoodPhoto(
+  supabase: SupabaseClient,
+  userId: string,
+  row: Pick<CustomFoodRow, "id" | "image_path">,
+  photo: Blob,
+  stamp = Date.now(),
+): Promise<string> {
+  const path = await uploadFoodPhoto(supabase, userId, row.id, photo, stamp);
+  const updated = await supabase.from("custom_foods").update({ image_path: path }).eq("id", row.id).eq("user_id", userId);
+  if (updated.error) {
+    await removePhotoFile(supabase, userId, path);
+    // Status 0: the save never reached FITX.
+    throw new FoodPhotoError(photoRetryText(updated.status === 0));
+  }
+  if (row.image_path !== path) await removePhotoFile(supabase, userId, row.image_path);
+  return path;
+}
+
+/**
+ * Removes one of the member's own food photos from storage, and only one in their own folder. Clean-up only, so it
+ * never fails the step before it: the food row is what counts, and a file left in the member's own private folder is
+ * harmless (deleting the account clears the folder).
+ */
 async function removePhotoFile(supabase: SupabaseClient, userId: string, path: string | null | undefined) {
-  if (path && path.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([path]);
+  if (!path || !path.startsWith(`${userId}/foods/`)) return;
+  try {
+    await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([path]);
+  } catch {
+    // Left in the member's own folder: harmless.
+  }
 }
 
 /**

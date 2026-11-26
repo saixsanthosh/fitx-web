@@ -57,16 +57,16 @@ export async function shrinkPhoto(file: File): Promise<Blob> {
 }
 
 /**
- * Uploads a food photo and returns its storage path; removes the previous photo when there was one. Every failure it
- * can name is a FoodPhotoError: an upload that never reached storage (supabase-js's StorageUnknownError wraps the
- * network failure) asks the member to check their connection. Anything else reads "Please try again." (photoNotSavedText).
+ * Uploads a food photo already prepared by shrinkPhoto and returns its storage path. It never touches the food or the
+ * photo the food had: replaceCustomFoodPhoto (client-data.ts) points the food at the new photo first and removes the old
+ * one only after that. Every failure it can name is a FoodPhotoError: an upload that never reached storage
+ * (supabase-js's StorageUnknownError wraps the network failure) asks the member to check their connection. Anything
+ * else reads "Please try again." (photoNotSavedText).
  */
-export async function uploadFoodPhoto(supabase: SupabaseClient, userId: string, foodId: string, file: File, previous: string | null): Promise<string> {
-  const blob = await shrinkPhoto(file);
-  const path = foodPhotoPath(userId, foodId);
+export async function uploadFoodPhoto(supabase: SupabaseClient, userId: string, foodId: string, blob: Blob, stamp = Date.now()): Promise<string> {
+  const path = foodPhotoPath(userId, foodId, stamp);
   const uploaded = await supabase.storage.from(FOOD_PHOTO_BUCKET).upload(path, blob, { contentType: blob.type || "image/webp", upsert: false, cacheControl: "3600" });
   if (uploaded.error) throw new FoodPhotoError(photoRetryText(uploaded.error.name === "StorageUnknownError"));
-  if (previous && previous.startsWith(`${userId}/foods/`)) await supabase.storage.from(FOOD_PHOTO_BUCKET).remove([previous]);
   return path;
 }
 

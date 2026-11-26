@@ -43,7 +43,7 @@ import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleM
 import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
-import { FoodPhotoError, photoNotSavedText, photoRetryText, signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
+import { photoNotSavedText, shrinkPhoto, signedPhotoUrls } from "@/lib/food/food-photos";
 import { askFoodSearch, unansweredText } from "@/lib/food/food-request";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
@@ -52,7 +52,7 @@ import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, wr
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
   buildMealValues, sameMeal, clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, foodFromEntry, frequentFromEntries, insertEntries, isEstimateSnapshot, loadCustomFoods,
-  loadRecentFoods, loadRecentMeals, loadSavedFrom, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
+  loadRecentFoods, loadRecentMeals, loadSavedFrom, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, replaceCustomFoodPhoto, rowsFromItems, saveCustomFood,
   saveTargets, saveTemplate, sourceOf, usualAmount, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
   type MealTemplate, type NutritionCapabilities, type SavedFrom,
 } from "@/lib/food/client-data";
@@ -1010,13 +1010,12 @@ export default function NutritionPage() {
     }
     if (photo && capabilities.customFoodsV2) {
       try {
-        const path = await uploadFoodPhoto(supabase, userId, row.id, photo, row.image_path ?? null);
-        const updated = await supabase.from("custom_foods").update({ image_path: path }).eq("id", row.id).eq("user_id", userId);
-        // Status 0: the save never reached FITX.
-        if (updated.error) throw new FoodPhotoError(photoRetryText(updated.status === 0));
-        photoUrl = (await signedPhotoUrls(supabase, [path])).get(path) ?? null;
+        // The food points at the new photo before its old one goes, so a failed save keeps the old photo.
+        const path = await replaceCustomFoodPhoto(supabase, userId, row, await shrinkPhoto(photo));
+        // Saved: a link that can't be made now waits for the next load, and never reads "not saved".
+        photoUrl = await signedPhotoUrls(supabase, [path]).then((urls) => urls.get(path) ?? null, () => null);
       } catch (cause) {
-        // FITX's reason (a photo it can't read, a failed upload), never a browser's own words.
+        // FITX's reason (a photo it can't read, a failed upload or save), never a browser's own words.
         photoProblem = ` ${photoNotSavedText(cause)}`;
       }
     }
