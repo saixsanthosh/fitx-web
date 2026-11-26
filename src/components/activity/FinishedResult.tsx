@@ -6,7 +6,7 @@ import { CheckCircle2, CloudOff, Download, RefreshCw, Share2 } from "lucide-reac
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor } from "@/lib/activity/detail";
 import type { KeptReason } from "@/lib/activity/finish";
-import { mayHandFocus } from "@/lib/activity/focus";
+import { hasFocus, mayHandFocus } from "@/lib/activity/focus";
 import { formatActivityDate, localDateKey } from "@/lib/activity/format";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -72,9 +72,11 @@ export function FinishedResult({ record, userId, reason, onUploaded }: { record:
           return;
         }
         const next: KeptReason = outcome.result.status === "error" ? (outcome.result.offline ? "offline" : "error") : outcome.result.status;
+        // Refused: Upload now goes, and focus moves to the note, which now says why (D5): after a press, and after a try
+        // that came by itself (back online) only if Upload now has focus as it goes. Asked before the swap is drawn.
+        const handOn = next === "rejected" && (manual || hasFocus(document, uploadButtonRef.current));
         setState({ reason: next, busy: false, note: manual ? "Not uploaded yet." : "" });
-        // Refused: Upload now goes, and focus moves to the note, which now says why (D5).
-        if (manual && next === "rejected") window.setTimeout(() => { if (mayHandFocus(document, uploadButtonRef.current)) noteRef.current?.focus(); }, 0);
+        if (handOn) window.setTimeout(() => { if (mayHandFocus(document, uploadButtonRef.current)) noteRef.current?.focus(); }, 0);
       } finally {
         uploading.current = false;
       }

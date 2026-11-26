@@ -153,8 +153,9 @@ describe("the same mistake elsewhere in the stream's files", () => {
   test("a control that goes once it has done its job hands focus on", () => {
     const home = read("src/components/activity/ActivityHome.tsx");
     // Upload now's banner and Try again's alert are drawn again while the history reloads: back to the button if it is
-    // still there, else the list it led to.
-    assert.match(home, /if \(!focusDropped\(document\)\) return;\s+const again = \(from === "upload" \? uploadNowRef : retryRef\)\.current;\s+\(again \?\? feedTitleRef\.current\)\?\.focus\(\);/);
+    // still there, else the list it led to. Round 3d: the same once either went with focus by itself (the "online"
+    // reload); bannerFocusAfterReload decides (tests/activity/reload-focus.test.ts).
+    assert.match(home, /const target = bannerFocusAfterReload\(document, \{\s+pressed,[\s\S]*?\}\);\s+if \(target\) \(target === "list" \? feedTitleRef\.current : target === "upload" \? uploadNowButton\(\) : retryButton\(\)\)\?\.focus\(\);/);
     assert.match(home, /<h2 id="feed-title" ref=\{feedTitleRef\} tabIndex=\{-1\}/);
     // Delete everything: a failure in the confirmation, the result under the button that opened it, which takes focus.
     const confirmation = home.slice(home.indexOf('aria-labelledby="delete-all-question"'), home.indexOf("Delete all activity data</button>"));
@@ -176,9 +177,10 @@ describe("the same mistake elsewhere in the stream's files", () => {
     assert.match(recorder, /if \(unsaved && focusDropped\(document\)\) retryUnsavedRef\.current\?\.focus\(\);/);
     assert.match(recorder, /setError\("This activity could not be finished\. Try again\."\);\s+\/\/[^\n]*\n\s+window\.setTimeout\(\(\) => \{ if \(focusDropped\(document\)\) finishTriggerRef\.current\?\.focus\(\); \}, 0\);/);
     // A finished activity's own page: a refused upload hands focus to the note that says why; a try that didn't
-    // upload is read out while focus stays on Upload now.
+    // upload is read out while focus stays on Upload now. Round 3d: a refused try that came by itself (back online)
+    // does so too when Upload now had focus.
     const finished = read("src/components/activity/FinishedResult.tsx");
-    assert.match(finished, /if \(manual && next === "rejected"\) window\.setTimeout\(\(\) => \{ if \(mayHandFocus\(document, uploadButtonRef\.current\)\) noteRef\.current\?\.focus\(\); \}, 0\);/);
+    assert.match(finished, /const handOn = next === "rejected" && \(manual \|\| hasFocus\(document, uploadButtonRef\.current\)\);\s+setState\(\{ reason: next, busy: false, note: manual \? "Not uploaded yet\." : "" \}\);\s+if \(handOn\) window\.setTimeout\(\(\) => \{ if \(mayHandFocus\(document, uploadButtonRef\.current\)\) noteRef\.current\?\.focus\(\); \}, 0\);/);
     assert.match(finished, /ref=\{uploadButtonRef\} onClick=\{\(\) => retry\.current\(\)\}/);
     assert.match(finished, /<p ref=\{noteRef\} tabIndex=\{-1\} role="status"/);
     // Progress > Weight: once the profile weight is saved, the notice goes and the card's heading takes focus.

@@ -16,17 +16,23 @@ export function mayHandFocus(doc: FocusDocument, pressed: unknown): boolean {
   return focusDropped(doc) || (pressed !== null && pressed !== undefined && doc.activeElement === pressed);
 }
 
+/** Whether `control` has focus now (never when there is no control). */
+export function hasFocus(doc: FocusDocument, control: unknown): boolean {
+  return control !== null && control !== undefined && doc.activeElement === control;
+}
+
 /** A control as `focusWitness` sees it: its own document says what has focus. */
 export type WitnessedControl = { ownerDocument: FocusDocument };
 
 /**
  * Some controls go without a press of them: when a sport page's figures come back by themselves (the "online" reload),
- * their alert goes with its Try again. Focus is then handed on only if it was on that control as it went, and this sees
- * whether it was. React takes a removed control's ref away before it takes the control out of
- * the page, so the ref's cleanup still finds focus on it; once it is out, the page has focus, as it does when nothing
- * had it. Give the control `ref` (one function for its whole life, so React attaches it once: take the three apart
- * where the witness is made); `element()` is the control while it is shown; `wentWithFocus()` says whether one went
- * with focus since it was last asked, then forgets it.
+ * their alert goes with its Try again, and on Activity the same reload takes Upload now and the history's Try again
+ * away while it uploads and reads. Focus is then handed on only if it was on that control as it went, and this sees
+ * whether it was. React takes a removed control's ref away before it takes the control out of the page, so the ref's
+ * cleanup still finds focus on it; once it is out, the page has focus, as it does when nothing had it. Give the control
+ * `ref` (one function for its whole life, so React attaches it once: take the three apart where the witness is made);
+ * `element()` is the control while it is shown; `wentWithFocus()` says whether one went with focus since it was last
+ * asked, then forgets it.
  */
 export function focusWitness<T extends WitnessedControl>() {
   let shown: T | null = null;
@@ -39,7 +45,7 @@ export function focusWitness<T extends WitnessedControl>() {
         if (shown === element) shown = null;
         // Only ever set here: the control drawn again meanwhile, or React's second attach in development, never
         // clears what an earlier one saw.
-        if (element.ownerDocument.activeElement === element) went = true;
+        if (hasFocus(element.ownerDocument, element)) went = true;
       };
     },
     element: (): T | null => shown,
@@ -58,4 +64,23 @@ export function focusWitness<T extends WitnessedControl>() {
  */
 export function handsFocusOn(doc: FocusDocument, cause: { pressed: boolean; wentWithFocus: boolean }): boolean {
   return (cause.pressed || cause.wentWithFocus) && focusDropped(doc);
+}
+
+/** Activity's banner buttons: Upload now (activities not uploaded yet) and Try again (the history couldn't load). */
+export type BannerButton = "upload" | "retry";
+
+/**
+ * Where focus goes once Activity's history has been read again, when Upload now or Try again went meanwhile: after a
+ * press of one, or by itself while it had focus (the "online" reload uploads what was waiting and reads the history
+ * again, and both banners go while it reads). Back to that button when its banner is there again, else to the list
+ * heading; null leaves focus where it is (handsFocusOn's rule). A press decides which button over one that went by
+ * itself.
+ */
+export function bannerFocusAfterReload(
+  doc: FocusDocument,
+  input: { pressed: BannerButton | null; went: BannerButton | null; shown: Readonly<Record<BannerButton, boolean>> },
+): BannerButton | "list" | null {
+  const from = input.pressed ?? input.went;
+  if (!from || !focusDropped(doc)) return null;
+  return input.shown[from] ? from : "list";
 }

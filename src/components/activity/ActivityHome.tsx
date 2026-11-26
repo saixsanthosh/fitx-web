@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { parseSportFilter, weekBySport, type SportFilter } from "@/lib/activity/feed";
-import { focusDropped } from "@/lib/activity/focus";
+import { bannerFocusAfterReload, focusDropped, focusWitness, type BannerButton } from "@/lib/activity/focus";
 import { formatActivityDate, formatDistance } from "@/lib/activity/format";
 import { clearDeviceActivityData } from "@/lib/activity/device-recordings";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -48,10 +48,12 @@ export function ActivityHome() {
   const feed = useActivityFeed(userId, filter);
   const [syncing, setSyncing] = useState(false);
   // Which button started an upload or a reload. Its banner is drawn again while the history reloads, so focus goes
-  // back to its button if it is still needed, or on to the list once it is gone (D5).
-  const syncFrom = useRef<"upload" | "retry" | null>(null);
-  const uploadNowRef = useRef<HTMLButtonElement | null>(null);
-  const retryRef = useRef<HTMLButtonElement | null>(null);
+  // back to its button if it is still needed, or on to the list once it is gone (D5). Both buttons also go by
+  // themselves (the "online" reload uploads what was waiting and reads the history again): one that went with focus
+  // is handed on the same way once the history is read.
+  const syncFrom = useRef<BannerButton | null>(null);
+  const [{ ref: uploadNowRef, element: uploadNowButton, wentWithFocus: uploadNowWent }] = useState(() => focusWitness<HTMLButtonElement>());
+  const [{ ref: retryRef, element: retryButton, wentWithFocus: retryWent }] = useState(() => focusWitness<HTMLButtonElement>());
   const feedTitleRef = useRef<HTMLHeadingElement | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [deletingAll, setDeletingAll] = useState(false);
@@ -63,14 +65,23 @@ export function ActivityHome() {
   const refocusDeleteAll = useRef(false);
   const v2 = useActivityV2(userId);
   const storedEfforts = useStoredEfforts(userId);
+  const historyStatus = feed.history.status;
+  // Upload now's banner can also go while the history stays as it is (its activities found on the server).
+  const uploadsWaiting = feed.waiting.length > 0;
   useEffect(() => {
-    const from = syncFrom.current;
-    if (syncing || !from) return;
+    if (syncing || historyStatus === "loading") return;
+    const pressed = syncFrom.current;
     syncFrom.current = null;
-    if (!focusDropped(document)) return;
-    const again = (from === "upload" ? uploadNowRef : retryRef).current;
-    (again ?? feedTitleRef.current)?.focus();
-  }, [syncing]);
+    // Both asked, so neither says so later.
+    const retryGone = retryWent();
+    const uploadGone = uploadNowWent();
+    const target = bannerFocusAfterReload(document, {
+      pressed,
+      went: retryGone ? "retry" : uploadGone ? "upload" : null,
+      shown: { upload: uploadNowButton() !== null, retry: retryButton() !== null },
+    });
+    if (target) (target === "list" ? feedTitleRef.current : target === "upload" ? uploadNowButton() : retryButton())?.focus();
+  }, [syncing, historyStatus, uploadsWaiting, retryWent, uploadNowWent, uploadNowButton, retryButton]);
   useEffect(() => {
     if (confirmDeleteAll || !refocusDeleteAll.current) return;
     refocusDeleteAll.current = false;
