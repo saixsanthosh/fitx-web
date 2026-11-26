@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { compile } from "tailwindcss";
 
 // Release 3, fix round 3d (integration; the open item of the shell's round 3b). While the privacy banner is open it
 // sets --fitx-inset-consent on <html>: from the banner's top edge to the window's bottom (its height, the gap under
@@ -368,5 +370,88 @@ test("the AI Coach's message box stops 8 px above the banner, on phones and from
 test("no note in the code still puts the banner at z-index 100 (it is 49 since round 3b)", () => {
   for (const file of files.filter((name) => /\.(tsx?|css)$/.test(name))) {
     assert.doesNotMatch(read(file), /(cookie|privacy|consent) banner \(z-index 100\)/i, file);
+  }
+});
+
+// Fix round 3e (integration int-recorder-bar-joined-classes). Raising the recorder's controls above the banner, the
+// round 3d edit lost the space between two of the bar's other classes: "z-[5]-mx-5". Tailwind makes no CSS for a
+// class it can't read, and says nothing, so the bar lost its z-index (auto, not 5) and its -mx-5: at 390 px it spanned
+// 37 to 353 instead of 17 to 373, its top divider 20 px short of the card's edges. Its bottom offset was right, so the
+// tests above passed. Every bar's other classes and declarations were then checked against the code before that edit
+// (only the bottom offsets had changed); the tests below catch the slip itself.
+
+test("no class in src runs an arbitrary value into the next class", () => {
+  // After the ] that closes an arbitrary value, a class ends, or goes on with ":" (a variant), "/" (a modifier) or
+  // "!" (important). A letter, digit or hyphen there starts the next class with the space lost. Every source file is
+  // read, so class lists kept in variables count too; inside className attributes, arbitrary properties ("[--x:1px]")
+  // and variants ("[&>svg]:") as well. No class in src needs an exception.
+  for (const file of files.filter((name) => /\.(tsx?|css)$/.test(name))) {
+    for (const token of read(file).split(/[\s"'`]+/)) {
+      assert.doesNotMatch(token, /-\[[^\]\s]*\][a-z0-9-]/i, `${file}: "${token}" runs two classes together`);
+    }
+    if (!file.endsWith(".tsx")) continue;
+    for (const token of classLists(read(file)).flat()) {
+      assert.doesNotMatch(token, /\][a-z0-9-]/i, `${file}: "${token}" runs two classes together`);
+    }
+  }
+});
+
+/** The stylesheets every page loads (not CSS modules), comments removed: their classes are the app's own. */
+const GLOBAL_CSS = files.filter((file) => file.endsWith(".css") && !file.endsWith(".module.css")).map((file) => read(file).replace(/\/\*[\s\S]*?\*\//g, ""));
+const ownClass = (token: string) => /^[\w-]+$/.test(token) && GLOBAL_CSS.some((css) => new RegExp(`\\.${token}(?![\\w-])`).test(css));
+
+/** Whether Tailwind, compiled with the app's globals.css as the app's build does, makes CSS for a class. */
+async function tailwindMakesCss(): Promise<(token: string) => boolean> {
+  const compiler = await compile(read("app/globals.css"), {
+    base: `${SRC}/app`,
+    loadStylesheet: async (id: string, base: string) => {
+      const path = id === "tailwindcss" ? "node_modules/tailwindcss/index.css" : resolve(base, id);
+      return { path, base: dirname(path), content: readFileSync(path, "utf8") };
+    },
+  });
+  // build() adds the classes it is given to those it has; for one it can't read it returns the same CSS.
+  let css = compiler.build([]);
+  const known = new Map<string, boolean>();
+  return (token) => {
+    let made = known.get(token);
+    if (made === undefined) {
+      const next = compiler.build([token]);
+      made = next !== css;
+      known.set(token, made);
+      css = next;
+    }
+    return made;
+  };
+}
+
+test("every class on a bar at the bottom of the screen is one Tailwind makes or the app's stylesheets define", async () => {
+  const makesCss = await tailwindMakesCss();
+  assert.ok(makesCss("z-[5]") && makesCss("-mx-5") && makesCss("bottom-[var(--fitx-inset-consent,0px)]"), "Tailwind reads the recorder's classes");
+  assert.ok(!makesCss("z-[5]-mx-5") && !makesCss("mt-4border-t"), "and not two run together");
+  assert.ok(ownClass("fitx-panel") && !ownClass("fitx-no-such-class"), "the app's own classes");
+  const classBars = files.filter((file) => file.endsWith(".tsx")).flatMap(tsxBars);
+  assert.ok(classBars.some((bar) => bar.file === "components/activity/ActivityRecorderScreen.tsx"), "the recorder's bar is read");
+  for (const bar of classBars) {
+    for (const token of bar.bar.split(" ")) {
+      assert.ok(makesCss(token) || ownClass(token), `${bar.file}: "${token}" makes no CSS (two classes run together, or a misspelt one) and is not one of the app's own (${bar.bar})`);
+    }
+  }
+});
+
+test("each declaration of a bar in a stylesheet is one property and its value", () => {
+  // The same slip in a stylesheet: a lost ";" runs two declarations into one, and the browser drops it.
+  const withoutBrackets = (value: string) => {
+    let flat = value;
+    while (/\([^()]*\)/.test(flat)) flat = flat.replace(/\([^()]*\)/g, "");
+    return flat;
+  };
+  for (const file of files.filter((name) => name.endsWith(".css"))) {
+    const selectors = new Set(cssBars(file).map((bar) => bar.bar));
+    for (const rule of cssRules(read(file)).filter((item) => item.selectors.some((selector) => selectors.has(selector)))) {
+      for (const [name, value] of rule.declarations) {
+        assert.match(name, /^(?:--[a-z0-9-]+|-?[a-z]+(?:-[a-z]+)*)$/, `${file} ${rule.selectors.join(", ")}: "${name}"`);
+        assert.ok(value && !withoutBrackets(value).includes(":"), `${file} ${rule.selectors.join(", ")}: "${name}: ${value}" runs two declarations together`);
+      }
+    }
   }
 });

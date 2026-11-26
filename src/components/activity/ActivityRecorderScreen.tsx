@@ -665,7 +665,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
 
               {/* Phones: the controls stay pinned to the bottom of the screen, so Pause and Finish never need a scroll mid-run.
                   While the privacy banner is open they stay pinned to its top edge instead (--fitx-inset-consent). */}
-              <div className="sticky bottom-[var(--fitx-inset-consent,0px)] z-[5]-mx-5 mt-4 border-t border-fitx-divider bg-fitx-card px-5 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
+              <div className="sticky bottom-[var(--fitx-inset-consent,0px)] z-[5] -mx-5 mt-4 border-t border-fitx-divider bg-fitx-card px-5 pb-[max(env(safe-area-inset-bottom),16px)] pt-3 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0">
                 {confirm === "finish" ? (
                   <div className="mt-1 rounded-2xl border border-fitx-border bg-fitx-surface-variant p-4" role="alertdialog" aria-labelledby="finish-question">
                     <p id="finish-question" className="text-sm font-semibold text-fitx-text">Finish and save this {SPORT_NOUN[activeSport]}?</p>
