@@ -158,7 +158,8 @@ test("globals.css keeps the larger of the two clear when scrolling to a control,
   assert.match(source("src/app/(marketing)/layout.tsx"), /className="fitx-holds-end-room flex min-h-dvh flex-col"><PublicHeader\/>\{children\}<PublicFooter\/>/);
   assert.match(source("src/components/layout/PublicFooter.tsx"), /<footer className="fitx-inverse fitx-band-end /);
   // The banner floats above the phone's bar, so the bar's links are never under it.
-  assert.match(globals, /^\.fitx-consent \{ bottom: max\(calc\(var\(--fitx-inset-bottom-bar, 0px\) \+ 8px\), env\(safe-area-inset-bottom\), 12px\); \}/m);
+  // (Beside the app's menu column too: consent-banner-place.test.ts.)
+  assert.match(globals, /^\.fitx-consent \{[^}]* bottom: max\(calc\(var\(--fitx-inset-bottom-bar, 0px\) \+ 8px\), env\(safe-area-inset-bottom\), 12px\); \}/m);
 });
 
 test("the phone's bar and the privacy banner each measure themselves", () => {
