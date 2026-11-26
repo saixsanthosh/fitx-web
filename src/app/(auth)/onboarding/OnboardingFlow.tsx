@@ -56,6 +56,8 @@ import {
   type OnboardingPage,
 } from "@/lib/onboarding/form";
 import type { MeasureText } from "@/lib/onboarding/measure-field";
+import { focusAfterFailedSave, focusAfterRetry } from "@/lib/onboarding/save-focus";
+import { SAVE_FAILED, loadWithinLimit, saveWithinLimit, withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -107,10 +109,16 @@ export function OnboardingFlow() {
   const [errors, setErrors] = useState<OnboardingErrors>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  // Counts the saves that failed, so focus can be checked once each failure is on the screen.
+  const [failedSaves, setFailedSaves] = useState(0);
   const [reload, setReload] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   const movedPage = useRef(false);
+  // Set by Try again: focus is handed on once the details have loaded (the button goes while they load).
+  const retried = useRef(false);
 
   const page: OnboardingPage = ONBOARDING_PAGES[pageIndex].id;
   const isLast = pageIndex === ONBOARDING_PAGES.length - 1;
@@ -124,33 +132,41 @@ export function OnboardingFlow() {
         if (live) setPhase("unavailable");
         return;
       }
-      const { data: auth } = await supabase.auth.getUser();
-      if (!live) return;
-      if (!auth.user) {
-        router.replace("/signin?next=/onboarding");
-        return;
-      }
-      const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
-      if (!live) return;
-      if (result.error) {
+      // A load that never answers (or breaks off) ends at its time limit with the alert and Try again, never "Loading
+      // your profile…" for good (time-limit.ts). What it brings back after that is dropped: Try again loads afresh.
+      const ended = await loadWithinLimit(async () => {
+        const { data: auth } = await supabase.auth.getUser();
+        if (!live) return;
+        if (!auth.user) {
+          router.replace("/signin?next=/onboarding");
+          return;
+        }
+        const result = await loadUserContext(supabase, { id: auth.user.id, email: auth.user.email ?? null });
+        if (!live) return;
+        if (result.error) {
+          setPhase("load_failed");
+          return;
+        }
+        // Answers already given are never asked again: an onboarded account goes straight to Home.
+        if (result.data.profile?.onboarded) {
+          router.replace("/dashboard");
+          return;
+        }
+        // A missing profile row would otherwise keep this account in onboarding for good.
+        if (!result.data.profile) await ensureProfileRow(supabase, auth.user.id);
+        if (!live) return;
+        const metadata = auth.user.user_metadata as { name?: unknown; full_name?: unknown } | undefined;
+        const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
+        setContext(result.data);
+        setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
+        setForm(initialOnboardingForm(result.data, metadataName));
+        setDrafts(NO_DRAFTS);
+        setPhase("ready");
+      });
+      if (!ended && live) {
+        live = false;
         setPhase("load_failed");
-        return;
       }
-      // Answers already given are never asked again: an onboarded account goes straight to Home.
-      if (result.data.profile?.onboarded) {
-        router.replace("/dashboard");
-        return;
-      }
-      // A missing profile row would otherwise keep this account in onboarding for good.
-      if (!result.data.profile) await ensureProfileRow(supabase, auth.user.id);
-      if (!live) return;
-      const metadata = auth.user.user_metadata as { name?: unknown; full_name?: unknown } | undefined;
-      const metadataName = typeof metadata?.name === "string" ? metadata.name : typeof metadata?.full_name === "string" ? metadata.full_name : "";
-      setContext(result.data);
-      setSavedBirthDate(result.data.schema.onboardingV3 ? normalizeBirthDate(result.data.profile?.date_of_birth) : null);
-      setForm(initialOnboardingForm(result.data, metadataName));
-      setDrafts(NO_DRAFTS);
-      setPhase("ready");
     })();
     return () => {
       live = false;
@@ -162,6 +178,20 @@ export function OnboardingFlow() {
     heading.current?.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
   }, [pageIndex, reduced]);
+
+  // A failed save leaves focus where the member left it: Continue stays focusable while the step saves. If focus fell
+  // to the page anyway (the save replaced the field it was in), it goes to Continue, under the message.
+  useEffect(() => {
+    if (failedSaves) focusAfterFailedSave(document.activeElement, document.body, submitRef.current)?.focus({ preventScroll: true });
+  }, [failedSaves]);
+
+  // After Try again, once loading ends: the step's heading when setup is ready, or the new Try again if it failed again.
+  useEffect(() => {
+    if (!retried.current || phase === "loading") return;
+    retried.current = false;
+    const target = focusAfterRetry(phase);
+    (target === "heading" ? heading.current : target === "retry" ? retryRef.current : null)?.focus({ preventScroll: true });
+  }, [phase]);
 
   const update = useCallback(<K extends keyof OnboardingForm>(key: K, value: OnboardingForm[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -206,12 +236,15 @@ export function OnboardingFlow() {
     return calculateNutritionTargets({ age, gender: form.gender, height: form.heightCm, weight: form.weightKg }, form.activity, form.goal, focus);
   }, [form, age, schema, context]);
 
-  async function savePage(current: OnboardingPage, values: OnboardingForm) {
-    const supabase = createClient();
-    if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
+  /** `signal` cancels the page's requests once its time limit has passed (saveWithinLimit). */
+  async function savePage(current: OnboardingPage, values: OnboardingForm, signal: AbortSignal) {
+    const client = createClient();
+    if (!client || !context) return "Your session has ended. Sign in again to continue.";
+    // Every request below, the shared helpers' too, is built with the signal.
+    const supabase = withAbortSignal(client, signal);
     const userId = context.userId;
     const fail = (error: { code?: string } | null) =>
-      error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : "We couldn't save this page. Check your connection and try again.";
+      error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : SAVE_FAILED.page;
     const plan = pageSave(current, values, { schema, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
     if (plan.profile) {
       let birthDateSent = "date_of_birth" in plan.profile;
@@ -247,11 +280,14 @@ export function OnboardingFlow() {
     return null;
   }
 
-  async function finish(values: OnboardingForm) {
-    const supabase = createClient();
-    if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
+  /** `signal` cancels finishing's requests once the step's time limit has passed (saveWithinLimit). */
+  async function finish(values: OnboardingForm, signal: AbortSignal) {
+    const client = createClient();
+    if (!client || !context) return "Your session has ended. Sign in again to continue.";
+    // Every request below, the shared helpers' too, is built with the signal.
+    const supabase = withAbortSignal(client, signal);
     const done = await updateProfileRow(supabase, context.userId, { onboarded: true });
-    if (done.error) return "We couldn't finish setting up your account. Please try again.";
+    if (done.error) return SAVE_FAILED.finish;
     // The weight given here becomes the current weight: logged when there is no weigh-in yet, or when it
     // differs from the newest one (an older account's history), never twice for the same value.
     const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
@@ -265,6 +301,7 @@ export function OnboardingFlow() {
   }
 
   async function advance() {
+    // A press of Continue (or Enter in a field) while the step saves does nothing: the button is only aria-disabled.
     if (!form || saving) return;
     const found = validatePage(page, form, schema);
     setErrors(found);
@@ -275,10 +312,13 @@ export function OnboardingFlow() {
       return;
     }
     setSaving(true);
-    const problem = (await savePage(page, form)) ?? (isLast ? await finish(form) : null);
+    // A save that never answers stops at its time limit, cancels what it still has on its way and says so
+    // (time-limit.ts). "Saving…" ends, every answer stays as typed, and focus stays on the button or in its field.
+    const problem = await saveWithinLimit(async (signal) => (await savePage(page, form, signal)) ?? (isLast ? await finish(form, signal) : null), { finishing: isLast });
     if (problem) {
       setSaving(false);
       setSaveError(problem);
+      setFailedSaves((count) => count + 1);
       return;
     }
     if (isLast) {
@@ -315,8 +355,9 @@ export function OnboardingFlow() {
     return (
       <Shell reachable>
         <div role="alert" className="fitx-alert fitx-alert-danger">
-          We couldn’t load your details, so setup is paused to keep them safe.
-          <button type="button" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { setPhase("loading"); setReload((count) => count + 1); }}>
+          <span id="onboarding-load-failed">We couldn’t load your details, so setup is paused to keep them safe.</span>
+          {/* Focus comes here when a retry fails too, so the button carries the message for screen readers. */}
+          <button ref={retryRef} type="button" aria-describedby="onboarding-load-failed" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { retried.current = true; setPhase("loading"); setReload((count) => count + 1); }}>
             <RotateCcw size={14} aria-hidden="true" />Try again
           </button>
         </div>
@@ -409,12 +450,16 @@ export function OnboardingFlow() {
             <div className={`${styles.actions} px-4 pt-3 sm:px-8 lg:px-12`}>
               {saveError && <p role="alert" className="fitx-alert fitx-alert-danger mb-3">{saveError}</p>}
               <div className="flex items-center gap-2">
+                {/* Back can't be pressed while the step saves, so it never races the save. A save starts from Continue
+                    or from Enter in a field, never with focus on Back, so its being disabled drops no focus. */}
                 {pageIndex > 0 && (
                   <button type="button" onClick={back} disabled={saving} className="fitx-button fitx-button-secondary shrink-0 px-4">
                     <ArrowLeft size={16} aria-hidden="true" />Back
                   </button>
                 )}
-                <button type="submit" disabled={saving} className="fitx-button flex-1 whitespace-nowrap sm:ml-auto sm:flex-none sm:px-7">
+                {/* aria-disabled while saving, not disabled: Chrome drops focus from a button that becomes disabled, and
+                    a failed save's message is then read with focus nowhere. advance() ignores a press meanwhile. */}
+                <button ref={submitRef} type="submit" aria-disabled={saving || undefined} className={`fitx-button ${styles.submit} flex-1 whitespace-nowrap sm:ml-auto sm:flex-none sm:px-7`}>
                   {saving ? "Saving…" : isLast ? "Finish setup" : "Continue"}
                   {isLast ? <Check size={16} aria-hidden="true" /> : <ArrowRight size={16} aria-hidden="true" />}
                 </button>
