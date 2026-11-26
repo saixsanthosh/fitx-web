@@ -11,6 +11,7 @@ import { splitCue, stateCue } from "@/lib/activity/audio-cues";
 import { formatActivityDate, formatDistance, formatDuration, kmValue, localDateKey, paceValue, speedValue } from "@/lib/activity/format";
 import type { LocksLike } from "@/lib/activity/device-recordings";
 import { uploadWithin, type KeptReason } from "@/lib/activity/finish";
+import { focusDropped } from "@/lib/activity/focus";
 import { recordingStore, type RecordingStore, type StoredRecording } from "@/lib/activity/local-store";
 import type { ActivityRecord } from "@/lib/activity/record";
 import { ActivityRecorder, type FinishResult, type RecorderSnapshot } from "@/lib/activity/recorder";
@@ -130,6 +131,11 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const finishTriggerRef = useRef<HTMLButtonElement | null>(null);
   const discardTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // Buttons that go once they have done their job hand focus on (D5): Start and Resume to the recording controls'
+  // middle one (Pause, or Resume while paused), a finish that couldn't be saved to its Try again.
+  const mainControlRef = useRef<HTMLButtonElement | null>(null);
+  const focusControls = useRef(false);
+  const retryUnsavedRef = useRef<HTMLButtonElement | null>(null);
   const [error, setError] = useState("");
   // An upload that finishes after the member has left this screen must not pull them back to the
   // activity: only open it while the recorder (and so its finished result) is still on screen.
@@ -218,6 +224,15 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }, [guardLeaving]);
 
   const stats = snapshot?.stats ?? null;
+  const controlsShown = (phase === "recording" || phase === "paused") && stats !== null;
+  useEffect(() => {
+    if (!controlsShown || !focusControls.current) return;
+    focusControls.current = false;
+    if (focusDropped(document)) mainControlRef.current?.focus();
+  }, [controlsShown]);
+  useEffect(() => {
+    if (unsaved && focusDropped(document)) retryUnsavedRef.current?.focus();
+  }, [unsaved]);
   const latestGap = stats?.gaps.length ? stats.gaps[stats.gaps.length - 1] : null;
   const recentGap = latestGap && snapshot && latestGap.end > snapshot.now - 120_000 ? latestGap : null;
   const gapKey = recentGap ? `${recentGap.start}` : "";
@@ -280,9 +295,11 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }
 
   async function start() {
+    // Start says aria-disabled while it starts (disabled would drop keyboard focus; D5), and another press does nothing.
     if (!recorder || account.status !== "ready" || starting) return;
     setStarting(true);
     setError("");
+    focusControls.current = true;
     try {
       await recorder.start(sport, account.weightKg);
       setAnnouncement(`${SPORT_LABEL[sport]} started`);
@@ -345,7 +362,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
   }
 
   async function finish() {
-    if (!recorder || account.status !== "ready") return;
+    if (!recorder || account.status !== "ready" || saving) return;
     setSaving(true);
     setError("");
     setConfirm(null);
@@ -353,13 +370,15 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
     if (!result) {
       setSaving(false);
       setError("This activity could not be finished. Try again.");
+      // The confirmation has gone: focus goes back to Finish, beside the message.
+      window.setTimeout(() => { if (focusDropped(document)) finishTriggerRef.current?.focus(); }, 0);
       return;
     }
     await saveFinished(result);
   }
 
   async function retryUnsaved() {
-    if (!unsaved) return;
+    if (!unsaved || saving) return;
     setSaving(true);
     await saveFinished(unsaved);
   }
@@ -386,11 +405,12 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
 
   async function resumeRestored() {
     if (!recorder || account.status !== "ready") return;
+    focusControls.current = true;
     await recorder.resumeRestored(account.weightKg);
   }
 
   async function finishRestored() {
-    if (!recorder || account.status !== "ready") return;
+    if (!recorder || account.status !== "ready" || saving) return;
     setSaving(true);
     const result = await recorder.finishRestored(account.weightKg);
     if (!result) {
@@ -458,7 +478,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
           </div>
           <div className="flex flex-wrap gap-2">
             {snapshot.restorable.canResume && <button type="button" onClick={() => void resumeRestored()} className="fitx-button min-h-11"><Play size={15} aria-hidden="true" />Resume</button>}
-            <button type="button" disabled={saving} onClick={() => void finishRestored()} className={cn("fitx-button min-h-11", snapshot.restorable.canResume && "fitx-button-secondary")}><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
+            <button type="button" aria-disabled={saving || undefined} onClick={() => void finishRestored()} className={cn("fitx-button min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60", snapshot.restorable.canResume && "fitx-button-secondary")}><Flag size={15} aria-hidden="true" />Finish &amp; save</button>
             <button type="button" ref={discardTriggerRef} onClick={() => setConfirm("discard")} className="fitx-button fitx-button-quiet min-h-11"><Trash2 size={15} aria-hidden="true" />Discard</button>
           </div>
         </section>
@@ -471,7 +491,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
         <section role="alert" className="fitx-alert fitx-alert-danger mb-4 space-y-3" aria-label="Activity not saved yet">
           <p><span className="font-semibold">Your {SPORT_NOUN[unsaved.record.sport]} isn’t saved yet.</span> It couldn’t be stored on this device or uploaded. Keep this screen open and try again, or download its GPX file.</p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void retryUnsaved()} disabled={saving} className="fitx-button min-h-11"><RefreshCw size={15} aria-hidden="true" />{saving ? "Trying…" : "Try again"}</button>
+            <button type="button" ref={retryUnsavedRef} onClick={() => void retryUnsaved()} aria-disabled={saving || undefined} className="fitx-button min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{saving ? "Trying…" : "Try again"}</button>
             <button type="button" onClick={downloadUnsavedGpx} className="fitx-button fitx-button-secondary min-h-11"><Download size={15} aria-hidden="true" />Download GPX</button>
           </div>
         </section>
@@ -529,7 +549,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                   <button type="button" onClick={() => recorder?.warmUp()} className="fitx-button mt-3 min-h-12 w-full">Allow location</button>
                 </div>
               ) : (
-                <button type="button" disabled={blocking || !recorder || starting || snapshot.elsewhere} onClick={() => void start()} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base">
+                <button type="button" disabled={blocking || !recorder || snapshot.elsewhere} aria-disabled={starting || undefined} onClick={() => void start()} className="fitx-button mt-5 min-h-14 w-full rounded-full text-base aria-disabled:cursor-progress aria-disabled:opacity-60">
                   <Play size={18} aria-hidden="true" />Start {SPORT_NOUN[sport]}
                 </button>
               )}
@@ -594,7 +614,7 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                     {shortRecording && <p className="mt-1 text-xs text-fitx-text-secondary">Almost no distance was recorded. You can still save it, or discard it.</p>}
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <button type="button" ref={focusOnMount} onClick={cancelConfirm} className="fitx-button fitx-button-secondary min-h-12">Keep going</button>
-                      <button type="button" onClick={() => void finish()} disabled={saving} className="fitx-button min-h-12"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
+                      <button type="button" onClick={() => void finish()} aria-disabled={saving || undefined} className="fitx-button min-h-12 aria-disabled:cursor-progress aria-disabled:opacity-60"><Flag size={16} aria-hidden="true" />{saving ? "Saving…" : "Finish"}</button>
                     </div>
                   </div>
                 ) : confirm === "discard" ? (
@@ -610,13 +630,13 @@ export function ActivityRecorderScreen({ initialSport = null }: { initialSport?:
                 ) : phase === "recording" ? (
                   <div className="mt-2 flex items-end justify-center gap-6 sm:gap-8">
                     <RoundButton label="Lock" icon={<Lock size={22} aria-hidden="true" />} onClick={() => { setLocked(true); setAnnouncement("Controls locked. Hold the lock button to unlock."); }} tone="quiet" size="medium" />
-                    <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} />
+                    <RoundButton label="Pause" icon={<Pause size={30} aria-hidden="true" />} onClick={pause} buttonRef={mainControlRef} />
                     <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                   </div>
                 ) : phase === "paused" ? (
                   <div className="mt-2 flex items-end justify-center gap-6 sm:gap-8">
                     <RoundButton label="Discard" icon={<Trash2 size={22} aria-hidden="true" />} onClick={() => setConfirm("discard")} tone="quiet" size="medium" buttonRef={discardTriggerRef} />
-                    <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} />
+                    <RoundButton label="Resume" icon={<Play size={30} aria-hidden="true" />} onClick={resume} buttonRef={mainControlRef} />
                     <RoundButton label="Finish" icon={<Flag size={24} aria-hidden="true" />} onClick={() => setConfirm("finish")} tone="secondary" size="medium" buttonRef={finishTriggerRef} />
                   </div>
                 ) : (

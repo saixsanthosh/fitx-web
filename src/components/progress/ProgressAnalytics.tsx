@@ -154,6 +154,10 @@ export function ProgressAnalytics({ today }: { today: string }) {
   }
 
   const against = comparisonLabel(period);
+  // The arrows say aria-disabled at the newest and oldest period (disabled would drop keyboard focus after the press
+  // that got there; D5), and a press there does nothing.
+  const atOldest = offset <= -MAX_BACK[kind];
+  const atNewest = offset >= 0;
   const loadError = rows.error && !rows.data ? <WidgetError message={rows.error} onRetry={rows.reload} /> : null;
 
   return (
@@ -168,11 +172,11 @@ export function ProgressAnalytics({ today }: { today: string }) {
           options={PERIOD_KINDS.map((value) => ({ value, label: PERIOD_LABELS[value] }))}
         />
         <div className={styles.periodNav}>
-          <button type="button" className={styles.periodButton} onClick={() => setOffset((value) => value - 1)} disabled={offset <= -MAX_BACK[kind]} aria-label={`Previous ${kind}`}>
+          <button type="button" className={styles.periodButton} onClick={() => { if (!atOldest) setOffset((value) => Math.max(-MAX_BACK[kind], value - 1)); }} aria-disabled={atOldest || undefined} aria-label={`Previous ${kind}`}>
             <ChevronLeft size={18} aria-hidden="true" />
           </button>
           <p className={styles.periodLabel} aria-live="polite">{period.label}{rows.loading ? <span className="sr-only"> (loading)</span> : null}</p>
-          <button type="button" className={styles.periodButton} onClick={() => setOffset((value) => Math.min(0, value + 1))} disabled={offset >= 0} aria-label={`Next ${kind}`}>
+          <button type="button" className={styles.periodButton} onClick={() => { if (!atNewest) setOffset((value) => Math.min(0, value + 1)); }} aria-disabled={atNewest || undefined} aria-label={`Next ${kind}`}>
             <ChevronRight size={18} aria-hidden="true" />
           </button>
         </div>

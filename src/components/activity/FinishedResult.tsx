@@ -6,6 +6,7 @@ import { CheckCircle2, CloudOff, Download, RefreshCw, Share2 } from "lucide-reac
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor } from "@/lib/activity/detail";
 import type { KeptReason } from "@/lib/activity/finish";
+import { mayHandFocus } from "@/lib/activity/focus";
 import { formatActivityDate, localDateKey } from "@/lib/activity/format";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -46,6 +47,8 @@ export function FinishedResult({ record, userId, reason, onUploaded }: { record:
   const uploading = useRef(false);
   const retry = useRef<() => void>(() => undefined);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const noteRef = useRef<HTMLParagraphElement | null>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -70,6 +73,8 @@ export function FinishedResult({ record, userId, reason, onUploaded }: { record:
         }
         const next: KeptReason = outcome.result.status === "error" ? (outcome.result.offline ? "offline" : "error") : outcome.result.status;
         setState({ reason: next, busy: false, note: manual ? "Not uploaded yet." : "" });
+        // Refused: Upload now goes, and focus moves to the note, which now says why (D5).
+        if (manual && next === "rejected") window.setTimeout(() => { if (mayHandFocus(document, uploadButtonRef.current)) noteRef.current?.focus(); }, 0);
       } finally {
         uploading.current = false;
       }
@@ -94,9 +99,10 @@ export function FinishedResult({ record, userId, reason, onUploaded }: { record:
       </header>
 
       <section className="fitx-alert flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Saved on this device">
-        <p className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Your {SPORT_NOUN[record.sport]} is saved.</span> {REASON_TEXT[state.reason]}{state.note ? ` ${state.note}` : ""}</span></p>
+        {/* A live region: a try that didn't upload is read out while focus stays on Upload now. */}
+        <p ref={noteRef} tabIndex={-1} role="status" className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" /><span><span className="font-semibold">Your {SPORT_NOUN[record.sport]} is saved.</span> {REASON_TEXT[state.reason]}{state.note ? ` ${state.note}` : ""}</span></p>
         {state.reason !== "rejected" && (
-          <button type="button" onClick={() => retry.current()} disabled={state.busy} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{state.busy ? "Uploading…" : "Upload now"}</button>
+          <button type="button" ref={uploadButtonRef} onClick={() => retry.current()} aria-disabled={state.busy || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{state.busy ? "Uploading…" : "Upload now"}</button>
         )}
       </section>
 

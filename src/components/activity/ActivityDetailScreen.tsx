@@ -10,6 +10,7 @@ import { kcalMethodFor } from "@/lib/activity/calories";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { cardDataFor, detailFromEngine, engineOptionsFor, lateKcal, type ActivityDetail } from "@/lib/activity/detail";
 import { cleanTitle, formatActivityDate, localDateKey } from "@/lib/activity/format";
+import { mayHandFocus } from "@/lib/activity/focus";
 import { startsInFuture } from "@/lib/activity/future";
 import { toGpx } from "@/lib/activity/gpx";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -66,6 +67,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
   const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
   const renameTriggerRef = useRef<HTMLButtonElement | null>(null);
   const deviceNoteRef = useRef<HTMLParagraphElement | null>(null);
+  const uploadButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const userId = account.status === "ready" ? account.userId : null;
   useEffect(() => {
@@ -246,7 +248,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
       setState((previous) => (previous.status === "ready" ? { ...previous, rejected: true } : previous));
       setMessage("");
       // Upload now goes: focus moves to the note, which now says why it can't be uploaded (D5).
-      window.setTimeout(() => deviceNoteRef.current?.focus(), 0);
+      window.setTimeout(() => { if (mayHandFocus(document, uploadButtonRef.current)) deviceNoteRef.current?.focus(); }, 0);
       return;
     }
     setMessage(outcome.result.status === "unavailable" ? "Activity history isn’t available yet. It stays on this device until it is." : outcome.result.status === "error" && outcome.result.offline ? "You’re offline. It will upload when you’re back online." : "The upload didn’t work. Try again in a moment.");
@@ -304,7 +306,7 @@ export function ActivityDetailScreen({ id }: { id: string }) {
             {state.rejected
               ? "It can’t be uploaded to your account: it’s outside what an activity can hold (for example, longer than 48 hours). It stays here: you can share it or download its GPX."
               : state.uploadNote === "Activity history is not available yet" ? "Activity history isn’t available yet; it uploads once it is." : "It uploads to your account when you’re online."}</span></p>
-          {!state.rejected && <button type="button" onClick={() => void upload()} aria-disabled={busy === "upload" || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
+          {!state.rejected && <button type="button" ref={uploadButtonRef} onClick={() => void upload()} aria-disabled={busy === "upload" || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{busy === "upload" ? "Uploading…" : "Upload now"}</button>}
         </section>
       )}
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, CloudOff, FileUp, Play, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { Stagger, StaggerItem } from "@/components/motion";
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Segmented } from "@/components/ui/Segmented";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
 import { parseSportFilter, weekBySport, type SportFilter } from "@/lib/activity/feed";
+import { focusDropped } from "@/lib/activity/focus";
 import { formatActivityDate, formatDistance } from "@/lib/activity/format";
 import { clearDeviceActivityData } from "@/lib/activity/device-recordings";
 import { recordingStore } from "@/lib/activity/local-store";
@@ -46,12 +47,35 @@ export function ActivityHome() {
   const filter = picked ?? addressFilter;
   const feed = useActivityFeed(userId, filter);
   const [syncing, setSyncing] = useState(false);
+  // Which button started an upload or a reload. Its banner is drawn again while the history reloads, so focus goes
+  // back to its button if it is still needed, or on to the list once it is gone (D5).
+  const syncFrom = useRef<"upload" | "retry" | null>(null);
+  const uploadNowRef = useRef<HTMLButtonElement | null>(null);
+  const retryRef = useRef<HTMLButtonElement | null>(null);
+  const feedTitleRef = useRef<HTMLHeadingElement | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
+  const [deleteAllError, setDeleteAllError] = useState("");
   const [notice, setNotice] = useState("");
   const focusOnMount = useCallback((element: HTMLElement | null) => element?.focus(), []);
   const deleteAllTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // The confirmation goes (Keep my data, or everything deleted): its button takes focus back.
+  const refocusDeleteAll = useRef(false);
   const v2 = useActivityV2(userId);
   const storedEfforts = useStoredEfforts(userId);
+  useEffect(() => {
+    const from = syncFrom.current;
+    if (syncing || !from) return;
+    syncFrom.current = null;
+    if (!focusDropped(document)) return;
+    const again = (from === "upload" ? uploadNowRef : retryRef).current;
+    (again ?? feedTitleRef.current)?.focus();
+  }, [syncing]);
+  useEffect(() => {
+    if (confirmDeleteAll || !refocusDeleteAll.current) return;
+    refocusDeleteAll.current = false;
+    if (focusDropped(document)) deleteAllTriggerRef.current?.focus();
+  }, [confirmDeleteAll]);
 
   function chooseFilter(next: SportFilter) {
     setPicked(next === addressFilter ? null : next);
@@ -62,27 +86,47 @@ export function ActivityHome() {
     window.history.replaceState(null, "", url);
   }
 
-  async function syncNow() {
-    if (!userId) return;
+  /** Upload now and Try again: one at a time; the button says aria-disabled meanwhile and another press does nothing. */
+  async function syncNow(from: "upload" | "retry") {
+    if (!userId || syncing) return;
+    syncFrom.current = from;
     setSyncing(true);
     await feed.reload(userId);
     setSyncing(false);
   }
 
+  /**
+   * Deleted once per press: Delete everything says aria-disabled while it deletes (D5). A failure is said in the
+   * confirmation, beside it; the result under the button that opened the confirmation, which takes focus back (D6).
+   */
   async function deleteAll() {
-    if (!userId) return;
+    if (!userId || deletingAll) return;
     const supabase = createClient();
     if (!supabase) return;
-    const store = await recordingStore();
-    const result = await deleteAllActivities(supabase, userId);
-    if (result.status === "error" || result.status === "rejected") {
-      setNotice("Your activities couldn’t be deleted. Check your connection and try again.");
-      return;
+    setDeletingAll(true);
+    setDeleteAllError("");
+    try {
+      const store = await recordingStore();
+      const result = await deleteAllActivities(supabase, userId);
+      if (result.status === "error" || result.status === "rejected") {
+        setDeleteAllError("Your activities couldn’t be deleted. Check your connection and try again.");
+        return;
+      }
+      await clearDeviceActivityData(store, userId);
+      refocusDeleteAll.current = true;
+      setConfirmDeleteAll(false);
+      setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and their routes were deleted.");
+      await feed.reload(userId);
+    } finally {
+      setDeletingAll(false);
     }
-    await clearDeviceActivityData(store, userId);
+  }
+
+  function keepData() {
+    if (deletingAll) return;
+    refocusDeleteAll.current = true;
     setConfirmDeleteAll(false);
-    setNotice(result.status === "unavailable" ? "Activity data on this device was deleted." : "All your activities and their routes were deleted.");
-    await feed.reload(userId);
+    setDeleteAllError("");
   }
 
   if (account.status === "loading") return <div className="fitx-panel animate-pulse p-8 text-sm text-fitx-text-secondary">Loading activity…</div>;
@@ -114,8 +158,6 @@ export function ActivityHome() {
       />
 
       <div className="space-y-8 sm:space-y-10">
-        {notice && <p role="status" className="fitx-alert fitx-alert-success">{notice}</p>}
-
         {unfinished && (
           <Link href={`/activity/record?sport=${unfinished.sport}`} className="flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-fitx-primary/40 bg-fitx-card p-4">
             <span className="flex items-center gap-3">
@@ -185,19 +227,19 @@ export function ActivityHome() {
         {history.status === "error" && (
           <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>{history.offline ? "You’re offline. Activities you record still save on this device." : "Your history couldn’t load right now."}</span>
-            <button type="button" onClick={() => void syncNow()} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />Try again</button>
+            <button type="button" ref={retryRef} onClick={() => void syncNow("retry")} aria-disabled={syncing || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />Try again</button>
           </div>
         )}
         {waiting.length > 0 && history.status === "ready" && (
           <div className="fitx-alert flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span className="flex gap-2"><CloudOff size={17} aria-hidden="true" className="mt-0.5 shrink-0 text-fitx-warning" />{waiting.length} {waiting.length === 1 ? "activity is" : "activities are"} saved on this device and not uploaded yet.</span>
-            <button type="button" disabled={syncing} onClick={() => void syncNow()} className="fitx-button fitx-button-secondary min-h-11 shrink-0"><RefreshCw size={15} aria-hidden="true" />{syncing ? "Uploading…" : "Upload now"}</button>
+            <button type="button" ref={uploadNowRef} aria-disabled={syncing || undefined} onClick={() => void syncNow("upload")} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60"><RefreshCw size={15} aria-hidden="true" />{syncing ? "Uploading…" : "Upload now"}</button>
           </div>
         )}
 
         <section aria-labelledby="feed-title" className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 id="feed-title" className="font-heading text-xl font-bold tracking-[-.02em] text-fitx-text">Your activities</h2>
+            <h2 id="feed-title" ref={feedTitleRef} tabIndex={-1} className="font-heading text-xl font-bold tracking-[-.02em] text-fitx-text">Your activities</h2>
             <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
               <Segmented options={filtersFor(used, filter)} value={filter} onChange={chooseFilter} label="Show" />
             </div>
@@ -236,14 +278,17 @@ export function ActivityHome() {
             {confirmDeleteAll ? (
               <div className="mt-4 rounded-xl border border-fitx-danger-border bg-fitx-danger-bg p-4" role="alertdialog" aria-labelledby="delete-all-question">
                 <p id="delete-all-question" className="text-sm font-semibold text-fitx-danger">Delete every activity, with its route and GPS points, in your account and on this device? Strength sessions aren’t affected. This can’t be undone.</p>
+                {deleteAllError && <p role="alert" className="mt-2 text-sm text-fitx-danger">{deleteAllError}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button type="button" ref={focusOnMount} onClick={() => { setConfirmDeleteAll(false); window.setTimeout(() => deleteAllTriggerRef.current?.focus(), 0); }} className="fitx-button fitx-button-secondary min-h-11">Keep my data</button>
-                  <button type="button" onClick={() => void deleteAll()} className="fitx-button fitx-button-danger min-h-11"><Trash2 size={15} aria-hidden="true" />Delete everything</button>
+                  <button type="button" ref={focusOnMount} onClick={keepData} aria-disabled={deletingAll || undefined} className="fitx-button fitx-button-secondary min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60">Keep my data</button>
+                  <button type="button" onClick={() => void deleteAll()} aria-disabled={deletingAll || undefined} className="fitx-button fitx-button-danger min-h-11 aria-disabled:cursor-progress aria-disabled:opacity-60"><Trash2 size={15} aria-hidden="true" />{deletingAll ? "Deleting…" : "Delete everything"}</button>
                 </div>
               </div>
             ) : (
-              <button type="button" ref={deleteAllTriggerRef} onClick={() => setConfirmDeleteAll(true)} className="fitx-button fitx-button-quiet mt-4 min-h-11"><Trash2 size={15} aria-hidden="true" />Delete all activity data</button>
+              <button type="button" ref={deleteAllTriggerRef} onClick={() => { setNotice(""); setConfirmDeleteAll(true); }} className="fitx-button fitx-button-quiet mt-4 min-h-11"><Trash2 size={15} aria-hidden="true" />Delete all activity data</button>
             )}
+            {/* The result, under the button that opened the confirmation (a live region kept in place, so it is read out). */}
+            <p role="status" className={notice ? "fitx-alert fitx-alert-success mt-3" : "sr-only"}>{notice}</p>
           </div>
         </details>
       </div>

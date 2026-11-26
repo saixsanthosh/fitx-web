@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { CalendarCheck, Droplets, Dumbbell, Flame, Footprints, ListChecks, PenLine, Scale, Timer, Utensils } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { getSession, messageFor } from "@/components/tasks/session";
@@ -34,6 +34,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
   const [titleTouched, setTitleTouched] = useState(mode === "edit");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingNow = useRef(false);
   const legacy = schema === "v1";
 
   function choose(template: GoalTemplateKey) {
@@ -57,9 +58,12 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!draft) return;
+    // Saved once per press: Enter or Save again while it saves does nothing (the button says aria-disabled meanwhile,
+    // which keeps keyboard focus on it where disabled would drop it; D5).
+    if (!draft || savingNow.current) return;
     const result = validateGoalDraft(draft);
     if (!result.ok) { setError(result.error); return; }
+    savingNow.current = true;
     setSaving(true);
     setError("");
     try {
@@ -69,6 +73,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
       onSaved(mode === "edit" ? "Goal updated." : "Goal created.");
     } catch (failure) {
       setError(messageFor(failure, mode === "edit" ? "That goal could not be updated." : "That goal could not be saved."));
+      savingNow.current = false;
       setSaving(false);
     }
   }
@@ -86,7 +91,7 @@ export function GoalEditor({ mode, schema, context, initialTemplate, goal, onClo
       footer={draft ? <>
         {mode === "add" && !initialTemplate && <button type="button" className={`fitx-button fitx-button-quiet ${styles.footerStart}`} onClick={() => setDraft(null)}>Back</button>}
         <button type="button" className="fitx-button fitx-button-secondary" onClick={onClose}>Cancel</button>
-        <button type="submit" form="goal-editor-form" className="fitx-button" disabled={saving}>{saving ? "Saving…" : mode === "edit" ? "Save" : "Create goal"}</button>
+        <button type="submit" form="goal-editor-form" className={`fitx-button${saving ? ` ${styles.busyButton}` : ""}`} aria-disabled={saving || undefined}>{saving ? "Saving…" : mode === "edit" ? "Save" : "Create goal"}</button>
       </> : undefined}
     >
       {!draft ? (

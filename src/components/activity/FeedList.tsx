@@ -7,6 +7,7 @@ import { Reveal } from "@/components/motion";
 import { SPORT_NOUN, usesPace } from "@/lib/activity/config";
 import { formatActivityDate, formatDuration, kmValue, paceValue, speedValue } from "@/lib/activity/format";
 import { FUTURE_DATE_MARK, startsInFuture } from "@/lib/activity/future";
+import { focusDropped } from "@/lib/activity/focus";
 import { decodeRoute } from "@/lib/activity/polyline";
 import type { ActivityView } from "@/lib/activity/repository";
 import { focusAfterOlder, type TimelineEntry } from "@/lib/activity/timeline";
@@ -115,7 +116,7 @@ export function FeedList({ entries, now, sport, loading, ready, more, loadingMor
     if (!press || loadingMore) return;
     pressed.current = null;
     const target = focusAfterOlder(press.shown, keys ? keys.split("\n") : [], more);
-    if (target) entryLink(list.current, target)?.focus();
+    if (target && focusDropped(document)) entryLink(list.current, target)?.focus();
   }, [keys, more, loadingMore]);
 
   function showOlder() {

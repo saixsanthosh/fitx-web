@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Plus, Scale } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { WeightLine } from "@/components/progress/WeightLine";
@@ -8,6 +8,7 @@ import { weightChange, weightView, type Period } from "@/components/progress/per
 import styles from "@/components/progress/Progress.module.css";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { Sheet } from "@/components/ui/Sheet";
+import { mayHandFocus } from "@/lib/activity/focus";
 import { latestMeasurements, measurementSaved, type BodyMetricRow, type MeasurementSaved } from "@/lib/data/progress";
 import { localDateKey } from "@/lib/domain/dates";
 import { notifyUserContextChanged, syncProfileWeight } from "@/lib/domain/user-context";
@@ -36,6 +37,8 @@ export function BodySection({ rows, error, onReload, period }: {
   // A weigh-in that saved while the profile copy of the weight did not: the kilograms still to bring across.
   const [unsyncedKg, setUnsyncedKg] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const retryRef = useRef<HTMLButtonElement | null>(null);
 
   const weight = weightView(rows ?? [], period);
   // In the unit shown, from the two weigh-ins as shown, so it agrees with the readout and the line.
@@ -45,12 +48,18 @@ export function BodySection({ rows, error, onReload, period }: {
   const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
   const shownLatest = weight.latest ?? everWeighed;
 
+  // Try again says aria-disabled while it saves (disabled would drop keyboard focus; D5) and another press does nothing.
   const retrySync = async () => {
     if (unsyncedKg === null || syncing) return;
     setSyncing(true);
     try {
       const { db, userId } = await getSession();
-      if (!(await syncProfileWeight(db, userId, unsyncedKg)).error) { setUnsyncedKg(null); notifyUserContextChanged(); }
+      if (!(await syncProfileWeight(db, userId, unsyncedKg)).error) {
+        setUnsyncedKg(null);
+        notifyUserContextChanged();
+        // The notice and its button go: focus moves to the card they belong to.
+        window.setTimeout(() => { if (mayHandFocus(document, retryRef.current)) titleRef.current?.focus(); }, 0);
+      }
     } catch {
       // Still not saved: the notice stays with its Try again.
     } finally {
@@ -61,14 +70,14 @@ export function BodySection({ rows, error, onReload, period }: {
   return (
     <section aria-labelledby="body-title" className={styles.card}>
       <div className={styles.cardHead}>
-        <h2 id="body-title" className={styles.cardTitle}><Scale size={17} aria-hidden="true" />Weight</h2>
+        <h2 id="body-title" ref={titleRef} tabIndex={-1} className={styles.cardTitle}><Scale size={17} aria-hidden="true" />Weight</h2>
         <button type="button" className="fitx-button fitx-button-secondary" onClick={() => setOpen(true)}><Plus size={16} aria-hidden="true" />Log measurement</button>
       </div>
 
       {unsyncedKg !== null ? (
         <p role="alert" className="fitx-alert fitx-alert-danger">
           {PROFILE_WEIGHT_NOT_SAVED}{" "}
-          <button type="button" className="fitx-alert-action" disabled={syncing} onClick={() => void retrySync()}>{syncing ? "Trying…" : "Try again"}</button>
+          <button type="button" ref={retryRef} className={`fitx-alert-action${syncing ? ` ${styles.busyButton}` : ""}`} aria-disabled={syncing || undefined} onClick={() => void retrySync()}>{syncing ? "Trying…" : "Try again"}</button>
         </p>
       ) : null}
       {error ? <p role="alert" className="fitx-alert fitx-alert-danger">{error} <button type="button" className="fitx-alert-action" onClick={() => void onReload()}>Try again</button></p>
@@ -146,10 +155,14 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
   const [measurementName, setMeasurementName] = useState("waist");
   const [measurement, setMeasurement] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingNow = useRef(false);
   const [formError, setFormError] = useState("");
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    // Saved once per press: Enter or Save again while it saves does nothing (the button says aria-disabled meanwhile,
+    // which keeps keyboard focus on it where disabled would drop it; D5).
+    if (savingNow.current) return;
     const typedWeight = weight.trim() ? Number(weight) : null;
     const parsedWeight = typedWeight === null ? null : Number.isFinite(typedWeight) ? weightToKg(typedWeight, unit) : Number.NaN;
     const parsedFat = bodyFat.trim() ? Number(bodyFat) : null;
@@ -159,6 +172,7 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
       return;
     }
     if (parsedWeight === null && parsedFat === null && parsedMeasurement === null) { setFormError("Enter at least one value."); return; }
+    savingNow.current = true;
     setSaving(true);
     setFormError("");
     try {
@@ -176,6 +190,7 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
     } catch (failure) {
       setFormError(messageFor(failure, "Your measurement could not be saved."));
     } finally {
+      savingNow.current = false;
       setSaving(false);
     }
   }
@@ -189,7 +204,7 @@ function MeasurementSheet({ open, onClose, unit, lastWeight, lastBodyFat, onSave
         <label>Measurement<select aria-label="Measurement" className="fitx-field" value={measurementName} onChange={(event) => setMeasurementName(event.target.value)}>{MEASUREMENTS.map((name) => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}</select></label>
         <label>Size (cm)<input className="fitx-field" inputMode="decimal" type="number" min="10" max="300" step="0.1" value={measurement} onChange={(event) => setMeasurement(event.target.value)} placeholder="Optional" /></label>
         {formError && <p role="alert" className={`fitx-alert fitx-alert-danger ${styles.formWide}`}>{formError}</p>}
-        <button disabled={saving} className={`fitx-button ${styles.formWide}`}>{saving ? "Saving…" : "Save"}</button>
+        <button aria-disabled={saving || undefined} className={`fitx-button ${styles.formWide}${saving ? ` ${styles.busyButton}` : ""}`}>{saving ? "Saving…" : "Save"}</button>
       </form>
     </Sheet>
   );
