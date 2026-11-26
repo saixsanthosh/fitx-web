@@ -423,6 +423,9 @@ export default function WorkoutsPage() {
     setTargetsSupported((current) => !targetsProbe.error ? true : targetsMissing ? false : current);
     setLoading(false);
     setError("");
+    // The list is read again: a plan card's or a History row's earlier message is about a list that is gone (as the
+    // page-wide alert was at 99d06a8). An action that reloads says its own result after this (Delete, a save).
+    setListNote(null);
     setLoadVersion((value) => value + 1);
     // Home, the week view and To-Do link here with ?plan=: the plan opens in its preview first.
     if (linkedPlanId && !deepLinkHandled.current) {
@@ -737,6 +740,9 @@ export default function WorkoutsPage() {
     showBuilder();
     setError("");
     setNotice("");
+    // The member has moved on to a new workout: an earlier plan card's or History row's message goes, as Edit,
+    // Duplicate, Delete and Repeat already clear it.
+    setListNote(null);
   }
 
   /** Switching how a new workout starts: a split regenerates; body areas regenerate once chosen; Blank keeps the rows. */

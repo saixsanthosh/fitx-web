@@ -3,7 +3,8 @@
  * They used to show only in the alert under the page heading, often far above the control used, so on a phone a
  * failed Delete or Repeat seemed to do nothing. Now a plan card's Edit, Duplicate and Delete answer in that card,
  * "Show more plans" beside itself, Repeat in its History row, and a saved plan's planner warning in its card. A
- * message for a plan that is not on the list shows on the list's own line instead. Pure.
+ * message for a plan that is not on the list shows on the list's own line instead. A message lasts until the member
+ * moves on: another list action, New workout, or the list loading again (the page clears it then). Pure.
  */
 export type NoteTone = "info" | "error";
 export type Note = { tone: NoteTone; text: string };
