@@ -56,7 +56,7 @@ import {
   type OnboardingPage,
 } from "@/lib/onboarding/form";
 import type { MeasureText } from "@/lib/onboarding/measure-field";
-import { focusAfterFailedSave } from "@/lib/onboarding/save-focus";
+import { focusAfterFailedSave, focusAfterRetry } from "@/lib/onboarding/save-focus";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -114,7 +114,10 @@ export function OnboardingFlow() {
   const heading = useRef<HTMLHeadingElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const submitRef = useRef<HTMLButtonElement>(null);
+  const retryRef = useRef<HTMLButtonElement>(null);
   const movedPage = useRef(false);
+  // Set by Try again: focus is handed on once the details have loaded (the button goes while they load).
+  const retried = useRef(false);
 
   const page: OnboardingPage = ONBOARDING_PAGES[pageIndex].id;
   const isLast = pageIndex === ONBOARDING_PAGES.length - 1;
@@ -172,6 +175,14 @@ export function OnboardingFlow() {
   useEffect(() => {
     if (failedSaves) focusAfterFailedSave(document.activeElement, document.body, submitRef.current)?.focus({ preventScroll: true });
   }, [failedSaves]);
+
+  // After Try again, once loading ends: the step's heading when setup is ready, or the new Try again if it failed again.
+  useEffect(() => {
+    if (!retried.current || phase === "loading") return;
+    retried.current = false;
+    const target = focusAfterRetry(phase);
+    (target === "heading" ? heading.current : target === "retry" ? retryRef.current : null)?.focus({ preventScroll: true });
+  }, [phase]);
 
   const update = useCallback(<K extends keyof OnboardingForm>(key: K, value: OnboardingForm[K]) => {
     setForm((current) => (current ? { ...current, [key]: value } : current));
@@ -327,8 +338,9 @@ export function OnboardingFlow() {
     return (
       <Shell reachable>
         <div role="alert" className="fitx-alert fitx-alert-danger">
-          We couldn’t load your details, so setup is paused to keep them safe.
-          <button type="button" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { setPhase("loading"); setReload((count) => count + 1); }}>
+          <span id="onboarding-load-failed">We couldn’t load your details, so setup is paused to keep them safe.</span>
+          {/* Focus comes here when a retry fails too, so the button carries the message for screen readers. */}
+          <button ref={retryRef} type="button" aria-describedby="onboarding-load-failed" className="fitx-alert-action inline-flex min-h-11 items-center gap-1" onClick={() => { retried.current = true; setPhase("loading"); setReload((count) => count + 1); }}>
             <RotateCcw size={14} aria-hidden="true" />Try again
           </button>
         </div>
