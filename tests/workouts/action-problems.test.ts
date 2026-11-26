@@ -50,7 +50,8 @@ describe("every other message sits beside its control", () => {
 
   test("Pause and Resume in the clock, Resume workout under the paused banner, Swap and Add set under their rows", () => {
     assert.match(page, /\{problem\?\.at === "clock" && <p role="alert"[^\n]*\n\s+<\/section>/, "inside the clock section");
-    assert.match(page, /\{paused && problem\?\.at === "banner" && <p role="alert"/);
+    // Round 3f: the banner and its reason are one block (brought clear of the foot's bars together).
+    assert.match(page, /\{paused && <div ref=\{pausedRef\} className="space-y-4 sm:space-y-5">\n\s+<section role="status"[^\n]+<\/section>\n\s+\{problem\?\.at === "banner" && <p role="alert"/);
     assert.match(page, /togglePause\("banner"\)/);
     assert.match(page, /\{swapProblem && <p role="alert"/);
     assert.match(page, /\{addSetProblem && <p role="alert"/);
