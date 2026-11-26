@@ -144,3 +144,12 @@ describe("the Floating AI Coach button switch waits for the account 20 s at most
     assert.match(read("app/(dashboard)/settings/SettingsCoachLauncher.tsx"), /failed: "Saved on this device\. We couldn’t reach your account, so try again later\.",/);
   });
 });
+
+describe("Settings > Account's check says when it can't load the details", () => {
+  test("past 20 s it shows the existing could-not-be-loaded line, and a later answer still shows the account", () => {
+    const account = read("app/(dashboard)/settings/SettingsAccount.tsx");
+    assert.match(account, /const overdue = window\.setTimeout\(\(\) => \{\s*if \(live && mine === ticket\) setView\(\(current\) => \(current\.kind === "loading" \? \{ kind: "failed" \} : current\)\);\s*\}, PROFILE_TIME_LIMIT_MS\.reload\);/);
+    assert.match(account, /const amr = state === "signed_in" \? await sessionAmr\(supabase\) : \[\];\s*window\.clearTimeout\(overdue\);\s*if \(!live \|\| mine !== ticket\) return;/, "an answer that comes later still counts");
+    assert.match(account, /"Your account details could not be loaded\. Reload to try again\."/);
+  });
+});
