@@ -15,7 +15,7 @@ import { useEmailCode } from "@/components/auth/useEmailCode";
 import { useHydrated, useKeepOpenState, useKeepTypedValue } from "@/components/auth/useKeepTypedValue";
 import s from "@/components/auth/auth.module.css";
 import { DURATION, EASE, useReducedMotionSafe } from "@/components/motion";
-import { addressError, addressNotice, withoutAddressMessages } from "@/lib/auth/address-messages";
+import { addressError, addressNotice, takeNoticeProof, withoutAddressMessages } from "@/lib/auth/address-messages";
 import { passwordSignInProblem } from "@/lib/auth/email-code";
 import { finishLateSignIn, finishPasswordSignIn, leaveSignInPage } from "@/lib/auth/finish-sign-in";
 import { fieldIds, fieldInvalid, signInFormProblem, type AuthField, type FieldProblem } from "@/lib/auth/form-problems";
@@ -30,9 +30,14 @@ function subscribeLocation(onChange: () => void) {
   return () => window.removeEventListener("popstate", onChange);
 }
 
-/** What the address says happened (src/lib/auth/address-messages.ts): a sign-in that came back, or signing out. */
-const getLocationError = () => addressError(window.location.search);
-const getLocationNotice = () => addressNotice(window.location.search);
+/**
+ * What the address says happened (src/lib/auth/address-messages.ts): a sign-in that came back, or signing out. A claim
+ * a link could make falsely needs more than the address: "signed out everywhere" the proof this browser's own sign-out
+ * left (read once), "not configured" this page's own finding.
+ */
+const noticeProof = () => takeNoticeProof(document, window.location.protocol === "https:");
+const getLocationError = () => addressError(window.location.search, isSupabaseConfigured);
+const getLocationNotice = () => addressNotice(window.location.search, noticeProof());
 
 /** The page the visitor was heading to; every consumer cleans it with safeNext. */
 const requestedNext = () => new URLSearchParams(window.location.search).get("next");
