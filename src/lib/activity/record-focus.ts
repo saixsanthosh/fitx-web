@@ -44,7 +44,8 @@ export function focusAfterSwap(swap: RecordSwap, state: RecordScreenState): Reco
       if (state.locked) return null;
       return state.phase === "recording" ? "lock" : state.phase === "paused" ? "main" : null;
     case "allowed":
-      if (state.needsPermission) return null;
+      // Start is offered only before recording (Resume of a restored recording hands focus to Pause instead).
+      if (state.needsPermission || recording || state.phase === "finished") return null;
       return state.startUsable ? "start" : state.reasonShown ? "reason" : null;
     case "blocked":
       return !state.startUsable && state.reasonShown ? "reason" : null;

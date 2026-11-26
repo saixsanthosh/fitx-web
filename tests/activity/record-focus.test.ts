@@ -33,6 +33,9 @@ describe("which control takes focus after a swap", () => {
     // Nothing changed yet: Allow location is still there, with focus.
     assert.equal(focusAfterSwap("allowed", state({ phase: "idle", needsPermission: true })), null);
     assert.equal(focusAfterSwap("allowed", state({ phase: "idle", startUsable: false, reasonShown: false })), null);
+    // Allow location went because a restored recording was resumed: Pause takes focus (round 3a), not a Start that isn't there.
+    assert.equal(focusAfterSwap("allowed", state({ phase: "recording", startUsable: true })), null);
+    assert.equal(focusAfterSwap("allowed", state({ phase: "finished", startUsable: true })), null);
   });
 
   test("Start, then location blocked at the browser's prompt: focus goes to the banner that says why", () => {
