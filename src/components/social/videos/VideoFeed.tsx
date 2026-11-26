@@ -9,6 +9,7 @@ import { Reveal } from "@/components/motion/Reveal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { fullDate, plural, relativeTime, socialApi, toSocialError, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
+import { postAuthorId } from "@/lib/social/focus";
 import { isUuid } from "@/lib/social/paths";
 import { createVideoPager } from "@/lib/social/video/feed";
 import { clock } from "@/lib/social/video/plan";
@@ -16,6 +17,7 @@ import { Avatar } from "../Avatar";
 import { useReadyExplore } from "../ExploreContext";
 import { RichText } from "../RichText";
 import { sharePost } from "../share";
+import { useShowMoreFocus } from "../useFocusHandOff";
 import { usePaged, useSentinel } from "../usePaged";
 import { usePhotoUrl } from "../usePhotoUrl";
 import exploreStyles from "../Explore.module.css";
@@ -54,6 +56,9 @@ export function VideoFeed() {
     return { items: [...lead, ...page.items], next: page.done ? null : (cursor ?? 0) + 1 };
   });
   const sentinel = useSentinel(feed.more, !feed.done && feed.status === "ready");
+  // Show more goes once the last page is in: if it had focus, the first video that page added takes it, else the
+  // "That is every video for now." line in its place (D5).
+  const [showMoreRef] = useShowMoreFocus(feed.items.map((post) => post.id), (id) => document.getElementById(postAuthorId(id)), () => document.getElementById("videos-end"));
 
   return (
     <>
@@ -99,12 +104,12 @@ export function VideoFeed() {
           ))}
           {feed.items.length > 0 && !feed.done && (
             <div className="flex justify-center">
-              <button type="button" className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
+              <button type="button" ref={showMoreRef} className={`${exploreStyles.smallButton} ${exploreStyles.smallButtonQuiet}`} onClick={feed.more} aria-disabled={feed.status === "more" || undefined}>
                 {feed.status === "more" ? <><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Loading</> : "Show more"}
               </button>
             </div>
           )}
-          {feed.items.length > 0 && feed.done && <p className={`${exploreStyles.note} text-center`}>That is every video for now.</p>}
+          {feed.items.length > 0 && feed.done && <p id="videos-end" tabIndex={-1} className={`${exploreStyles.note} text-center`}>That is every video for now.</p>}
           <div ref={sentinel} className={exploreStyles.sentinel} aria-hidden="true" />
         </div>
         <aside className={styles.aside} aria-label="About videos">
@@ -174,7 +179,7 @@ function VideoCard({ db, post, playable, priority, onChange }: { db: Db; post: S
   return (
     <article className={styles.card} aria-labelledby={`video-${post.id}-by`}>
       <header className={styles.cardHead}>
-        <Link href={`/explore/u/${author.username}`} className={exploreStyles.who}>
+        <Link href={`/explore/u/${author.username}`} id={postAuthorId(post.id)} className={exploreStyles.who}>
           <Avatar user={author} size={40} />
           <span className={exploreStyles.whoText}>
             <span id={`video-${post.id}-by`} className={exploreStyles.whoName}>{author.display_name}</span>

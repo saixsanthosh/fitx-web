@@ -88,7 +88,8 @@ export function VideoComposer() {
     <div className={`${exploreStyles.narrow} flex flex-col gap-6`}>
       <PageHeader title="New video" />
       <section aria-label="Video">
-        <VideoPicker target="post" onChange={chooseVideo} disabled={busy} />
+        {/* A ready clip hands focus on to its description, the next thing to fill in (D5). */}
+        <VideoPicker target="post" onChange={chooseVideo} disabled={busy} readyFocus="video-alt" />
       </section>
       <div className={exploreStyles.form}>
         {video && (

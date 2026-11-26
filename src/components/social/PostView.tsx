@@ -111,6 +111,16 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
     }
   }
 
+  // Cancel goes with the "Replying to" line: focus goes to the box, or (an edit on a post that no longer takes
+  // comments, whose box goes too) to that comment's options, else the heading (D5).
+  const cancel = () => {
+    const edited = editing?.id ?? null;
+    setReplyTo(null);
+    setEditing(null);
+    setBody("");
+    focusAfter("comment-body", () => (edited ? document.getElementById(optionsId(edited)) : null) ?? heading.current);
+  };
+
   const startReply = (comment: SocialComment) => {
     setEditing(null);
     setReplyTo(comment);
@@ -146,7 +156,7 @@ function Comments({ db, post, onCount }: { db: Db; post: SocialPost; onCount: (d
           {(replyTo || editing) && (
             <p className={styles.hint}>
               {editing ? "Editing your comment" : `Replying to @${replyTo?.author.username}`}
-              <button type="button" className="ml-3 font-semibold underline" onClick={() => { setReplyTo(null); setEditing(null); setBody(""); }}>Cancel</button>
+              <button type="button" className="ml-3 font-semibold underline" onClick={cancel}>Cancel</button>
             </p>
           )}
           <div className={styles.composer}>

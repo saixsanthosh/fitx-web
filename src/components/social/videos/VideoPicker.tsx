@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Camera, CircleStop, Film, Loader2, RotateCcw, Video } from "lucide-react";
 import { SOCIAL_LIMITS } from "@/lib/social";
+import { PICKER_IDS, pickerFocusId } from "@/lib/social/focus";
 import { sniffMp4, type Mp4Info } from "@/lib/social/video/mp4-sniff";
 import {
   clock, latestStart, passThroughOk, planVideo, retryPlan, storedDuration, VIDEO_LIMITS, videoProblem, type VideoSource, type VideoTarget,
@@ -10,6 +11,7 @@ import {
 import { posterFromClip, type Poster } from "@/lib/social/video/poster";
 import { canRecordCamera, canShortenVideo, probeVideo } from "@/lib/social/video/probe";
 import { CAMERA_CONSTRAINTS, recordStream, shortenVideo } from "@/lib/social/video/record";
+import { useFocusHandOff } from "../useFocusHandOff";
 import styles from "./Videos.module.css";
 
 /** A clip ready to upload: an MP4 within the place's length and the bucket limit, with its poster. */
@@ -48,10 +50,12 @@ async function checkMp4(blob: Blob, target: VideoTarget): Promise<{ info: Mp4Inf
  * (one retry at a lower rate if it comes out too large); the camera records straight to MP4. Browsers that cannot
  * write MP4 (Firefox) say so (O2 a). Nothing is uploaded here.
  */
-export function VideoPicker({ target, onChange, disabled = false, preview: showPreview = true }: {
+export function VideoPicker({ target, onChange, disabled = false, preview: showPreview = true, readyFocus }: {
   target: VideoTarget; onChange: (video: PreparedVideo | null) => void; disabled?: boolean;
   /** False when the page shows the clip itself (the story composer's 9:16 frame). */
   preview?: boolean;
+  /** The id of what the page asks for next, where focus goes when a clip is ready (else Choose another). */
+  readyFocus?: string;
 }) {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [startMs, setStartMs] = useState(0);
@@ -64,6 +68,12 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
   const urls = useRef<string[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const max = VIDEO_LIMITS.maxMs[target];
+  // Each step replaces the one before, focused control and all: when focus was in it, it moves on to the new step's
+  // first control, or its line of text while it only reports, never to the page (D5).
+  const [stepRef] = useFocusHandOff(() => {
+    const trim = stage.kind === "trim" && stage.source.durationMs > max;
+    return document.getElementById(pickerFocusId(stage.kind, { trim, ready: readyFocus })) ?? document.getElementById(pickerFocusId(stage.kind, { trim }));
+  });
 
   const stopCamera = useCallback(() => {
     for (const track of streamRef.current?.getTracks() ?? []) track.stop();
@@ -211,14 +221,14 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
   return (
     <div className={styles.picker}>
       {stage.kind === "idle" && (
-        <div className={styles.choices}>
+        <div ref={stepRef} className={styles.choices}>
           <label className={styles.choice} aria-disabled={!canChoose}>
             <span className={styles.choiceIcon} aria-hidden="true"><Film size={22} /></span>
             <span className={styles.choiceText}>
               <span className={styles.choiceLabel}>Choose a video</span>
               <span className={styles.choiceHint}>Up to {max / 1000} seconds. Made smaller on your device first.</span>
             </span>
-            <input id="video-choose" type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="sr-only" aria-label="Choose a video" disabled={!canChoose}
+            <input id={PICKER_IDS.choose} type="file" accept="video/mp4,video/quicktime,video/webm,video/*" className="sr-only" aria-label="Choose a video" disabled={!canChoose}
               onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void pick(file); }} />
           </label>
           {abilities.camera && (
@@ -234,11 +244,11 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
       )}
 
       {stage.kind === "reading" && (
-        <p className={styles.status} role="status"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Opening the video</p>
+        <p ref={stepRef} id={PICKER_IDS.status} tabIndex={-1} className={styles.status} role="status"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Opening the video</p>
       )}
 
       {stage.kind === "trim" && (
-        <div className={styles.panel}>
+        <div ref={stepRef} className={styles.panel}>
           <p className={styles.panelText}>
             <Video size={18} aria-hidden="true" />
             {stage.source.durationMs > max
@@ -247,22 +257,22 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
           </p>
           {stage.source.durationMs > max && (
             <div className={styles.trim}>
-              <label htmlFor="video-start" className={styles.trimLabel}>Start at {clock(startMs)}</label>
-              <input id="video-start" type="range" min={0} max={latestStart(stage.source.durationMs, target)} step={250} value={startMs}
+              <label htmlFor={PICKER_IDS.start} className={styles.trimLabel}>Start at {clock(startMs)}</label>
+              <input id={PICKER_IDS.start} type="range" min={0} max={latestStart(stage.source.durationMs, target)} step={250} value={startMs}
                 onChange={(event) => setStartMs(Number(event.target.value))} className={styles.range} />
               <span className={styles.trimHint} aria-hidden="true">{clock(startMs)} to {clock(Math.min(stage.source.durationMs, startMs + max))}</span>
             </div>
           )}
           <div className={styles.row}>
-            <button type="button" className="fitx-button" onClick={() => void prepare(stage.file, stage.source)}>Prepare video</button>
+            <button type="button" id={PICKER_IDS.prepare} className="fitx-button" onClick={() => void prepare(stage.file, stage.source)}>Prepare video</button>
             <button type="button" className="fitx-button fitx-button-secondary" onClick={reset}>Choose another</button>
           </div>
         </div>
       )}
 
       {stage.kind === "preparing" && (
-        <div className={styles.panel}>
-          <p className={styles.status} role="status"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Preparing the video. This takes about as long as the clip.</p>
+        <div ref={stepRef} className={styles.panel}>
+          <p id={PICKER_IDS.status} tabIndex={-1} className={styles.status} role="status"><Loader2 size={16} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />Preparing the video. This takes about as long as the clip.</p>
           <div className={styles.progress} role="progressbar" aria-label="Preparing the video" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(stage.share * 100)}>
             <div className={styles.progressBar} style={{ transform: `scaleX(${stage.share})` }} />
           </div>
@@ -271,16 +281,17 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
       )}
 
       {stage.kind === "camera" && (
-        <div className={styles.panel}>
+        <div ref={stepRef} className={styles.panel}>
           <div className={styles.cameraFrame}>
             <video ref={live} className={styles.cameraVideo} muted playsInline aria-label="Camera preview" />
             {stage.recording && <span className={styles.recordBadge} role="status"><span className={styles.recordDot} aria-hidden="true" />{clock(elapsed)} of {clock(max)}</span>}
           </div>
           <div className={styles.row}>
+            {/* One button that changes its words (the same element), so focus stays on it from Start to Stop. */}
             {stage.recording ? (
-              <button type="button" className="fitx-button" onClick={stage.recording.stop}><CircleStop size={17} aria-hidden="true" />Stop recording</button>
+              <button type="button" id={PICKER_IDS.record} className="fitx-button" onClick={stage.recording.stop}><CircleStop size={17} aria-hidden="true" />Stop recording</button>
             ) : (
-              <button type="button" className="fitx-button" onClick={startRecording}><span className={styles.recordDot} aria-hidden="true" />Start recording</button>
+              <button type="button" id={PICKER_IDS.record} className="fitx-button" onClick={startRecording}><span className={styles.recordDot} aria-hidden="true" />Start recording</button>
             )}
             <button type="button" className="fitx-button fitx-button-secondary" onClick={reset}>Cancel</button>
           </div>
@@ -288,10 +299,10 @@ export function VideoPicker({ target, onChange, disabled = false, preview: showP
       )}
 
       {stage.kind === "ready" && (
-        <div className={styles.panel}>
+        <div ref={stepRef} className={styles.panel}>
           {showPreview && <video ref={preview} className={styles.ready} src={stage.video.url} controls playsInline muted preload="metadata" aria-label="Your video" />}
           <p className={styles.readyMeta}>{clock(stage.video.durationMs)} · {(stage.video.blob.size / (1024 * 1024)).toFixed(1)} MB of {Math.round(SOCIAL_LIMITS.fileBytes / (1024 * 1024))} MB</p>
-          <button type="button" className="fitx-button fitx-button-secondary self-start" onClick={reset} disabled={disabled}><RotateCcw size={16} aria-hidden="true" />Choose another</button>
+          <button type="button" id={PICKER_IDS.again} className="fitx-button fitx-button-secondary self-start" onClick={reset} disabled={disabled}><RotateCcw size={16} aria-hidden="true" />Choose another</button>
         </div>
       )}
 

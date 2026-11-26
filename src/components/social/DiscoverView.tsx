@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Hash, Heart, Loader2, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EXPLORE_MEDIA, type ExploreMediaId } from "@/data/explore-media";
@@ -10,9 +10,10 @@ import { compactCount, isTopic, matchTopics, nextCursor, socialApi, topicLabel, 
 import { DISCOVER_VIDEOS } from "@/lib/social/slots";
 import { Avatar } from "./Avatar";
 import { useReadyExplore } from "./ExploreContext";
-import { PostGrid, TileCover, tileLabel } from "./PostGrid";
+import { gridTile, lastTile, PostGrid, TileCover, tileLabel } from "./PostGrid";
 import { Suggestions } from "./Suggestions";
 import { useAsync } from "./useAsync";
+import { useShowMoreFocus } from "./useFocusHandOff";
 import { usePaged, useSentinel } from "./usePaged";
 import styles from "./Explore.module.css";
 
@@ -211,16 +212,20 @@ function Latest({ filter, title, hideTitle = false }: { filter: { topic?: string
     return { items, next: nextCursor(items, LATEST_PAGE) };
   });
   const sentinel = useSentinel(latest.more, !latest.done && latest.status === "ready");
+  // Show more goes once the last page is in: if it had focus, the first post that page added takes it, else the last
+  // post (D5).
+  const grid = useRef<HTMLUListElement>(null);
+  const [showMoreRef] = useShowMoreFocus(latest.items.map((post) => post.id), (id) => gridTile(grid.current, id), () => lastTile(grid.current));
   return (
     <section aria-label={title}>
       {!hideTitle && <div className={styles.sectionHead}><h2 className={styles.sectionTitle}>{title}</h2></div>}
       {latest.status === "loading" && <div className={styles.skeleton} style={{ height: 240 }} aria-hidden="true" />}
       {latest.status === "error" && !latest.items.length && <p className={styles.alert} role="alert">{latest.error}</p>}
       {latest.status !== "loading" && !latest.items.length && latest.status !== "error" && <p className={styles.note}>No posts here yet.</p>}
-      {latest.items.length > 0 && <PostGrid posts={latest.items} label={title} />}
+      {latest.items.length > 0 && <PostGrid ref={grid} posts={latest.items} label={title} />}
       {latest.items.length > 0 && !latest.done && (
         <div className="mt-4 flex justify-center">
-          <button type="button" className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={latest.more} aria-disabled={latest.status === "more" || undefined}>Show more</button>
+          <button type="button" ref={showMoreRef} className={`${styles.smallButton} ${styles.smallButtonQuiet}`} onClick={latest.more} aria-disabled={latest.status === "more" || undefined}>Show more</button>
         </div>
       )}
       <div ref={sentinel} className={styles.sentinel} aria-hidden="true" />

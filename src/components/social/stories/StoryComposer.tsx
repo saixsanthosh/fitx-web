@@ -149,7 +149,8 @@ export function StoryComposer() {
               )}
             </div>
           )}
-          {kind === "video" && <VideoPicker target="story" onChange={setVideo} disabled={busy} preview={false} />}
+          {/* A ready clip hands focus on to the caption, as a ready photo does (D5). */}
+          {kind === "video" && <VideoPicker target="story" onChange={setVideo} disabled={busy} preview={false} readyFocus="story-caption" />}
 
           {kind && (
             <div className={exploreStyles.form}>

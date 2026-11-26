@@ -9,7 +9,7 @@ import { useReducedMotionSafe } from "@/components/motion/useReducedMotionSafe";
 import { Sheet } from "@/components/ui/Sheet";
 import { SOCIAL_BUCKET, fullDate, plural, relativeTime, socialApi, toSocialError, topicLabel, type SocialPost } from "@/lib/social";
 import type { Db } from "@/lib/social/api";
-import { postOptionsId } from "@/lib/social/focus";
+import { postAuthorId, postOptionsId } from "@/lib/social/focus";
 import { forgetPhotoUrls } from "@/lib/social/media-urls";
 import { POST_VIDEO, SHARE_TARGETS } from "@/lib/social/slots";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +17,7 @@ import { Avatar } from "./Avatar";
 import { useExplore } from "./ExploreContext";
 import { useNotice } from "./useNotice";
 import { EditPostSheet } from "./EditPostSheet";
+import { useFocusHandOff } from "./useFocusHandOff";
 import { ReportSheet } from "./ReportSheet";
 import { RichText } from "./RichText";
 import { frameRatio, SocialPhoto } from "./SocialPhoto";
@@ -64,6 +65,9 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
   const author = state.author;
   const ratio = frameRatio(state.media[0]?.width ?? 4, state.media[0]?.height ?? 5);
   const captionLong = state.caption.length > 180 || state.caption.split("\n").length > 3;
+  // More goes once the caption is open in full: focus goes to the caption, to read on (D5).
+  const captionId = `post-${state.id}-caption`;
+  const [moreRef] = useFocusHandOff(() => document.getElementById(captionId));
 
   async function setLike(like: boolean) {
     if (pending.current) return;
@@ -163,7 +167,7 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
   return (
     <article className={styles.card} aria-labelledby={`post-${state.id}-by`}>
       <header className={styles.cardHead}>
-        <Link href={`/explore/u/${author.username}`} className={styles.who}>
+        <Link href={`/explore/u/${author.username}`} id={postAuthorId(state.id)} className={styles.who}>
           <Avatar user={author} size={40} />
           <span className={styles.whoText}>
             <span id={`post-${state.id}-by`} className={styles.whoName}>{author.display_name}</span>
@@ -213,11 +217,11 @@ export function PostCard({ db, post, priority = false, detail = false, onChange,
         <p className={styles.stats} aria-live="polite">{plural(state.like_count, "like")}</p>
         {state.caption && state.kind !== "text" && (
           <>
-            <p className={`${styles.caption} ${!expanded && captionLong ? styles.captionClamp : ""}`}>
+            <p id={captionId} tabIndex={-1} className={`${styles.caption} ${!expanded && captionLong ? styles.captionClamp : ""}`}>
               <Link href={`/explore/u/${author.username}`} className={styles.captionName}>{author.username}</Link>
               <RichText text={state.caption} />
             </p>
-            {!expanded && captionLong && <button type="button" className={styles.more} onClick={() => setExpanded(true)}>More</button>}
+            {!expanded && captionLong && <button type="button" ref={moreRef} className={styles.more} onClick={() => setExpanded(true)}>More</button>}
           </>
         )}
         {state.topics.length > 0 && (
