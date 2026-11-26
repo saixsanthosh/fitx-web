@@ -23,6 +23,19 @@ export const DELETION_TIME_LIMIT_MS = {
 /** What the dialog says once deleting is slow; it can then be closed. */
 export const DELETE_TAKING_LONG = "Deleting is taking longer than usual. You can close this now: if it goes through, you’ll be signed out. Reload the page later to check.";
 
+/** What the dialog's status line says from the moment deleting starts (read out only: the button shows "Deleting…"). */
+export const DELETE_STARTED = "Deleting your account…";
+
+/**
+ * The dialog's one status line while deleting (review a11y-home-delete-account-confirm-box-disabled-while-deleting).
+ * From the start it is read out but not shown, since Delete permanently already shows "Deleting…": a member who pressed
+ * Enter in the confirmation box keeps focus there, and the line tells them deleting has started. Once deleting is slow
+ * the same line shows the note, so the change is read out too (D6: inside the dialog).
+ */
+export function deletingStatus(slow: boolean): { text: string; shown: boolean } {
+  return slow ? { text: DELETE_TAKING_LONG, shown: true } : { text: DELETE_STARTED, shown: false };
+}
+
 /** The dialog's steps (DeleteAccount). */
 export type DeletionStep = "checking" | "unavailable" | "reauth" | "switched" | "confirm" | "deleting" | "deleted" | "error";
 

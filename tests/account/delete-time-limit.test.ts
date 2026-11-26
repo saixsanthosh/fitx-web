@@ -99,7 +99,10 @@ describe("deleting is never cancelled, but the member is not held in the dialog"
     assert.match(remove, /if \(dialog\.current && !dialog\.current\.open\) \{\s*dialog\.current\.showModal\(\);\s*dialog\.current\.querySelector<HTMLElement>\("\[data-autofocus\]"\)\?\.focus\(\);\s*\}/, "a deletion that went through after closing says so");
     assert.match(source, /onCancel=\{\(event\) => \{ if \(!closable\) event\.preventDefault\(\); \}\}/, "Escape works once slow");
     assert.match(source, /\{step === "switched" \|\| \(step === "deleting" && slow\) \? "Close" : "Cancel"\}/);
-    assert.match(source, /\{step === "deleting" && slow && <p role="status" [^>]*>\{DELETE_TAKING_LONG\}<\/p>\}/, "announced in the dialog (D6)");
+    // Since review a11y-home-delete-account-confirm-box-disabled-while-deleting the note is the slow state of the dialog's
+    // one status line while deleting (delete-confirm-focus.test.ts).
+    assert.match(source, /const progress = deletingStatus\(slow\);/);
+    assert.match(source, /\{step === "deleting" && <p role="status" className=\{progress\.shown \? "mt-4 [^"]*" : "sr-only"\}>\{progress\.text\}<\/p>\}/, "announced in the dialog (D6)");
     assert.match(source, /async function open\(\) \{\s*if \(deleting\.current\) \{\s*if \(!dialog\.current\?\.open\) dialog\.current\?\.showModal\(\);\s*return null;\s*\}/, "opening again while it goes on shows it, never a second deletion");
     assert.match(source, /void fetchDeletionStatus\(\)\.then/, "the Settings row's check has the limit too");
     assert.match(source, /const result = await fetchDeletionStatus\(\);/);

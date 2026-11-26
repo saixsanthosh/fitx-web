@@ -8,7 +8,7 @@ import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
 import { recordingStore } from "@/lib/activity/local-store";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
-import { DELETE_TAKING_LONG, DELETION_TIME_LIMIT_MS, canCloseDeletion, fetchDeletionStatus, type DeletionStep } from "./deletion-wait";
+import { DELETION_TIME_LIMIT_MS, canCloseDeletion, deletingStatus, fetchDeletionStatus, type DeletionStep } from "./deletion-wait";
 
 /**
  * "Delete my account": the Settings row, or a quiet link (onboarding, so an account made with the wrong
@@ -93,6 +93,8 @@ export function DeleteAccount({
   // Deleting has gone on past DELETION_TIME_LIMIT_MS.slow: the dialog says so and may be closed (deletion-wait.ts).
   const [slow, setSlow] = useState(false);
   const closable = canCloseDeletion(step, { leaving, slow });
+  // What the status line says while deleting.
+  const progress = deletingStatus(slow);
   // A deletion on its way: opening the dialog again shows it rather than starting another.
   const deleting = useRef(false);
   const support = BRAND.supportEmail;
@@ -297,20 +299,26 @@ export function DeleteAccount({
                 {/* Download lives in Settings, which an account still in setup can't open, so only the Settings row offers it. */}
                 <p className="mt-2 text-sm leading-6 text-fitx-text-secondary">{variant === "row" ? "It can’t be undone. Download your data first if you want a copy." : "It can’t be undone."}</p>
                 <label htmlFor="delete-confirm" className="mt-4 block text-sm font-medium text-fitx-text">Type {DELETE_CONFIRMATION} to confirm</label>
+                {/* While deleting, the box is read-only and aria-disabled, not disabled: Enter in it starts the deletion,
+                    and a control that becomes disabled under focus drops it to the page for the whole wait. Enter
+                    again then does nothing (remove() returns early). */}
                 <input
                   id="delete-confirm"
-                  className="fitx-field mt-1.5"
+                  className="fitx-field mt-1.5 aria-disabled:opacity-[.72]"
                   value={typed}
                   autoComplete="off"
                   autoCapitalize="characters"
                   spellCheck={false}
-                  disabled={step === "deleting"}
+                  readOnly={step === "deleting"}
+                  aria-disabled={step === "deleting" || undefined}
                   onChange={(event) => setTyped(event.target.value.trim())}
                 />
               </form>
             )}
 
-            {step === "deleting" && slow && <p role="status" className="mt-4 text-sm leading-6 text-fitx-text-secondary">{DELETE_TAKING_LONG}</p>}
+            {/* One status line from the start of deleting until its answer: read out only at first, then the slow note,
+                shown (deletion-wait.ts deletingStatus). */}
+            {step === "deleting" && <p role="status" className={progress.shown ? "mt-4 text-sm leading-6 text-fitx-text-secondary" : "sr-only"}>{progress.text}</p>}
 
             {step === "deleted" && (
               <p role="status" className="mt-2 text-sm leading-6 text-fitx-text-secondary">Your login, data and images have been removed from FITX. Thank you for training with us.</p>
