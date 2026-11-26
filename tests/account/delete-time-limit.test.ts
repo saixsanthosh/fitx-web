@@ -92,7 +92,8 @@ describe("deleting is never cancelled, but the member is not held in the dialog"
   test("the dialog is wired to it: a slow timer, Close and Escape once slow, the note, and the answer used when it comes", () => {
     const remove = source.slice(source.indexOf("async function remove()"), source.indexOf("const unavailable ="));
     assert.match(remove, /const slowTimer = window\.setTimeout\(\(\) => setSlow\(true\), DELETION_TIME_LIMIT_MS\.slow\);/);
-    assert.match(remove, /\} finally \{\s*window\.clearTimeout\(slowTimer\);\s*deleting\.current = false;\s*setSlow\(false\);\s*\}/);
+    assert.match(remove, /\} finally \{\s*(?:\/\/[^\n]*\n\s*)*deleting\.current = false;\s*\}/, "once answered, opening the dialog may start afresh");
+    assert.match(remove, /\} finally \{\s*window\.clearTimeout\(slowTimer\);\s*setSlow\(false\);\s*\}\s*\}\s*$/, "slow until the answer is dealt with, its body included");
     const request = remove.slice(remove.indexOf('fetch("/api/account"'), remove.indexOf("} catch"));
     assert.doesNotMatch(request, /signal/, "the deletion itself is never cancelled");
     assert.match(remove, /if \(dialog\.current && !dialog\.current\.open\) \{\s*dialog\.current\.showModal\(\);\s*dialog\.current\.querySelector<HTMLElement>\("\[data-autofocus\]"\)\?\.focus\(\);\s*\}/, "a deletion that went through after closing says so");

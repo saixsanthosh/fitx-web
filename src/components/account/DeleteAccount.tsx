@@ -179,63 +179,68 @@ export function DeleteAccount({
     if (step === "deleting" || typed !== DELETE_CONFIRMATION || !status?.userId) return;
     setStep("deleting");
     setError("");
-    // Read before the request: whose activity recordings on this device to clear once the account is gone.
-    const userId = await sessionUserId();
     // The request is never cancelled (FITX deletes once it has it, and only its answer says so). Past the slow limit the
-    // dialog says it is slow and may be closed; the answer is still used when it comes.
+    // dialog says it is slow and may be closed, until the answer has been dealt with; the answer is still used when it
+    // comes.
     const slowTimer = window.setTimeout(() => setSlow(true), DELETION_TIME_LIMIT_MS.slow);
     deleting.current = true;
-    let response: Response;
     try {
-      response = await fetch("/api/account", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ confirm: DELETE_CONFIRMATION, expectedUserId: status.userId }),
-      });
-    } catch {
+      // Read before the request: whose activity recordings on this device to clear once the account is gone.
+      const userId = await sessionUserId();
+      let response: Response;
+      try {
+        response = await fetch("/api/account", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ confirm: DELETE_CONFIRMATION, expectedUserId: status.userId }),
+        });
+      } catch {
+        setStep("confirm");
+        return setError("We couldn’t reach FITX. Nothing was deleted. Check your connection and try again.");
+      } finally {
+        // Answered: opening the dialog again may start afresh.
+        deleting.current = false;
+      }
+      if (response.ok) {
+        writeStarted(null);
+        if (userId) await forgetDeviceRecordings(userId);
+        setStep("deleted");
+        // The server already ended the session; this clears what the browser still holds.
+        await createClient()?.auth.signOut({ scope: "local" }).catch(() => undefined);
+        forgetAccountInBrowser({ deleted: true });
+        // Closed while it was slow: open again to say the account is deleted, with focus on its only button.
+        if (dialog.current && !dialog.current.open) {
+          dialog.current.showModal();
+          dialog.current.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+        }
+        return;
+      }
+      const { error: code } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };
+      if (code === "account_changed") {
+        // Show who is signed in now, and make them confirm again.
+        const latest = await open();
+        if (latest) setError("You’re now signed in to a different account, so nothing was deleted. Check the account named above before you continue.");
+        return;
+      }
+      if (code === "reauth_required" || code === "signed_out") {
+        setSignedOut(code === "signed_out");
+        return setStep("reauth");
+      }
+      if (code === "not_configured") return setStep("unavailable");
       setStep("confirm");
-      return setError("We couldn’t reach FITX. Nothing was deleted. Check your connection and try again.");
+      setError(code === "auth_unavailable"
+        ? OUTAGE
+        : code === "delete_failed"
+          ? "Your uploaded images were removed, but the account itself couldn’t be deleted. Please try again in a moment."
+          : code === "billing_not_stopped"
+            ? "Your FITX Premium renewals couldn’t be stopped with Razorpay, so nothing was deleted. Please try again in a moment."
+            : code === "admin_access"
+              ? "This account has FITX Admin access, so nothing was deleted. Ask a super-admin to switch your Admin access off in FITX Admin, then try again."
+              : "Nothing was deleted. Please try again in a moment.");
     } finally {
       window.clearTimeout(slowTimer);
-      deleting.current = false;
       setSlow(false);
     }
-    if (response.ok) {
-      writeStarted(null);
-      if (userId) await forgetDeviceRecordings(userId);
-      setStep("deleted");
-      // The server already ended the session; this clears what the browser still holds.
-      await createClient()?.auth.signOut({ scope: "local" }).catch(() => undefined);
-      forgetAccountInBrowser({ deleted: true });
-      // Closed while it was slow: open again to say the account is deleted, with focus on its only button.
-      if (dialog.current && !dialog.current.open) {
-        dialog.current.showModal();
-        dialog.current.querySelector<HTMLElement>("[data-autofocus]")?.focus();
-      }
-      return;
-    }
-    const { error: code } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };
-    if (code === "account_changed") {
-      // Show who is signed in now, and make them confirm again.
-      const latest = await open();
-      if (latest) setError("You’re now signed in to a different account, so nothing was deleted. Check the account named above before you continue.");
-      return;
-    }
-    if (code === "reauth_required" || code === "signed_out") {
-      setSignedOut(code === "signed_out");
-      return setStep("reauth");
-    }
-    if (code === "not_configured") return setStep("unavailable");
-    setStep("confirm");
-    setError(code === "auth_unavailable"
-      ? OUTAGE
-      : code === "delete_failed"
-        ? "Your uploaded images were removed, but the account itself couldn’t be deleted. Please try again in a moment."
-        : code === "billing_not_stopped"
-          ? "Your FITX Premium renewals couldn’t be stopped with Razorpay, so nothing was deleted. Please try again in a moment."
-          : code === "admin_access"
-            ? "This account has FITX Admin access, so nothing was deleted. Ask a super-admin to switch your Admin access off in FITX Admin, then try again."
-            : "Nothing was deleted. Please try again in a moment.");
   }
 
   const unavailable = status !== null && !status.available;
