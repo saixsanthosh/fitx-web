@@ -8,11 +8,14 @@ import { listActivities, listActivitySummaries, viewFromRecord, type ActivitySum
 import { mergeSummaries, periods } from "@/lib/activity/stats";
 import { listStrengthSessions, type StrengthSession } from "@/lib/activity/strength";
 import { uploadPending } from "@/lib/activity/sync";
-import { mergeTimeline, nextToLoad, readSessionsOn, shownFloor, type TimelineEntry } from "@/lib/activity/timeline";
+import { mergeTimeline, nextToLoad, readListAgain, readSessionsOn, shownFloor, type TimelineEntry } from "@/lib/activity/timeline";
 import { createClient } from "@/lib/supabase/client";
 
 const PAGE = 20;
-/** Try again for strength sessions reads at most this many pages in one go (a stop for a server that ignores `before`). */
+/**
+ * Try again for strength sessions, and a list read again in place (rereadHistory), read at most this many pages in one
+ * go (a stop for a server that ignores `before`).
+ */
 const MAX_RETRY_PAGES = 50;
 
 export type History =
@@ -58,6 +61,15 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const [moreFailed, setMoreFailed] = useState(false);
   // Bumped whenever the history is read again from the first page, so an older page read before that is dropped.
   const historyGeneration = useRef(0);
+  // The list on screen (round 3e): the sport it shows, or null while none is shown (loading, unavailable, error), and
+  // its oldest entry; a reload reads that list again in place (rereadHistory), and older pages and Try again wait
+  // meanwhile (rereadingNow; `rereading` says so on the list's buttons).
+  const shownFor = useRef<SportFilter | null>(null);
+  const shownFloorRef = useRef<number | null>(null);
+  const rereadingNow = useRef(false);
+  const [rereading, setRereading] = useState(false);
+  // Counts reloads, so what this device held is only ever shown from the latest one.
+  const loads = useRef(0);
   const [recordingElsewhere, setRecordingElsewhere] = useState<Set<string>>(() => new Set());
   const filterRef = useRef(filter);
   useEffect(() => {
@@ -70,6 +82,10 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     historyGeneration.current += 1;
     setMoreFailed(false);
     setHistory({ status: "loading" });
+    // Drawn from its loading state: a reread of the old list still running is dropped (its generation is gone).
+    shownFor.current = null;
+    rereadingNow.current = false;
+    setRereading(false);
     const sport = which === "all" ? null : which;
     const [list, strength] = await Promise.all([
       listActivities(supabase, uid, { limit: PAGE, sport }),
@@ -80,15 +96,70 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     if (list.status === "unavailable") setHistory({ status: "unavailable" });
     else if (list.status !== "ok") setHistory({ status: "error", offline: list.status === "error" && list.offline });
     else setHistory({ status: "ready", items: list.data, more: list.data.length === PAGE });
+    if (list.status === "ok") shownFor.current = which;
     // No workout_sessions table (an older database): no sessions anywhere, so nothing is missing from the list.
     if (!strength || strength.status === "unavailable") setSessions(NO_SESSIONS);
     else if (strength.status === "ok") setSessions({ status: "ready", items: strength.data, more: strength.data.length === PAGE, failed: null });
     else setSessions({ status: "ready", items: [], more: false, failed: { kind: "first", attempt: 0 } });
   }, []);
 
-  const load = useCallback(async (uid: string) => {
+  /**
+   * A reload of the list on screen (back online, Upload now, the figures' Try again; round 3e, D5). It used to be drawn
+   * from its loading state and from its first page only, so every entry, "Show older activities" and the strength
+   * sessions' Try again went while it read, and focus on any of them fell to the page. Now the list stays on screen
+   * while it is read again as far back as it shows (readListAgain, down to its oldest entry), then is swapped in at
+   * once, with what this device now holds (`held`, from this reload's own read of it): an activity uploaded meanwhile
+   * never leaves the list and comes back. Show older activities and Try again wait meanwhile. Dropped when a sport is
+   * chosen or another reload reads the list meanwhile; this device's copies are still shown unless a newer reload read them.
+   */
+  const rereadHistory = useCallback(async (uid: string, which: SportFilter, floor: number | null, held: { load: number; recordings: StoredRecording[]; time: number }) => {
     const supabase = createClient();
     if (!supabase) return;
+    historyGeneration.current += 1;
+    const generation = historyGeneration.current;
+    rereadingNow.current = true;
+    setRereading(true);
+    setMoreFailed(false);
+    const options = { maxPages: MAX_RETRY_PAGES, stillWanted: () => generation === historyGeneration.current && filterRef.current === which };
+    const sport = which === "all" ? null : which;
+    const [list, strength] = await Promise.all([
+      readListAgain((before) => listActivities(supabase, uid, { limit: PAGE, before, sport }), floor, PAGE, options),
+      // Strength sessions sit in the full timeline only, never in a walk, run or ride list.
+      sport ? Promise.resolve(undefined) : readListAgain((before) => listStrengthSessions(supabase, uid, { limit: PAGE, before }), floor, PAGE, options),
+    ]);
+    if (held.load === loads.current) {
+      setLocal(held.recordings);
+      setNow(held.time);
+    }
+    // Another reload, or a sport chosen, took the list over (and holds or ended `rereading`).
+    if (generation !== historyGeneration.current) return;
+    rereadingNow.current = false;
+    setRereading(false);
+    if (!list || strength === null || filterRef.current !== which) return;
+    if (list.status === "failed") {
+      shownFor.current = null;
+      setHistory(list.result.status === "unavailable" ? { status: "unavailable" } : { status: "error", offline: list.result.status === "error" && list.result.offline });
+    } else {
+      setHistory({ status: "ready", items: list.items, more: list.more });
+      setMoreFailed(list.olderFailed);
+    }
+    // As loadHistory: no workout_sessions table means no sessions anywhere; a page that fails is said under the list.
+    if (!strength || (strength.status === "failed" && strength.result.status === "unavailable")) setSessions(NO_SESSIONS);
+    else if (strength.status === "failed") setSessions({ status: "ready", items: [], more: false, failed: { kind: "first", attempt: 0 } });
+    else if (strength.olderFailed) setSessions({ status: "ready", items: strength.items, more: false, failed: { kind: "older", attempt: 0 } });
+    else setSessions({ status: "ready", items: strength.items, more: strength.more, failed: null });
+  }, []);
+
+  /**
+   * Reads everything again: on opening the page, back online, Upload now, the figures' Try again. The list on screen is
+   * read again in place (rereadHistory); a list not shown yet, or `keepList` false (Delete everything: what was listed
+   * is gone), is drawn from its loading state.
+   */
+  const load = useCallback(async (uid: string, keepList = true) => {
+    const supabase = createClient();
+    if (!supabase) return;
+    loads.current += 1;
+    const thisLoad = loads.current;
     const store = await recordingStore();
     // Tidy rows a crash left behind (never another window's live recording), then upload anything
     // finished offline or before history was available.
@@ -96,18 +167,23 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     setRecordingElsewhere(busy);
     await reconcileRecordings(store, uid, busy);
     await uploadPending(store, supabase, uid);
-    setLocal(await store.listRecordings(uid));
+    const recordings = await store.listRecordings(uid);
     const time = Date.now();
-    setNow(time);
+    const which = filterRef.current;
+    const inPlace = keepList && shownFor.current === which;
+    if (!inPlace) {
+      setLocal(recordings);
+      setNow(time);
+    }
     const [summaries, recent] = await Promise.all([
       listActivitySummaries(supabase, uid),
       listStrengthSessions(supabase, uid, { since: periods(time).lastWeek.start, limit: 200 }),
-      loadHistory(uid, filterRef.current),
+      inPlace ? rereadHistory(uid, which, shownFloorRef.current, { load: thisLoad, recordings, time }) : loadHistory(uid, which),
     ]);
     setStats(summaries.status === "ok" ? summaries.data : null);
     setStatsFailure(summaries.status === "ok" ? null : { offline: summaries.status === "error" && summaries.offline });
     setRecentStrength(recent.status === "ok" ? recent.data : null);
-  }, [loadHistory]);
+  }, [loadHistory, rereadHistory]);
 
   useEffect(() => {
     if (!userId) return;
@@ -138,16 +214,21 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
   const shownDevice = filter === "all" ? deviceViews : deviceViews.filter((view) => view.sport === filter);
   const items = history.status === "ready" ? history.items : [];
   const timeline: { entries: TimelineEntry[]; more: boolean } = mergeTimeline({ items, more: history.status === "ready" && history.more }, { items: sessions.items, more: sessions.more }, shownDevice);
+  // How far back the list on screen goes, for a reload to read it again that far (rereadHistory).
+  const oldestShown = shownFloor(timeline.entries);
+  useEffect(() => {
+    shownFloorRef.current = oldestShown;
+  }, [oldestShown]);
 
   /**
    * "Show older activities": reads the next page of whichever list holds the timeline back. Says whether a read
    * started (not while one is still loading, nor with nothing left to read), so the list knows a press is waiting
    * for new entries. A failed page of activities is said beside the button and can be tried again; a failed page
    * of strength sessions stops them there, so older activities never wait on them, and the list says so with its
-   * own Try again (retrySessions).
+   * own Try again (retrySessions). Not while the list is read again in place (its result would be lost, or overwrite it).
    */
   const loadMore = useCallback((): boolean => {
-    if (loadingMoreNow.current || !userId || history.status !== "ready") return false;
+    if (loadingMoreNow.current || rereadingNow.current || !userId || history.status !== "ready") return false;
     const supabase = createClient();
     if (!supabase) return false;
     const next = nextToLoad({ items: history.items, more: history.more }, { items: sessions.items, more: sessions.more });
@@ -187,9 +268,9 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
    */
   const retrySessions = (): boolean => {
     const failed = sessions.failed;
-    // Not while the list is read again from the start (it reads the sessions too); with activities that couldn't be
-    // read, the sessions still sit beside the ones kept on this device.
-    if (!failed || loadingMoreNow.current || !userId || history.status === "loading") return false;
+    // Not while the list is read again from the start, in place or not (it reads the sessions too); with activities
+    // that couldn't be read, the sessions still sit beside the ones kept on this device.
+    if (!failed || loadingMoreNow.current || rereadingNow.current || !userId || history.status === "loading") return false;
     const supabase = createClient();
     if (!supabase) return false;
     loadingMoreNow.current = true;
@@ -222,6 +303,7 @@ export function useActivityFeed(userId: string | null, filter: SportFilter) {
     history, sessions, recentStrength, statRows, statsComplete: stats?.complete ?? true, now, unfinished,
     statsStatus: figuresStatus(statRows, statsFailure !== null), statsOffline: statsFailure?.offline ?? false,
     unfinishedElsewhere: Boolean(unfinished && recordingElsewhere.has(unfinished.clientId)),
-    waiting, timeline, loadMore, loadingMore, moreFailed, sessionsFailed: sessions.failed, retrySessions, reload: load,
+    // Show older activities and the sessions' Try again say Loading… (aria-disabled) while the list is read again in place.
+    waiting, timeline, loadMore, loadingMore: loadingMore || rereading, moreFailed, sessionsFailed: sessions.failed, retrySessions, reload: load,
   };
 }

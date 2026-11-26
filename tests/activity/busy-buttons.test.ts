@@ -79,9 +79,11 @@ describe("Show older activities", () => {
 
   test("the feed reads one older page at a time, drops a page read before a reload, and says when one fails", () => {
     const feed = read("src/components/activity/useActivityFeed.ts");
-    assert.match(feed, /const loadMore = useCallback\(\(\): boolean => \{\s+if \(loadingMoreNow\.current \|\| !userId \|\| history\.status !== "ready"\) return false;/);
+    // Round 3e: nor while the list on screen is read again in place (tests/activity/history-reread-focus.test.ts).
+    assert.match(feed, /const loadMore = useCallback\(\(\): boolean => \{\s+if \(loadingMoreNow\.current \|\| rereadingNow\.current \|\| !userId \|\| history\.status !== "ready"\) return false;/);
     assert.match(feed, /loadingMoreNow\.current = true;\s+const generation = historyGeneration\.current;/);
-    assert.equal((feed.match(/if \(generation !== historyGeneration\.current\) return;/g) ?? []).length, 2);
+    const loadMoreBody = feed.slice(feed.indexOf("const loadMore = useCallback"), feed.indexOf("const retrySessions = "));
+    assert.equal((loadMoreBody.match(/if \(generation !== historyGeneration\.current\) return;/g) ?? []).length, 2, "both of its pages");
     assert.match(feed, /else setMoreFailed\(true\);/);
     assert.match(feed, /\} finally \{\s+loadingMoreNow\.current = false;\s+setLoadingMore\(false\);/);
     assert.match(feed, /historyGeneration\.current \+= 1;\s+setMoreFailed\(false\);\s+setHistory\(\{ status: "loading" \}\);/);

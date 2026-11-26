@@ -168,6 +168,19 @@ export type ImportResult =
   | { kind: "failed"; reason: string };
 
 /** "3 imported, 1 replaced, 1 already in FITX, 1 skipped, 1 not a sport FITX records, 1 not imported." */
+/** A file in the import list, as the Import bar sees it: where it is, whether it has its result, its sport if known. */
+export type BarFile = { phase: "reading" | "ready" | "unsupported" | "failed" | "importing" | "done"; done: boolean; sport: Sport | null };
+
+/**
+ * Whether the Import bar shows: while a file is waiting on it (one it can import, or one it will say it can't), and the
+ * whole time it imports, so its button ("Importing…", aria-disabled) keeps keyboard focus until every file has its
+ * result (D5). It used to go as the last file started importing, and focus fell to the page; once it goes after an
+ * import, the result takes focus.
+ */
+export function importBarShown(files: readonly BarFile[], importing: boolean): boolean {
+  return importing || files.some((file) => !file.done && (file.phase === "failed" || file.phase === "unsupported" || (file.phase === "ready" && file.sport !== null)));
+}
+
 export function summariseResults(results: readonly ImportResult[]): string {
   const count = (kind: ImportResult["kind"]) => results.filter((result) => result.kind === kind).length;
   const parts: string[] = [];

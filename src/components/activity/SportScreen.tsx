@@ -101,6 +101,8 @@ export function SportScreen({ sport }: { sport: Sport }) {
   const figuresRef = useRef<HTMLElement | null>(null);
   const refocusFigures = useRef(false);
   const [{ ref: figuresRetryRef, wentWithFocus: figuresRetryWent }] = useState(() => focusWitness<HTMLButtonElement>());
+  // The history's heading: where focus goes when what had it in the list went with the list read again (FeedList).
+  const historyTitleRef = useRef<HTMLHeadingElement | null>(null);
   const statsStatus = feed.statsStatus;
   useEffect(() => {
     if (retrying) return;
@@ -165,7 +167,7 @@ export function SportScreen({ sport }: { sport: Sport }) {
       {feed.statRows && <PersonalBestsPanel bests={personalBests(feed.statRows)} only={sport} />}
 
       <section aria-labelledby="sport-history-title" className="space-y-4">
-        <h2 id="sport-history-title" className="font-heading text-xl font-bold tracking-[-.02em] text-fitx-text">Your {SPORT_PLURAL[sport].toLowerCase()}</h2>
+        <h2 id="sport-history-title" ref={historyTitleRef} tabIndex={-1} className="font-heading text-xl font-bold tracking-[-.02em] text-fitx-text">Your {SPORT_PLURAL[sport].toLowerCase()}</h2>
         {feed.history.status === "error" && <p role="alert" className="fitx-alert fitx-alert-danger">{feed.history.offline ? "You’re offline. Your history will load when you’re back online." : "Your history couldn’t load right now."}</p>}
         <FeedList
           entries={feed.timeline.entries}
@@ -177,6 +179,7 @@ export function SportScreen({ sport }: { sport: Sport }) {
           loadingMore={feed.loadingMore}
           moreFailed={feed.moreFailed}
           onLoadMore={feed.loadMore}
+          headingRef={historyTitleRef}
         />
       </section>
     </div>
