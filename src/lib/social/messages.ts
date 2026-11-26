@@ -98,7 +98,7 @@ export function firstMessageNote(username: string): string {
 /**
  * What the member reads when a message action fails: the groups' own cases first, then Explore's. A first message the
  * other member does not take (the database's hint "policy", their setting, or "age", FITX's adults-only rule) reads
- * the same either way, so the words never reveal the other member's age or settings; they say what the sender can do.
+ * the same either way, so the words never reveal the other member's age or settings (see notTakingText).
  */
 export function messageErrorText(error: unknown, context: MessageContext = {}): string {
   const failure = toSocialError(error);
@@ -112,12 +112,19 @@ export function messageErrorText(error: unknown, context: MessageContext = {}): 
   return error instanceof SocialError ? error.message : socialErrorMessage(error);
 }
 
+/**
+ * A first message the other member does not take. Why is theirs to keep: their own setting, which following them may
+ * or may not satisfy, or FITX's adults-only rule, which nothing satisfies and must never show. So the words are true in
+ * every case and promise nothing (re-check of bug 19: "If you follow them first, you can try again" could never work
+ * for a teen, and "right now" hinted it would pass). Plainly: they are not taking messages from you. Beyond that only
+ * what the sender knows for themselves: that some members take messages only from their followers, while the sender
+ * does not follow them (or the sheet cannot tell), or that their own follow request is still waiting.
+ */
 function notTakingText({ username, following = null }: MessageContext): string {
-  const who = username ? `@${username}` : "This member";
-  if (following === "accepted") return `${who} is not taking messages from you right now.`;
-  if (following === "pending") return `${who} is not taking messages from you. Once they accept your follow request, you can try again.`;
-  if (following === "none") return `${who} is not taking messages from you. If you follow them first, you can try again.`;
-  return `${who} is not taking messages from you. If you do not follow them yet, follow them first, then try again.`;
+  const refusal = `${username ? `@${username}` : "This member"} is not taking messages from you.`;
+  if (following === "accepted") return refusal;
+  if (following === "pending") return `${refusal} Your follow request is still waiting for an answer.`;
+  return `${refusal} Some members take messages only from their followers.`;
 }
 
 /** One line for a conversation in the inbox. */

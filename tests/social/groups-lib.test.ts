@@ -14,9 +14,9 @@ const message = (id: string, at: string, extra: Partial<DirectMessage> = {}): Di
 test("message failures say what happened in plain words", () => {
   assert.equal(messageErrorText(new SocialError("social_suspended", "x", "dm")), "FITX has paused your messages for now.");
   assert.equal(messageErrorText(new SocialError("social_dm_not_allowed", "x", "pending")), "Your message request is waiting for an answer.");
-  // Release 3 (bug 19): a refused first message says what the sender can do, never the other member's setting or age
-  // (tests/social/first-message.test.ts has the cases).
-  const notTaking = "This member is not taking messages from you. If you do not follow them yet, follow them first, then try again.";
+  // Release 3 (bug 19): a refused first message says so plainly and promises nothing, never the other member's setting
+  // or age (tests/social/first-message.test.ts has the cases).
+  const notTaking = "This member is not taking messages from you. Some members take messages only from their followers.";
   assert.equal(messageErrorText({ message: "social_dm_not_allowed", code: "P0001", hint: "policy" }), notTaking);
   // What the API layer throws: a SocialError made from the database's answer keeps Explore's wording.
   const thrown = toSocialError({ message: "social_dm_not_allowed", code: "P0001", hint: "policy" });

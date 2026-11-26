@@ -16,17 +16,30 @@ test("before sending, the sheet never promises Requests: it says what happens if
   assert.doesNotMatch(note, /^If @tara\.shah does not follow you, this goes to their requests/, "the old unconditional promise is gone");
 });
 
-test("a refused first message says what the sender can do, from what the sender knows (their own follow)", () => {
+// Re-check of bug 19 on the integrated build: Ben, not following 15-year-old Tara, was told "If you follow them first,
+// you can try again." (it can never work for a teen); once following, "…right now." (as if it would pass); picked from
+// search, "follow them first, then try again". The words must hold whatever the reason, which the sender cannot know.
+test("a refused first message says plainly that it was not taken, and adds only what the sender knows for themselves", () => {
   assert.equal(messageErrorText(refused("policy"), { username: "ben.okafor", following: "none" }),
-    "@ben.okafor is not taking messages from you. If you follow them first, you can try again.");
+    "@ben.okafor is not taking messages from you. Some members take messages only from their followers.");
   assert.equal(messageErrorText(refused("policy"), { username: "ben.okafor", following: "pending" }),
-    "@ben.okafor is not taking messages from you. Once they accept your follow request, you can try again.");
+    "@ben.okafor is not taking messages from you. Your follow request is still waiting for an answer.");
   assert.equal(messageErrorText(refused("policy"), { username: "ben.okafor", following: "accepted" }),
-    "@ben.okafor is not taking messages from you right now.", "following already: no advice that cannot help");
+    "@ben.okafor is not taking messages from you.", "following already: nothing to add");
   assert.equal(messageErrorText(refused("policy"), { username: "ben.okafor" }),
-    "@ben.okafor is not taking messages from you. If you do not follow them yet, follow them first, then try again.", "picked from search: not known");
+    "@ben.okafor is not taking messages from you. Some members take messages only from their followers.", "picked from search: not known");
   assert.equal(messageErrorText(refused("policy")),
-    "This member is not taking messages from you. If you do not follow them yet, follow them first, then try again.");
+    "This member is not taking messages from you. Some members take messages only from their followers.");
+});
+
+test("no refusal promises that following, waiting or trying again will let the message through", () => {
+  for (const hint of ["policy", "age"]) {
+    for (const following of ["none", "pending", "accepted", null] as const) {
+      const text = messageErrorText(refused(hint), { username: "tara.shah", following });
+      assert.match(text, /^@tara\.shah is not taking messages from you\./, `${hint}/${String(following)}: says it plainly first`);
+      assert.doesNotMatch(text, /try again|right now|once they|then you can|you can message|will (go|reach)|follow them first/i, `${hint}/${String(following)}: ${text}`);
+    }
+  }
 });
 
 test("a teen's refusal ('age') reads exactly like a setting's ('policy'): nothing reveals an age band or a setting", () => {
@@ -37,7 +50,9 @@ test("a teen's refusal ('age') reads exactly like a setting's ('policy'): nothin
     assert.doesNotMatch(age, /\b(age|aged|teen|18|adult|under|setting|followers only|blocked)\b/i, String(following));
   }
   // Ben followed 15-year-old Tara and was refused ("age"): he reads the same words as for an adult who takes no messages.
-  assert.equal(messageErrorText(refused("age"), { username: "tara.shah", following: "accepted" }), "@tara.shah is not taking messages from you right now.");
+  assert.equal(messageErrorText(refused("age"), { username: "tara.shah", following: "accepted" }), "@tara.shah is not taking messages from you.");
+  assert.equal(messageErrorText(refused("age"), { username: "tara.shah", following: "none" }),
+    "@tara.shah is not taking messages from you. Some members take messages only from their followers.");
 });
 
 test("the other refusals keep their own words", () => {
