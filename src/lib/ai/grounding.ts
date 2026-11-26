@@ -14,6 +14,8 @@ import { round1 } from "./validate";
  * same data and matching rules as Nutrition search, works out the portion weight from the database's
  * own portion sizes ("3 idli" = 3 × 38 g), and scales the per-100 g values. When nothing plausible
  * matches, the model's own numbers are kept and labelled "AI estimate". No photo is ever invented.
+ * A label that leaves protein, carbs or fat blank is never planned with, so a plan's totals and checks
+ * and the foods "Add to My Food Plan" saves never hold an unknown as 0 g.
  */
 
 export type CustomFoodPayload = {
@@ -65,12 +67,16 @@ const COUNT_UNITS = new Set(["piece", "slice", "serving"]);
 
 export async function groundFood(food: ModelFood, context: GroundingContext): Promise<GroundedFood | GroundingConflict> {
   // The first plausible match is what the food most likely is. If FITX's data says that breaks the member's
-  // diet or allergies, the dish is left out rather than kept as an unchecked estimate.
+  // diet or allergies, the dish is left out rather than kept as an unchecked estimate. If its source left protein,
+  // carbs or fat blank (an Open Food Facts label, a USDA record without the nutrient), that source is passed over:
+  // the blank would be planned, added up, checked and saved to My foods as 0 g. The next source answers instead,
+  // with every value: FITX's own food data first, then USDA, then the coach's own estimate, labelled so.
   const pick = (matches: readonly CatalogueFood[]): GroundedFood | GroundingConflict | null => {
     const match = matches.find((candidate) => plausible(candidate, food));
     if (!match) return null;
     const conflict = foodConflict(`${match.name} ${match.brand ?? ""}`, context.diet, context.allergies);
-    return conflict ? { conflict, name: food.name } : fromMatch(food, match);
+    if (conflict) return { conflict, name: food.name };
+    return hasEveryValue(match) ? fromMatch(food, match) : null;
   };
 
   if (food.brand && context.live?.openFoodFacts) {
@@ -268,6 +274,11 @@ function wordLists(food: ModelFood): string[][] {
   add(parseFoodQuery(food.name).words);
   add(search.filter((word) => !DESCRIPTORS.has(word)));
   return lists;
+}
+
+/** The match's source gave protein, carbs and fat (a blank one is unknown, never 0 g). */
+function hasEveryValue(match: CatalogueFood): boolean {
+  return !match.missing?.length;
 }
 
 /** Rejects matches whose energy density is far from the coach's estimate (rice flour for cooked rice). */

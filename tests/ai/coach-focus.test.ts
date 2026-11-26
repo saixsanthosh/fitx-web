@@ -48,9 +48,10 @@ describe("announcements", () => {
 
   test("one live region, at the same place in the coach, consent and paused views", () => {
     const app = source("CoachApp.tsx");
-    // (The streaming reply has its own region; announcements have exactly one.)
-    assert.equal(app.match(/<p className="sr-only" aria-live="polite">/g)?.length, 1);
-    assert.match(app, /const live = <p className="sr-only" aria-live="polite">\{announcementText\(announcement\.text, announcement\.count\)\}<\/p>;/);
+    // (The streaming reply has its own region; announcements have one on the page, and one inside the history drawer,
+    // which is modal: see coach-dialog-announcements.test.ts.)
+    assert.equal(app.match(/<p className="sr-only" aria-live="polite">/g)?.length, 2);
+    assert.match(app, /const live = <p className="sr-only" aria-live="polite">\{liveRegionText\(announcement, "page"\)\}<\/p>;/);
     assert.equal(app.match(/\n\s+\{live\}\n/g)?.length, 3, "after each view, as its second child");
     assert.doesNotMatch(app, /setAnnouncement\("/, "every announcement goes through announce()");
   });
@@ -175,7 +176,7 @@ describe("the same mistake elsewhere in the coach", () => {
 
   test("the paused page's coach settings read the same words twice too (review round)", () => {
     const paused = source("CoachPausedControls.tsx");
-    assert.match(paused, /role="status" aria-live="polite">\{announcementText\(announcement\.text, announcement\.count\)\}<\/p>/);
+    assert.match(paused, /role="status" aria-live="polite">\{liveRegionText\(announcement, "page"\)\}<\/p>/);
     assert.match(paused, /announce\("Your coach data was deleted\."\);/);
     assert.doesNotMatch(paused, /setAnnouncement\("/, "every announcement goes through announce()");
   });

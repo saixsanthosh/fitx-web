@@ -19,7 +19,10 @@ import { ReadAloudToggle, VoiceButton, useReadAloud } from "./CoachVoice";
 import { ConsentPanel } from "./ConsentPanel";
 import { ConsentRenewal } from "./ConsentRenewal";
 import { ConversationList } from "./ConversationList";
-import { UNAVAILABLE_STATES as UNAVAILABLE, announcementText, focusAfterDelete, settingsReachable, statusAfterDelete } from "./focus-rules";
+import {
+  NO_ANNOUNCEMENT, UNAVAILABLE_STATES as UNAVAILABLE, focusAfterDelete, liveRegionText, nextAnnouncement, readablePlace, settingsReachable, settleAnnouncement,
+  statusAfterDelete, type Announcement,
+} from "./focus-rules";
 import { formatResetTime } from "./format";
 import type { PlanActions } from "./MealPlanCard";
 import { MessageView } from "./MessageView";
@@ -28,6 +31,8 @@ import styles from "./Coach.module.css";
 
 type Pending = { task: ComposerMode; status: string | null; text: string };
 type Problem = { message: string; retryAt?: string };
+/** A conversation whose delete failed: its row stays, with the message under it. */
+type RowProblem = { id: string; message: string };
 
 /**
  * variant "page": the AI Coach page (conversation rail on wide screens, the window scrolls).
@@ -53,9 +58,18 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   const [loadingThread, setLoadingThread] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // The page's one polite live region, kept in place across the coach, consent and paused views (see the return).
-  const [announcement, setAnnouncement] = useState({ text: "", count: 0 });
-  const announce = useCallback((text: string) => setAnnouncement((old) => ({ text, count: old.count + 1 })), []);
+  const [rowProblem, setRowProblem] = useState<RowProblem | null>(null);
+  // The page's one polite live region is kept in place across the coach, consent and paused views (see the return).
+  // While Coach settings or the history drawer is open the page behind is inert, so an announcement made then is read
+  // in that dialog's own region (settleAnnouncement, below).
+  const [announcement, setAnnouncement] = useState<Announcement>(NO_ANNOUNCEMENT);
+  const announce = useCallback((text: string) => setAnnouncement((old) => nextAnnouncement(old, text)), []);
+  // A failed delete's message stays only while the list it was shown in is the one in use.
+  const showHistory = useCallback((open: boolean) => {
+    setHistoryOpen(open);
+    setRowProblem(null);
+  }, []);
+  const closeHistory = useCallback(() => showHistory(false), [showHistory]);
   // A screen that replaces the coach (the consent screen, or the paused one) takes focus on its heading, and so does the
   // paused screen when its Coach settings button goes: each request is a new key (ConsentPanel, CoachUnavailable).
   const [headingFocus, setHeadingFocus] = useState(0);
@@ -143,7 +157,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     if (quota) setQuotas((old) => [...old.filter((item) => item.kind !== quota.kind), quota]);
   }
 
-  function handleFailure(error: unknown, text: string) {
+  /** `failedDelete`: the conversation whose delete failed; its message goes under its row instead of in the conversation. */
+  function handleFailure(error: unknown, text: string, failedDelete?: string) {
     if (error instanceof DOMException && error.name === "AbortError") {
       setDraft(text);
       return;
@@ -152,6 +167,8 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     if (failure.code === "consent_required") {
       focusHeading();
       setStatus((old) => ({ ...old, state: "consent" }));
+      // The history drawer goes with the coach (a failed delete inside it): it must not open again when the coach is back.
+      showHistory(false);
       // The reason may be a profile change (now under 18), so the consent screen takes its details afresh.
       void fetchStatus().then(setStatus).catch(() => {});
       return;
@@ -160,6 +177,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       // The paused screen replaces the coach and the control in use: focus goes to its heading.
       focusHeading();
       setStatus((old) => ({ ...old, state: failure.code as CoachState }));
+      showHistory(false);
       return;
     }
     // A failed send puts its words back in the message box; a failed open or delete leaves what was typed there.
@@ -171,7 +189,10 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
         : failure.code === "at_capacity"
           ? `${failure.message} Nothing was used from your limit.${when ? ` Try again after ${when}.` : " Please try again."}`
           : failure.message;
-    setProblem({ message, retryAt: failure.retryAt });
+    // The row stays, so its message goes under it, in the list the member used: in the history drawer, which is modal,
+    // the conversation's alert behind it would be neither seen nor heard (BRIEF-3 D6).
+    if (failedDelete) setRowProblem({ id: failedDelete, message: `Couldn't delete this conversation. ${message}` });
+    else setProblem({ message, retryAt: failure.retryAt });
   }
 
   async function send(spoken?: string) {
@@ -248,7 +269,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   async function openThread(id: string, { quiet = false }: { quiet?: boolean } = {}) {
     if (!quiet) setLoadingThread(true);
     setProblem(null);
-    setHistoryOpen(false);
+    showHistory(false);
     try {
       const view = await fetchThread(id);
       setThreadId(view.thread.id);
@@ -269,7 +290,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     setActionStates({});
     setSwaps({});
     setProblem(null);
-    setHistoryOpen(false);
+    showHistory(false);
   }
 
   /**
@@ -278,10 +299,11 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
    */
   async function removeThread(thread: CoachThreadSummary, list: HTMLElement | null) {
     if (!window.confirm(`Delete “${thread.title}”? This can't be undone. Foods and workouts you added stay.`)) return;
+    setRowProblem(null);
     try {
       await deleteThread(thread.id);
       const target = focusAfterDelete(threads.map((item) => item.id), thread.id);
-      // Committed at once, so the row is gone and its replacement is there to focus.
+      // Committed at once: the row is gone, its replacement is there to focus, and a drawer this closes is closed.
       flushSync(() => {
         setThreads((old) => old.filter((item) => item.id !== thread.id));
         if (thread.id === threadId) newConversation();
@@ -290,7 +312,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       next?.focus();
       announce(`Deleted “${thread.title}”.`);
     } catch (error) {
-      handleFailure(error, "");
+      handleFailure(error, "", thread.id);
     }
   }
 
@@ -340,6 +362,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
       minor={status.minor}
       ageMissing={status.ageMissing}
       providers={status.providers}
+      status={liveRegionText(announcement, "settings")}
       onShareChange={(share) => {
         setShareData(share);
         // Replies written from the member's data are not sent again once sharing is off (the server leaves
@@ -352,7 +375,9 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           : "Questions only: the coach no longer gets your logs or profile, only your questions and what its safety rules need, such as the lowest daily calories it may suggest. Your next message starts a new conversation.");
       }}
       onDeleted={() => {
-        setSettingsOpen(false);
+        // Closed at once (its effect runs inside flushSync), so the page behind is no longer inert when the result is
+        // announced on it below.
+        flushSync(() => setSettingsOpen(false));
         newConversation();
         setThreads([]);
         setShareData(false);
@@ -373,13 +398,22 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
     />
   );
 
+  // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
+  const hasCoachData = settingsReachable(status, threads.length);
+  const coachShown = !UNAVAILABLE.has(status.state) && status.state !== "consent";
+  // A new announcement is read where it can be: in the dialog this view has open (the page behind a modal dialog is
+  // inert), else on the page; one left in a dialog that has closed is dropped (settleAnnouncement).
+  const settled = settleAnnouncement(announcement, readablePlace({
+    settings: settingsOpen && (coachShown || (UNAVAILABLE.has(status.state) && hasCoachData)),
+    history: historyOpen && coachShown,
+  }));
+  if (settled !== announcement) setAnnouncement(settled);
+
   // One polite live region, at the same place in every view, so an announcement made as the view changes (the
   // consent screen replacing the coach) is still read, and the same words twice are read twice (announcementText).
-  const live = <p className="sr-only" aria-live="polite">{announcementText(announcement.text, announcement.count)}</p>;
+  const live = <p className="sr-only" aria-live="polite">{liveRegionText(announcement, "page")}</p>;
 
   if (UNAVAILABLE.has(status.state)) {
-    // Paused or not set up: a member who used the coach can still change sharing or delete their coach data.
-    const hasCoachData = settingsReachable(status, threads.length);
     return (
       <>
         <>
@@ -437,7 +471,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
   }
 
   const list = (
-    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread, list) => void removeThread(thread, list)} busy={busy} />
+    <ConversationList threads={threads} activeId={threadId} onOpen={(id) => void openThread(id)} onNew={newConversation} onDelete={(thread, list) => void removeThread(thread, list)} busy={busy} problem={rowProblem} />
   );
 
   return (
@@ -464,7 +498,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
             </p>
             <div className={styles.tools}>
               <ReadAloudToggle readAloud={readAloud} />
-              <button type="button" onClick={() => setHistoryOpen(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
+              <button type="button" onClick={() => showHistory(true)} className={cn("inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-medium text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
                 <History size={17} aria-hidden="true" /><span className="sr-only sm:not-sr-only">History</span>
               </button>
               <button type="button" onClick={newConversation} disabled={busy} aria-label="New conversation" className={cn("grid h-11 w-11 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text", !inPanel && "lg:hidden")}>
@@ -589,7 +623,7 @@ export function CoachApp({ initialStatus, variant = "page", prompt: openWith }: 
           </div>
         </div>
 
-        <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} closeWhenWide={!inPanel}>{list}</HistoryDrawer>
+        <HistoryDrawer open={historyOpen} onClose={closeHistory} closeWhenWide={!inPanel} status={liveRegionText(announcement, "history")}>{list}</HistoryDrawer>
 
         {settings}
       </div>
@@ -612,9 +646,10 @@ function quotaText(quota: CoachQuota, noun: "messages" | "plans", nextAt: string
 
 /**
  * Conversations on phones and tablets: a native modal dialog, so focus moves into it, Tab stays inside,
- * Escape closes it and focus returns to the History button.
+ * Escape closes it and focus returns to the History button. `status`: what the page announces while it is open
+ * (the page behind it is inert), read from the drawer's own live region.
  */
-function HistoryDrawer({ open, onClose, closeWhenWide, children }: { open: boolean; onClose: () => void; closeWhenWide: boolean; children: ReactNode }) {
+function HistoryDrawer({ open, onClose, closeWhenWide, status, children }: { open: boolean; onClose: () => void; closeWhenWide: boolean; status: string; children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -655,6 +690,7 @@ function HistoryDrawer({ open, onClose, closeWhenWide, children }: { open: boole
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        <p className="sr-only" aria-live="polite">{status}</p>
       </div>
     </dialog>
   );

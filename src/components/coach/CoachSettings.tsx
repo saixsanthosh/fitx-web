@@ -17,6 +17,7 @@ export function CoachSettings({
   onShareChange,
   onDeleted,
   canTurnOn = true,
+  status = "",
 }: {
   open: boolean;
   onClose: () => void;
@@ -29,6 +30,11 @@ export function CoachSettings({
   onDeleted: () => void;
   /** false while the coach is paused: sharing can be turned off there, but turning it on waits for the coach's consent screen. */
   canTurnOn?: boolean;
+  /**
+   * What the page announces while this dialog is open ("Questions only: …" after the switch), read from the dialog's
+   * own live region: the dialog is modal, so a region on the page behind it is inert and never read (BRIEF-3 D6).
+   */
+  status?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [saving, setSaving] = useState(false);
@@ -36,7 +42,8 @@ export function CoachSettings({
   const mayShare = !minor && !ageMissing && (canTurnOn || shareData);
   const on = shareData && mayShare;
   const [confirming, setConfirming] = useState(false);
-  const [error, setError] = useState("");
+  // Shown next to the control that failed: under the switch, or under the delete buttons (BRIEF-3 D6).
+  const [error, setError] = useState<{ text: string; at: "share" | "delete" } | null>(null);
   const askId = useId();
   const shareTextId = useId();
   const deleteButton = useRef<HTMLButtonElement>(null);
@@ -67,12 +74,12 @@ export function CoachSettings({
     // keyboard focus in Chrome.
     if (saving || !mayShare) return;
     setSaving(true);
-    setError("");
+    setError(null);
     try {
       const result = await saveConsent(!shareData);
       onShareChange(result.consent.shareData);
     } catch (caught) {
-      setError(caught instanceof CoachRequestError ? caught.message : "Couldn't change this. Please try again.");
+      setError({ text: caught instanceof CoachRequestError ? caught.message : "Couldn't change this. Please try again.", at: "share" });
     } finally {
       setSaving(false);
     }
@@ -81,13 +88,13 @@ export function CoachSettings({
   async function deleteAll() {
     if (saving) return;
     setSaving(true);
-    setError("");
+    setError(null);
     try {
       await deleteCoachData();
       setConfirming(false);
       onDeleted();
     } catch (caught) {
-      setError(caught instanceof CoachRequestError ? caught.message : "Couldn't delete your coach data. Please try again.");
+      setError({ text: caught instanceof CoachRequestError ? caught.message : "Couldn't delete your coach data. Please try again.", at: "delete" });
     } finally {
       setSaving(false);
     }
@@ -142,6 +149,9 @@ export function CoachSettings({
               <span aria-hidden="true" className={`absolute top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-fitx-surface shadow transition-all ${on ? "left-[30px]" : "left-[8px]"}`} />
             </button>
           </div>
+          {/* Always here, so what the switch did is read inside the dialog; the switch and its text show it. */}
+          <p className="sr-only" aria-live="polite">{status}</p>
+          {error?.at === "share" && <p role="alert" className="fitx-alert fitx-alert-danger mt-3">{error.text}</p>}
         </section>
 
         {providers.length > 0 && (
@@ -175,8 +185,8 @@ export function CoachSettings({
           ) : (
             <button ref={deleteButton} type="button" onClick={askToDelete} className="fitx-button fitx-button-danger mt-3">Delete my coach data</button>
           )}
+          {error?.at === "delete" && <p role="alert" className="fitx-alert fitx-alert-danger mt-3">{error.text}</p>}
         </section>
-        {error && <p role="alert" className="fitx-alert fitx-alert-danger">{error}</p>}
       </div>
     </dialog>
   );

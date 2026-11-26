@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIMITATION_OPTIONS, MAX_CUSTOM_LIMITATIONS, MAX_LIMITATION_LENGTH, NUTRITION_FOCUS_OPTIONS, normalizeDietType, optionLabel, profileAge, type FoodSource, type NutritionFocus } from "@/lib/domain/profile-options";
 import { normalizePreferences, normalizeProfile, targetsFor } from "@/lib/domain/user-context";
-import { CLOCK_SKEW_MS } from "@/lib/activity/future";
+import { CLOCK_SKEW_MS, startsInFuture } from "@/lib/activity/future";
 import { clientMetricForUnit } from "@/lib/domain/goals";
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { survivingExerciseId } from "@/lib/training/exercise-merges";
@@ -368,7 +368,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
     nutrition: nutritionSummary(sources.meals, today),
     my_custom_foods: shortList(sources.customFoods.map((food) => food.name), 15, 40),
     weight_trend: weightTrend(sources.weighIns, today),
-    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, daysPerWeek),
+    training_last_28_days: trainingSummary(sources.sessions, sources.recentMuscles, today, daysPerWeek, timeZone),
     personal_records: sources.records
       .filter((record) => cleanText(record.exercise_name, 60))
       .slice(0, 8)
@@ -376,7 +376,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
         exercise: cleanText(record.exercise_name, 60),
         best: positive(record.best_weight_kg) ? `${round1(Number(record.best_weight_kg))} kg x ${integer(record.best_reps, 1, 500) ?? 1}` : `${integer(record.best_reps, 1, 500) ?? 1} reps`,
         estimated_1rm_kg: positive(record.estimated_one_rep_max),
-        date: dateOnly(record.achieved_at),
+        date: memberDay(record.achieved_at, timeZone),
       })),
     active_goals: sources.goals
       .filter((goalRow) => cleanText(goalRow.title, 80))
@@ -391,7 +391,7 @@ export function buildCoachContext(sources: ContextSources, now = new Date(), opt
       other_events: sources.planner.filter((event) => event.event_type !== "workout").length,
     },
   };
-  if (options.activities && sources.activities) summary.activities_last_28_days = activitySummary(sources.activities, today);
+  if (options.activities && sources.activities) summary.activities_last_28_days = activitySummary(sources.activities, { today, timeZone, now });
   return { facts, summary };
 }
 
@@ -419,44 +419,85 @@ function goalProgressText(goal: ContextSources["goals"][number]): string | null 
   return `${progress !== null ? round1(progress) : "unknown"} of ${round1(Number(goal.target_value))}${unit}${PERIOD_WORDS[String(goal.period)] ?? ""}`;
 }
 
+const FOOD_VALUES = ["calories", "protein", "carbs", "fat"] as const;
+type FoodValue = (typeof FOOD_VALUES)[number];
+
+/** Logged foods' values: the known ones added up, and how many of the foods lack each value. */
+type FoodTally = { items: number; sum: Record<FoodValue, number>; without: Record<FoodValue, number> };
+type WithoutCounts = Partial<Record<`foods_without_${FoodValue}`, number>>;
+
+/**
+ * Sent with the nutrition summary whenever a logged food lacks a value, so the coach reads a total for what it is (a
+ * member's own food may leave protein, carbs and fat blank, bug 4). The same rule as Nutrition's day and History
+ * (sumKnown, buildHistory): unknown is left out and said, never counted as 0.
+ */
+export const UNKNOWN_FOOD_VALUES_NOTE =
+  "Foods logged without a value are left out of that value's totals and averages, never counted as 0, so those figures may be low. The foods_without_ counts (calories, protein, carbs, fat) say how many foods have no value, and a day's total is left out when none of its foods has that value.";
+
+function tallyFoods(meals: ContextSources["meals"]): FoodTally {
+  const tally: FoodTally = { items: 0, sum: { calories: 0, protein: 0, carbs: 0, fat: 0 }, without: { calories: 0, protein: 0, carbs: 0, fat: 0 } };
+  for (const meal of meals) {
+    tally.items += 1;
+    for (const key of FOOD_VALUES) {
+      if (knownNumber(meal[key])) tally.sum[key] += num(meal[key]);
+      else tally.without[key] += 1;
+    }
+  }
+  return tally;
+}
+
+/** The total of one value, or null when none of the foods has it: unknown is never sent as 0. */
+function knownTotal(tally: FoodTally, key: FoodValue, round: (value: number) => number): number | null {
+  return tally.without[key] < tally.items ? round(tally.sum[key]) : null;
+}
+
+/** `foods_without_carbs: 1` and the like, for each value some of the foods lack (their totals leave those foods out). */
+function foodsWithout(tally: FoodTally, keys: readonly FoodValue[] = FOOD_VALUES): WithoutCounts {
+  return Object.fromEntries(keys.filter((key) => tally.without[key] > 0).map((key) => [`foods_without_${key}`, tally.without[key]])) as WithoutCounts;
+}
+
 function nutritionSummary(meals: ContextSources["meals"], today: string) {
   const start = shiftDate(today, -6);
   const inWeek = meals.filter((meal) => meal.date >= start && meal.date <= today);
-  const byDay = new Map<string, Macros>();
-  for (const meal of inWeek) {
-    const total = byDay.get(meal.date) ?? { calories: 0, protein: 0, carbs: 0, fat: 0 };
-    total.calories += num(meal.calories);
-    total.protein += num(meal.protein);
-    total.carbs += num(meal.carbs);
-    total.fat += num(meal.fat);
-    byDay.set(meal.date, total);
-  }
-  const logged = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const average = logged.length
-    ? {
-        calories: Math.round(logged.reduce((sum, [, day]) => sum + day.calories, 0) / logged.length),
-        protein: round1(logged.reduce((sum, [, day]) => sum + day.protein, 0) / logged.length),
-        carbs: round1(logged.reduce((sum, [, day]) => sum + day.carbs, 0) / logged.length),
-        fat: round1(logged.reduce((sum, [, day]) => sum + day.fat, 0) / logged.length),
-      }
-    : null;
-  const todayTotal = byDay.get(today);
-  // A food logged without a calorie or protein value is left out of the totals, and the summary says how many.
-  const missing = (field: "calories" | "protein") => inWeek.filter((meal) => meal[field] === null || meal[field] === undefined).length;
+  const dates = [...new Set(inWeek.map((meal) => meal.date))].sort((a, b) => a.localeCompare(b));
+  const days = dates.map((date) => ({ date, tally: tallyFoods(inWeek.filter((meal) => meal.date === date)) }));
+  // A value's average counts the logged days on which at least one food has it, as Nutrition's History does: a day with
+  // no value at all is left out of that average, never averaged as 0.
+  const average = (key: FoodValue, round: (value: number) => number) => {
+    const known = days.map((day) => knownTotal(day.tally, key, (value) => value)).filter((value): value is number => value !== null);
+    return known.length ? round(known.reduce((sum, value) => sum + value, 0) / known.length) : null;
+  };
+  const todayTally = days.find((day) => day.date === today)?.tally;
+  // A food logged without a value is left out of that value's totals, and the summary says how many (week, day, today).
+  const week = tallyFoods(inWeek);
   const counts = new Map<string, number>();
   for (const meal of inWeek) {
     const name = cleanText(meal.food_name, 40);
     if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return {
-    days_logged_last_7: logged.length,
-    average_per_logged_day: average,
-    by_day: logged.map(([date, day]) => ({ date, kcal: Math.round(day.calories), protein_g: round1(day.protein) })),
-    today: todayTotal
-      ? { kcal: Math.round(todayTotal.calories), protein_g: round1(todayTotal.protein), carbs_g: round1(todayTotal.carbs), fat_g: round1(todayTotal.fat), items_logged: inWeek.filter((meal) => meal.date === today).length }
+    days_logged_last_7: days.length,
+    average_per_logged_day: days.length
+      ? compact({ calories: average("calories", Math.round), protein: average("protein", round1), carbs: average("carbs", round1), fat: average("fat", round1) })
+      : null,
+    by_day: days.map(({ date, tally }) => compact({
+      date,
+      kcal: knownTotal(tally, "calories", Math.round),
+      protein_g: knownTotal(tally, "protein", round1),
+      ...foodsWithout(tally, ["calories", "protein"]),
+    })),
+    today: todayTally
+      ? compact({
+          kcal: knownTotal(todayTally, "calories", Math.round),
+          protein_g: knownTotal(todayTally, "protein", round1),
+          carbs_g: knownTotal(todayTally, "carbs", round1),
+          fat_g: knownTotal(todayTally, "fat", round1),
+          items_logged: todayTally.items,
+          ...foodsWithout(todayTally),
+        })
       : { items_logged: 0 },
-    ...(missing("calories") ? { foods_without_calories: missing("calories") } : {}),
-    ...(missing("protein") ? { foods_without_protein: missing("protein") } : {}),
+    ...foodsWithout(week),
+    ...(FOOD_VALUES.some((key) => week.without[key] > 0) ? { unknown_values: UNKNOWN_FOOD_VALUES_NOTE } : {}),
     most_logged_foods: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name]) => name),
   };
 }
@@ -473,11 +514,12 @@ function weightTrend(entries: ContextSources["weighIns"], today: string) {
   return compact({ latest_kg: round1(Number(latest.weight)), latest_date: latest.date, change_30_days_kg: changeSince(30), change_90_days_kg: changeSince(90), weigh_ins_90_days: valid.length });
 }
 
-function trainingSummary(sessions: ContextSources["sessions"], muscles: string[], today: string, perWeek: number | null) {
+function trainingSummary(sessions: ContextSources["sessions"], muscles: string[], today: string, perWeek: number | null, timeZone: string) {
   const completed = sessions.filter((session) => session.status === "completed");
   const weeks = [0, 0, 0, 0];
   for (const session of completed) {
-    const age = daysBetween(dateOnly(session.started_at) ?? today, today);
+    // The member's own day, as `today` is: a 5 am workout in India is today's, not yesterday's UTC date.
+    const age = daysBetween(memberDay(session.started_at, timeZone) ?? today, today);
     if (age >= 0 && age < 28) weeks[3 - Math.floor(age / 7)] += 1;
   }
   return compact({
@@ -486,7 +528,7 @@ function trainingSummary(sessions: ContextSources["sessions"], muscles: string[]
     sessions_per_week_oldest_first: weeks,
     total_minutes: Math.round(completed.reduce((sum, session) => sum + num(session.duration_seconds), 0) / 60),
     total_volume_kg: Math.round(completed.reduce((sum, session) => sum + num(session.total_volume), 0)),
-    last_session: completed[0] ? dateOnly(completed[0].started_at) : null,
+    last_session: completed[0] ? memberDay(completed[0].started_at, timeZone) : null,
     muscles_trained_last_7_days: muscles.slice(0, 12),
   });
 }
@@ -494,8 +536,15 @@ function trainingSummary(sessions: ContextSources["sessions"], muscles: string[]
 /**
  * Activities of the last 28 days per sport: how many, distance (km, one decimal) and moving time (minutes), plus the
  * newest date. Distances are only summed when every activity of that sport has one (unknown is never 0).
+ *
+ * Only activities that have started count (lib/activity/future.ts, a few minutes of clock difference allowed): one a
+ * watch with the wrong clock dated in the future is in no total until then, as on Activity, Progress, Home and goals
+ * (bug 7). loadContextSources' query stops there too; this keeps the summary true whatever rows it is given. Dates are
+ * the member's own days, in their time zone as `today` is, so an evening walk west of UTC is not told as tomorrow's.
  */
-export function activitySummary(rows: NonNullable<ContextSources["activities"]>, today: string) {
+export function activitySummary(all: NonNullable<ContextSources["activities"]>, when: { today: string; timeZone: string; now: Date }) {
+  const { today, timeZone, now } = when;
+  const rows = all.filter((row) => !startsInFuture(Date.parse(row.started_at ?? ""), now.getTime()));
   const bySport = new Map<string, { count: number; km: number | null; minutes: number; climb_m: number | null }>();
   for (const row of rows) {
     const sport = cleanText(row.sport, 20);
@@ -509,7 +558,9 @@ export function activitySummary(rows: NonNullable<ContextSources["activities"]>,
     entry.climb_m = entry.climb_m === null || climb === null ? null : entry.climb_m + climb;
     bySport.set(sport, entry);
   }
-  const newest = rows.map((row) => dateOnly(row.started_at)).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null;
+  const newestDay = rows.map((row) => memberDay(row.started_at, timeZone)).filter((date): date is string => Boolean(date)).sort().at(-1) ?? null;
+  // A start inside the clock allowance counts as now, so it is today's even when it falls just after midnight.
+  const newest = newestDay && newestDay > today ? today : newestDay;
   return {
     count: [...bySport.values()].reduce((sum, entry) => sum + entry.count, 0),
     by_sport: Object.fromEntries([...bySport].map(([sport, entry]) => [sport, compact({
@@ -603,6 +654,17 @@ function daysBetween(from: string, to: string) {
 
 function dateOnly(value: unknown) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value) ? value.slice(0, 10) : null;
+}
+
+/**
+ * The member's own calendar day (YYYY-MM-DD) for a stored time, in their time zone as `today` is, never the UTC date
+ * the timestamp happens to start with. A bare date is already a day and is kept as it is.
+ */
+function memberDay(value: unknown, timeZone: string): string | null {
+  if (typeof value !== "string") return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? localDate(new Date(time), timeZone) : null;
 }
 
 function text(value: unknown) {

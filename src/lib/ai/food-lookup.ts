@@ -1,14 +1,16 @@
 import "server-only";
 import { gramsInLabel, inferFoodState, portionFromLabel, withCountDefault } from "@/lib/domain/food-query";
 import type { FoodPortion } from "@/lib/domain/food-query";
-import { KJ_PER_KCAL, per100gFromOpenFoodFacts } from "@/lib/domain/nutrition";
+import { KJ_PER_KCAL, MACRO_KEYS, per100gFromOpenFoodFacts } from "@/lib/domain/nutrition";
 import { BASIS, type CatalogueFood } from "./food-catalogue";
 import type { FetchLike } from "./providers/types";
 
 /**
  * Live lookups for foods the local data does not have, with the same sources and wording as the
  * Nutrition search: USDA FoodData Central (only when USDA_API_KEY is set) and Open Food Facts for
- * packaged products, which is also the only source of food photos.
+ * packaged products, which is also the only source of food photos. A protein, carbs or fat value the
+ * source leaves blank is unknown, not 0 g: it is named in `missing`, as Nutrition's own lookups do, and
+ * grounding then plans with another food that has every value.
  */
 
 const USDA_SEARCH = "https://api.nal.usda.gov/fdc/v1/foods/search";
@@ -75,13 +77,16 @@ export function fromOpenFoodFacts(item: unknown): CatalogueFood | null {
   const servingLabel = text(product.serving_size);
   const servingGrams = gramsInLabel(servingLabel);
   const image = text(product.image_front_small_url);
+  // A blank protein, carbs or fat field is held as 0 in `macros` and named in `missing` (per100gFromOpenFoodFacts).
+  const { missing, ...macros } = values;
   return {
     id: typeof product.code === "number" ? String(product.code) : text(product.code) ?? "",
     name,
     brand: text(product.brands),
     // Only Open Food Facts' own image hosts, which next.config.ts already allows.
     image: image && /^https:\/\/(images|static|world)\.openfoodfacts\.org\//.test(image) ? image : null,
-    ...values,
+    ...macros,
+    missing,
     source: "Open Food Facts",
     dataType: null,
     basis: "Package label (Open Food Facts)",
@@ -115,15 +120,19 @@ export function fromUsda(item: unknown): CatalogueFood | null {
       .map((measure) => portionFromLabel(String(measure?.disseminationText ?? ""), Number(measure?.gramWeight)))
       .filter((portion): portion is FoodPortion => portion !== null),
   );
+  // A nutrient USDA does not list is unknown, not 0 g: it is named in `missing` (as in Nutrition's usda-live.ts).
+  const macros = { protein: value("203"), carbs: value("205"), fat: value("204") };
+  const missing = MACRO_KEYS.filter((key) => macros[key] === null);
   return {
     id: String(food.fdcId),
     name,
     brand: null,
     image: null,
     calories: Math.round(calories),
-    protein: round1(value("203") ?? 0),
-    carbs: round1(value("205") ?? 0),
-    fat: round1(value("204") ?? 0),
+    protein: round1(macros.protein ?? 0),
+    carbs: round1(macros.carbs ?? 0),
+    fat: round1(macros.fat ?? 0),
+    missing,
     source: "USDA FoodData Central",
     dataType,
     basis: (dataType && BASIS[dataType]) || "USDA FoodData Central",
