@@ -7,71 +7,9 @@
 // another admin module, through `load`) and object literals' properties; whatever cannot be followed (a value from the
 // form, a database's message) is reported by its text, so the test can say what it can be.
 import ts from "typescript";
-import { parseTsx } from "./jsx-scan.mjs";
-
-const isFunctionLike = (node) => ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node);
-
-function unwrap(node) {
-  while (node && (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node) || ts.isAwaitExpression(node))) node = node.expression;
-  return node;
-}
+import { calledFunction, declarationOf, functionOf, isFunctionLike, parseTsx, returnsOf, unwrap } from "./jsx-scan.mjs";
 
 const lineOf = (node) => node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
-
-/** What an identifier refers to, by the scopes around it: a parameter, a local constant, a function; null for an import. */
-function declarationOf(identifier) {
-  const name = identifier.text;
-  for (let scope = identifier.parent; scope; scope = scope.parent) {
-    if (isFunctionLike(scope)) {
-      const index = scope.parameters.findIndex((parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === name);
-      if (index >= 0) return { kind: "parameter", fn: scope, index, node: scope.parameters[index] };
-    }
-    for (const statement of scope.statements ?? []) {
-      if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) return { kind: "function", fn: statement };
-      if (!ts.isVariableStatement(statement)) continue;
-      for (const declaration of statement.declarationList.declarations) {
-        if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return { kind: "variable", node: declaration };
-        if (ts.isObjectBindingPattern(declaration.name)) {
-          const element = declaration.name.elements.find((entry) => ts.isIdentifier(entry.name) && entry.name.text === name);
-          if (element) return { kind: "binding", node: declaration, element };
-        }
-      }
-    }
-  }
-  return null;
-}
-
-/** The function a declaration names (a function, or a constant holding an arrow function), or null. */
-function functionOf(declaration) {
-  if (declaration?.kind === "function") return declaration.fn;
-  const value = declaration?.kind === "variable" ? unwrap(declaration.node.initializer) : null;
-  return value && (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) ? value : null;
-}
-
-/** A function another admin module defines under this name (a function, or a constant holding an arrow function). */
-function definedFunction(file, name) {
-  for (const statement of file?.statements ?? []) {
-    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) return statement;
-    if (!ts.isVariableStatement(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return functionOf({ kind: "variable", node: declaration });
-    }
-  }
-  return null;
-}
-
-/** The function a callee names: one in its own file, or one imported from an admin module `load` can read. */
-function calledFunction(callee, load) {
-  const local = functionOf(declarationOf(callee));
-  if (local) return local;
-  for (const statement of callee.getSourceFile().statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    const named = statement.importClause?.namedBindings;
-    const element = named && ts.isNamedImports(named) ? named.elements.find((entry) => entry.name.text === callee.text) : null;
-    if (element) return definedFunction(load(statement.moduleSpecifier.text), (element.propertyName ?? element.name).text);
-  }
-  return null;
-}
 
 const callCache = new WeakMap();
 /** Every call of this function in its own file. */
@@ -85,19 +23,6 @@ function callsOf(fn) {
   visit(fn.getSourceFile());
   callCache.set(fn, calls);
   return calls;
-}
-
-/** What a function returns: an arrow's expression, or each return statement's (not those of functions inside it). */
-function returnsOf(fn) {
-  if (ts.isArrowFunction(fn) && !ts.isBlock(fn.body)) return [fn.body];
-  const found = [];
-  const visit = (node) => {
-    if (isFunctionLike(node)) return;
-    if (ts.isReturnStatement(node) && node.expression) found.push(node.expression);
-    ts.forEachChild(node, visit);
-  };
-  ts.forEachChild(fn.body, visit);
-  return found;
 }
 
 /** A function's parameters bound to what one call passes (each argument read where the call is, with that call's own bindings). */

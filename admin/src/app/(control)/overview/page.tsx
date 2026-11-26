@@ -5,6 +5,7 @@ import { BarChart, Feed, Kpi, PageHead, Panel, ShareList, SplitBar, consoleStyle
 import { dailyAverageHint } from "@/components/console/chart-math";
 import { ModuleState } from "@/components/module-state";
 import { CountUp } from "@/components/motion/count-up";
+import { SectionCountReport } from "@/components/section-counts";
 import { ADMIN_OPS_MIGRATION } from "@/components/settings/settings-rules";
 import { METHOD_LABELS, subscriptionLabel } from "@/components/users/people-filters";
 import { hasPermission, requireAdmin } from "@/lib/admin-auth";
@@ -59,6 +60,8 @@ export default async function OverviewPage() {
 
   return (
     <div className="page-stack">
+      {/* The menu's Support badge says what the banner says, also when the operator came here from another page. */}
+      {support && <SectionCountReport href="/support" count={support.unread} at={support.countedAt} />}
       <PageHead
         eyebrow="Dashboard"
         title="Overview"

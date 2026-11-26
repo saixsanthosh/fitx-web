@@ -4,6 +4,7 @@ import { emailsFor, listSupportAssignees, usernamesFor } from "@/lib/data/member
 import { isUuid } from "@/lib/data/people";
 import { logServerError } from "@/lib/log";
 import { isMissingFunction, isMissingTable } from "@/lib/schema";
+import type { StampedCount } from "@/lib/section-counts";
 import type { SupportSummary } from "@/lib/support-banner";
 import { createAdminSupabase } from "@/lib/supabase/admin";
 import {
@@ -44,8 +45,11 @@ export type SupportInbox = {
 };
 
 export type SupportListResult =
-  /** counts: requests per status; null when that count could not be read. */
-  | { state: "ready"; rows: SupportListRow[]; counts: Record<SupportStatus, number | null>; inbox: SupportInbox; total: number; hasNext: boolean; filters: SupportFilters }
+  /**
+   * counts: requests per status; null when that count could not be read. countedAt: the server time the inbox's counts
+   * were asked for, so the menu's Support badge can tell its own older count from them (lib/section-counts.ts).
+   */
+  | { state: "ready"; rows: SupportListRow[]; counts: Record<SupportStatus, number | null>; inbox: SupportInbox; countedAt: number; total: number; hasNext: boolean; filters: SupportFilters }
   | { state: "service_key_missing" | "migration_pending" | "query_failed" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -72,6 +76,7 @@ export async function listSupportRequests(filters: SupportFilters): Promise<Supp
   const admin = createAdminSupabase();
   if (!admin) return { state: "service_key_missing" };
 
+  const countedAt = Date.now();
   const inbox = await readInbox(admin);
   if (inbox === "missing") return { state: "migration_pending" };
   if (inbox === "failed") return { state: "query_failed" };
@@ -111,6 +116,7 @@ export async function listSupportRequests(filters: SupportFilters): Promise<Supp
   return {
     state: "ready",
     inbox,
+    countedAt,
     rows: rows.map((row) => ({
       id: String(row.id),
       subject: String(row.subject),
@@ -290,36 +296,52 @@ async function readInbox(admin: AdminClient): Promise<SupportInbox | "missing" |
   return { byStatus: statusCounts(older.data), openByCategory: null, unread: null, unreadByCategory: null };
 }
 
+/** The Dashboard's summary, with the server time its counts were asked for (for the menu's Support badge). */
+export type StampedSupportSummary = SupportSummary & { countedAt: number };
+
 /**
  * The inbox's own counts for the Dashboard banner (support.view): requests per status and unread, read exactly as the
  * inbox reads them, so the two always agree. A failed read leaves every count unknown; null before the support
  * functions exist (nothing to show).
  */
-export async function getSupportSummary(): Promise<SupportSummary | null> {
+export async function getSupportSummary(): Promise<StampedSupportSummary | null> {
   await requireAdmin("support.view");
   const admin = createAdminSupabase();
   if (!admin) return null;
+  const countedAt = Date.now();
   const inbox = await readInbox(admin);
   if (inbox === "missing") return null;
-  if (inbox === "failed") return { byStatus: Object.fromEntries(SUPPORT_STATUSES.map((status) => [status, null])) as Record<SupportStatus, number | null>, unread: null };
-  return { byStatus: inbox.byStatus, unread: inbox.unread };
+  if (inbox === "failed") return { byStatus: Object.fromEntries(SUPPORT_STATUSES.map((status) => [status, null])) as Record<SupportStatus, number | null>, unread: null, countedAt };
+  return { byStatus: inbox.byStatus, unread: inbox.unread, countedAt };
 }
 
-/** Unread help requests, for the Support badge in the menu; null when unknown (no badge). */
-export async function getSupportUnread(): Promise<number | null> {
+/**
+ * Unread help requests, for the Support badge in the menu: null when unknown (no badge), with the server time the
+ * count was asked for, taken before it is read (lib/section-counts.ts).
+ */
+export async function getSupportUnread(): Promise<StampedCount> {
   await requireAdmin("support.view");
+  const at = Date.now();
   const admin = createAdminSupabase();
-  if (!admin) return null;
+  if (!admin) return { count: null, at };
   const inbox = await readInbox(admin);
-  return typeof inbox === "object" ? inbox.unread : null;
+  return { count: typeof inbox === "object" ? inbox.unread : null, at };
 }
 
-/** Marks a request read when an operator opens it (audited by the database when it was unread). */
-export async function markSupportRead(id: string): Promise<void> {
+/**
+ * Marks a request read when an operator opens it (audited by the database when it was unread). True only when this
+ * call marked it, as the database answers: it was unread and now is read. Anything else changed nothing: it was
+ * already read, it is gone, there is no data access, the database is older, or the call failed (logged).
+ */
+export async function markSupportRead(id: string): Promise<boolean> {
   const actor = await requireAdmin("support.view");
-  if (!isUuid(id)) return;
+  if (!isUuid(id)) return false;
   const admin = createAdminSupabase();
-  if (!admin) return;
-  const { error } = await admin.rpc("fitx_admin_op_support_mark_seen", { p_operator_id: actor.id, p_request_id: id });
-  if (error && !isMissingFunction(error) && error.code !== "P0002") logServerError("data.support_mark_read", error);
+  if (!admin) return false;
+  const { data, error } = await admin.rpc("fitx_admin_op_support_mark_seen", { p_operator_id: actor.id, p_request_id: id });
+  if (error) {
+    if (!isMissingFunction(error) && error.code !== "P0002") logServerError("data.support_mark_read", error);
+    return false;
+  }
+  return data === true;
 }

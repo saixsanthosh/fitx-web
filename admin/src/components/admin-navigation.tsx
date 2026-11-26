@@ -20,6 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { EASE_OUT, prefersReducedMotion } from "@/components/motion/reduced-motion";
+import { useSectionCounts } from "@/components/section-counts";
 import { ThemeSwitch } from "@/components/theme/theme-switch";
 import type { AdminTheme } from "@/components/theme/theme";
 import { currentRoute, isActiveRoute, sectionForPath, visibleSections, type AdminSection, type VisibleSection } from "./admin-sections";
@@ -47,13 +48,12 @@ const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : us
 
 /**
  * The eleven sections, numbered. A marker glides to the active section (Web Animations API, transform
- * only); sub-pages of the active section open beneath it. The server checks every page again.
+ * only); sub-pages of the active section open beneath it. The server checks every page again. Unread or
+ * waiting counts show as a badge (Support, Explore): the newest the console has (components/section-counts.tsx).
  */
-/** Unread or waiting counts by section route, shown as a badge (for example, Support). */
-export type SectionCounts = Readonly<Record<string, number>>;
-
-function SectionList({ sections, onNavigate, idPrefix, counts = {} }: { sections: VisibleSection[]; onNavigate?: () => void; idPrefix: string; counts?: SectionCounts }) {
+function SectionList({ sections, onNavigate, idPrefix }: { sections: VisibleSection[]; onNavigate?: () => void; idPrefix: string }) {
   const pathname = usePathname();
+  const counts = useSectionCounts();
   const listRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLSpanElement>(null);
   const placed = useRef<{ y: number; h: number } | null>(null);
@@ -128,13 +128,13 @@ function SectionList({ sections, onNavigate, idPrefix, counts = {} }: { sections
 }
 
 /** The rail on wide screens. */
-export function AdminNavigation({ allowed, counts }: { allowed: readonly string[]; counts?: SectionCounts }) {
+export function AdminNavigation({ allowed }: { allowed: readonly string[] }) {
   const sections = visibleSections(allowed);
-  return <nav aria-label="Sections" className={styles.railNav}><SectionList sections={sections} idPrefix="rail" counts={counts} /></nav>;
+  return <nav aria-label="Sections" className={styles.railNav}><SectionList sections={sections} idPrefix="rail" /></nav>;
 }
 
 /** The phone and tablet menu: a modal dialog (focus stays inside, Escape closes) that slides in. */
-export function MobileMenu({ allowed, counts, theme }: { allowed: readonly string[]; counts?: SectionCounts; theme: AdminTheme }) {
+export function MobileMenu({ allowed, theme }: { allowed: readonly string[]; theme: AdminTheme }) {
   const sections = visibleSections(allowed);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
@@ -190,7 +190,7 @@ export function MobileMenu({ allowed, counts, theme }: { allowed: readonly strin
             <span className={styles.drawerTitle}>FITX Admin</span>
             <button type="button" className={styles.iconButton} onClick={close} aria-label="Close menu"><X aria-hidden="true" size={20} /></button>
           </div>
-          <nav aria-label="Sections"><SectionList sections={sections} onNavigate={close} idPrefix="drawer" counts={counts} /></nav>
+          <nav aria-label="Sections"><SectionList sections={sections} onNavigate={close} idPrefix="drawer" /></nav>
           <div className={styles.drawerTheme}><ThemeSwitch initial={theme} /></div>
         </div>
       </dialog>

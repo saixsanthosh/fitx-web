@@ -28,12 +28,18 @@ function answer({ inbox = MISSING, older = MISSING }) {
   fake.handler = (call) => (call.rpc === "fitx_admin_support_inbox" ? inbox : call.rpc === "fitx_admin_support_counts" ? older : { data: null, error: null });
 }
 
+/** The summary without its stamp, which is checked here: the time its counts were asked for (menu-badge-counts.test.mjs). */
 async function readLogged() {
   const errors = [];
   const original = console.error;
   console.error = (...args) => errors.push(args.join(" "));
   try {
-    return { result: await support.getSupportSummary(), errors };
+    const before = Date.now();
+    const summary = await support.getSupportSummary();
+    if (summary === null) return { result: null, errors };
+    const { countedAt, ...result } = summary;
+    assert.ok(countedAt >= before && countedAt <= Date.now(), "the counts carry the time they were asked for");
+    return { result, errors };
   } finally {
     console.error = original;
   }
