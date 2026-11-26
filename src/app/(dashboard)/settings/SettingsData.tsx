@@ -5,8 +5,10 @@ import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import { Cookie, Download } from "lucide-react";
 import { DeleteAccount } from "@/components/account/DeleteAccount";
+import { EXPORT_STALLED, isStalled, unlessStalled } from "@/components/account/export-wait";
 import { checkSession, signInHref } from "@/components/account/session-state";
 import { countRecords, exportAccountData, exportFileName, ExportError } from "@/lib/account/export";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 import { SettingsGroup, SettingsLink } from "./SettingsParts";
 
@@ -41,26 +43,39 @@ function DownloadData() {
     const supabase = createClient();
     if (!supabase) return setState({ kind: "error", text: "Downloading isn't available right now because FITX can't reach its database." });
     setState({ kind: "working", text: "Collecting your data…" });
-    // An ended session and a check that failed (offline) are told apart, as in the Account section.
-    const { state: session, user } = await checkSession<User>(() => supabase.auth.getUser());
-    if (session === "signed_out") return setState({ kind: "signed_out", text: "Your session has ended. Sign in again to download your data." });
-    if (!user) return setState({ kind: "error", text: "We couldn't check that you're signed in, so nothing was downloaded. Check your connection and try again." });
     try {
-      const data = await exportAccountData(supabase, user, {
-        onProgress: ({ done, total, label }) => setState({ kind: "working", text: `Collecting ${inSentence(label)} (${done + 1} of ${total})…` }),
+      // Waited for while it keeps moving, however long a big account takes. Past the stall limit with nothing new it
+      // stops and says so, its requests are cancelled, and nothing is downloaded (export-wait.ts).
+      await unlessStalled(async (signal, progress) => {
+        // An ended session and a check that failed (offline) are told apart, as in the Account section.
+        const { state: session, user } = await checkSession<User>(() => supabase.auth.getUser());
+        if (signal.aborted) return;
+        if (session === "signed_out") return setState({ kind: "signed_out", text: "Your session has ended. Sign in again to download your data." });
+        if (!user) return setState({ kind: "error", text: "We couldn't check that you're signed in, so nothing was downloaded. Check your connection and try again." });
+        progress();
+        const data = await exportAccountData(withAbortSignal(supabase, signal), user, {
+          onProgress: ({ done, total, label }) => {
+            if (signal.aborted) return;
+            progress();
+            setState({ kind: "working", text: `Collecting ${inSentence(label)} (${done + 1} of ${total})…` });
+          },
+        });
+        // Finished only after it stopped waiting: nothing is downloaded, as it said.
+        if (signal.aborted) return;
+        const name = exportFileName();
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        const records = countRecords(data);
+        setState({ kind: "done", text: `Downloaded ${name}: ${records.toLocaleString("en-IN")} ${records === 1 ? "record" : "records"}${data.files.length ? ` and a list of ${data.files.length} uploaded ${data.files.length === 1 ? "image" : "images"}` : ""}.` });
       });
-      const name = exportFileName();
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      const records = countRecords(data);
-      setState({ kind: "done", text: `Downloaded ${name}: ${records.toLocaleString("en-IN")} ${records === 1 ? "record" : "records"}${data.files.length ? ` and a list of ${data.files.length} uploaded ${data.files.length === 1 ? "image" : "images"}` : ""}.` });
     } catch (error) {
+      if (isStalled(error)) return setState({ kind: "error", text: EXPORT_STALLED });
       const section = error instanceof ExportError ? inSentence(error.section) : "your data";
       setState({ kind: "error", text: `We couldn't read ${section}, so nothing was downloaded. Check your connection and try again.` });
     }
