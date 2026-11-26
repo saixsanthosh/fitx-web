@@ -7,27 +7,43 @@
  *
  * Only food-query at run time, so `node --test` loads it as it is.
  */
-import { extraPortions, isVolumeUnit, portionFromLabel, resolvePortion, unitLabel, type FoodPortion, type ParsedFoodQuery } from "@/lib/domain/food-query";
+import { extraPortions, isVolumeUnit, parseFoodQuery, portionFromLabel, resolvePortion, unitLabel, type FoodPortion, type FoodUnit, type ParsedFoodQuery } from "@/lib/domain/food-query";
 import type { FoodResult, ValueBasis } from "@/lib/food/types";
 
 const GRAMS_ONLY = /^\d+(?:\.\d+)?\s*g$/i;
+const WEIGHT_UNITS = new Set<FoodUnit>(["g", "kg", "oz", "lb"]);
 const round1 = (value: number) => Math.round(value * 10) / 10;
+
+/**
+ * Whether a saved serving's name is one of something ("Small bowl", "1 scoop"), so a bare count can mean that many
+ * servings. One that starts with another count ("2 idli", "6 biscuits", "2 biscuits (14 g)", "half cup") is not: its
+ * pieces have no weight of their own, and "3 idli" must never be 3 × a 2-idli serving (228 g for 3 idlis). Nor is a
+ * weight ("1 oz"): a weight is not a count.
+ */
+function namesOne(named: string): boolean {
+  const parsed = parseFoodQuery(named);
+  if (parsed.problem) return false;
+  if (parsed.amount === null) return true;
+  return parsed.amount === 1 && !(parsed.unit && WEIGHT_UNITS.has(parsed.unit));
+}
 
 /**
  * The saved serving as a measure. One that names a single measure counts as it: "1 item" (38 g) is a piece, "1 cup"
  * (150 g) a cup, so "2 cups" is 300 g. A cup or spoon is the member's own size (`ownSize`): nobody said it is a US cup
  * (a teacup of chai may be 150 ml), so no ml, spoon or katori is worked out from it, unless it is the very measure of
- * the catalogue food the copy came from (withSourcePortions). Another named serving ("2 biscuits") is the food's default
- * count. A serving that is only a weight ("100 g", or no name) is not a count: "3 idli" is never 3 × 100 g; the app
- * asks for grams instead. It is still what the food opens on when nothing was typed (log-sheet's openingPortion).
- * None is an estimate: the member weighed it or copied it.
+ * the catalogue food the copy came from (withSourcePortions). Another serving that names one of something ("Small
+ * bowl") is the food's default count. One that names several ("2 idli", "6 biscuits", a package's "2 biscuits (14 g)"
+ * kept by Save to My foods) or only a weight ("100 g", or no name) is not a count: "3 idli" is never 3 × 2 idli or 3 ×
+ * 100 g, and a package copied to My foods answers a count as the package does. The app asks for grams instead, or a
+ * catalogue food that weighs the count is picked with a note. It is still what the food opens on when nothing was
+ * typed (log-sheet's openingPortion). None is an estimate: the member weighed it or copied it.
  */
 export function customServingPortion(servingSize: unknown, servingGrams: unknown): FoodPortion {
   const grams = Number(servingGrams) > 0 ? Number(servingGrams) : 100;
   const named = typeof servingSize === "string" && servingSize.trim() && !GRAMS_ONLY.test(servingSize.trim()) ? servingSize.trim() : "";
   const measure = named ? portionFromLabel(named, grams) : null;
   if (measure && measure.unit !== "serving") return { label: measure.label, unit: measure.unit, grams, countDefault: true, estimate: false, ...(isVolumeUnit(measure.unit) ? { ownSize: true } : {}) };
-  if (named) return { label: `1 serving (${named}, ${round1(grams)} g)`, unit: "serving", grams, countDefault: true, estimate: false };
+  if (named) return { label: `1 serving (${named}, ${round1(grams)} g)`, unit: "serving", grams, ...(namesOne(named) ? { countDefault: true } : {}), estimate: false };
   return { label: `1 serving (${round1(grams)} g)`, unit: "serving", grams, estimate: false };
 }
 

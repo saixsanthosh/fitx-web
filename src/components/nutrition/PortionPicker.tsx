@@ -2,7 +2,7 @@
 
 import { Minus, Plus } from "lucide-react";
 import { Segmented } from "@/components/ui/Segmented";
-import { formatAmount, stepAmount, stepKindOf, volumeNote } from "@/lib/domain/food-query";
+import { formatAmount, portionName, stepAmount, stepKindOf, volumeNote } from "@/lib/domain/food-query";
 import type { FoodPortion, FoodUnit } from "@/lib/domain/food-query";
 import type { FoodMacros, MacroKey } from "@/lib/domain/nutrition";
 import { amountMode, countMode, pieceSizeLabel } from "@/lib/food/pieces";
@@ -48,7 +48,8 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
   // No ml or katori offered: why (the source has no volume measure, or the cup offered is the member's own size).
   const noVolume = volumeNote(options);
   const hasVessel = options.some((portion) => portion.vessel);
-  // Pieces only where the food's own data weighs one (USDA, the label, your saved serving); otherwise grams, and why.
+  // Pieces only where the food's own data weighs one (USDA, the label, your saved serving); otherwise its other measures
+  // or grams (or grams only, when it has no measure), and why.
   const counting = countMode(food, options);
   const entry = amountMode(unitKey, counting);
   const switchTo = (next: "pieces" | "grams" | "other") => {
@@ -71,7 +72,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
           ))}
         </div>}
       </div>}
-      {counting.kind === "grams-only" && <p className={styles.gramsOnly}>{counting.reason}</p>}
+      {(counting.kind === "grams-only" || counting.kind === "no-pieces") && <p className={styles.gramsOnly}>{counting.reason}</p>}
       <div className={styles.macroTiles} aria-label="Nutrition for this amount">
         <div>{macros ? Math.round(macros.calories) : "–"}<span>kcal</span></div>
         {MACRO_TILES.map(([key, label]) => (
@@ -90,7 +91,7 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
         </div>
         <label>Unit<select className="fitx-field" value={unitKey} onChange={(event) => onUnit(event.target.value)}>
           <option value="g">grams (g)</option>
-          {options.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portion.label} · {formatAmount(portion.grams)} g</option>)}
+          {options.map((portion, index) => <option key={`${portion.label}-${index}`} value={`portion:${index}`}>{portionName(portion)} · {formatAmount(portion.grams)} g</option>)}
         </select></label>
       </div>
       {amountProblem && <p id={problemId} role="alert" className={styles.warning}>{amountProblem}</p>}
@@ -115,8 +116,9 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
       {hasVessel && onMeasures && <button type="button" id={`${idPrefix}-measures`} className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>
+        {/* An answer ("Use 150 g") takes the question and its buttons away: the amount it set takes the focus (D5). */}
         {prompt.actions.length > 0 && <div className={styles.promptActions}>
-          {prompt.actions.map((action) => <button key={action.label} type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={action.run}>{action.label}</button>)}
+          {prompt.actions.map((action) => <button key={action.label} type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={() => { action.run(); document.getElementById(`${idPrefix}-amount`)?.focus(); }}>{action.label}</button>)}
         </div>}
       </div>}
     </>

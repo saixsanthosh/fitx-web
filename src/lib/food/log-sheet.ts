@@ -1,7 +1,7 @@
 /**
  * Decisions of the Log food sheet, kept out of the page so `node --test` can check them: the amount check shown next
- * to the amount (only while it is wrong), the start view the sheet opens on and goes back to, and what a barcode
- * lookup that found no usable product says and offers.
+ * to the amount (only while it is wrong), the start view the sheet opens on and goes back to, what a barcode lookup
+ * that found no usable product says and offers, and where the focus goes when the panel and the list swap places.
  */
 import { parseFoodQuery, type FoodPortion, type ParsedFoodQuery } from "@/lib/domain/food-query";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
@@ -109,6 +109,29 @@ export function barcodeMissText(miss: BarcodeMiss): { text: string; retry: boole
     ? `Open Food Facts knows ${miss.code}${miss.name ? ` (“${miss.name}”)` : ""} but has no nutrition label for it. Nothing was guessed.`
     : `No product with barcode ${miss.code} on Open Food Facts. Nothing was guessed.`;
   return { text, retry: false, addToOpenFoodFacts: true };
+}
+
+/** Where a food in the sheet's lists was picked from, so the same entry can take the focus again. */
+export type FoodCardList = "frequent" | "recent" | "result";
+
+/** The `data-food-card` of one entry of the sheet's lists: unique in the sheet, also for a food both Recent and the results list. */
+export function foodCardKey(list: FoodCardList, id: string, source = ""): string {
+  return list === "frequent" ? `frequent:${id}` : `${list}:${source}:${id}`;
+}
+
+/**
+ * Where the focus goes when the Add to log panel and the list take each other's place in the open sheet (D5), as
+ * selectors, the first one found taking it. The control pressed goes with what it was in (a food in the list, the
+ * search box or example whose search picked a food, Back to results, a button the new answer no longer offers), so the
+ * focus would fall to the page. With the panel open: its heading, "Add to log" (not the amount box, so a phone doesn't
+ * open its keyboard over the panel each time a food is tapped). Back on the list: the food just left, when it was
+ * picked from the list or by the search (`from`, its data-food-card); else the search box; after a barcode lookup, the
+ * barcode box. `escape` makes `from` safe inside the selector (CSS.escape in the page).
+ */
+export function swapFocusTargets(view: { panel: boolean; mode: "search" | "barcode"; from: string | null }, escape: (value: string) => string = (value) => value): string[] {
+  if (view.panel) return ["#add-title"];
+  if (view.mode === "barcode") return ["#barcode-number"];
+  return [...(view.from ? [`[data-food-card="${escape(view.from)}"]`] : []), "#log-search"];
 }
 
 /**

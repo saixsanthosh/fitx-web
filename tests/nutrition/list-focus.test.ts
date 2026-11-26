@@ -39,7 +39,7 @@ test("the page hands the focus on after every reload of the day, My foods or Rou
   const effect = between("const targets = reloadFocusTargets(", "/** \"Type the number\"");
   assert.match(effect, /reloadFocusTargets\(pendingFocus\.current, focusIfLost\.current, focusFellToPage\(document\.activeElement, document\.body\)\)/);
   assert.match(effect, /focusIfLost\.current = null;/, "used once, never by a later reload");
-  assert.match(between("const fail = (message: string) => {", "};"), /pendingFocus\.current = null;\s*focusIfLost\.current = null;/, "nor after a failed one");
+  assert.match(between("const fail = (message: string | SessionProblem) => {", "};"), /pendingFocus\.current = null;\s*focusIfLost\.current = null;/, "nor after a failed one");
   assert.match(effect, /\}, \[entries, customRows, templates\]\);/);
   for (const [from, to] of [["async function insertLoggedFood(", "async function addUsual("], ["async function addUsual(", "function chooseFrequent("]]) {
     assert.match(between(from, to), /focusIfLost\.current = \[\.\.\.\(ids\[0\] \? \[`\[data-entry-edit="\$\{ids\[0\]\}"\]`\] : \[\]\), "#meals-title"\];/, from);

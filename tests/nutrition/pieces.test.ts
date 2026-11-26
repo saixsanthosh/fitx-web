@@ -64,7 +64,8 @@ test("containers are never a piece", () => {
   const curd: FoodPortion[] = [{ label: "1 6 oz container", unit: "piece", grams: 170 }, { label: "1 cup", unit: "cup", grams: 245 }];
   assert.equal(isPiecePortion(curd[0]), false);
   assert.equal(countMode({ name: "Yogurt, plain" }, curd).kind, "none");
-  assert.equal(countMode({ name: "Cookies, plain" }, [{ label: "1 pack", unit: "piece", grams: 120 }]).kind, "grams-only");
+  // A pack is still a measure the member can log, so the line says so instead of "Grams only" (fix round 3a).
+  assert.equal(countMode({ name: "Cookies, plain" }, [{ label: "1 pack", unit: "piece", grams: 120 }]).kind, "no-pieces");
 });
 
 test("the reason and the source name where the weight comes from", () => {

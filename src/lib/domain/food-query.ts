@@ -359,9 +359,27 @@ export function amountAfterUnitChange(
   return to ? 1 : 100;
 }
 
-/** "3 × 1 item (114 g)", for the meal log. */
+const WEIGHT_IN_BRACKETS = /\s*\((\d+(?:[.,]\d+)?)\s*(?:g|gm|gms|gr|gram|grams)\)/gi;
+const WEIGHT_BEFORE_BRACKET = /(?:,\s*|\s+)(\d+(?:[.,]\d+)?)\s*(?:g|gm|gms|gr|gram|grams)(?=\))/gi;
+
+/**
+ * A measure's name without the weight it already states, for the places that show its weight beside it (the Unit
+ * list, the amount logged): "1 serving (45 g)" is "1 serving", "1 serving (2 biscuits, 14 g)" is "1 serving (2
+ * biscuits)", "1 pack (200 g)" is "1 pack". So no screen says "1 serving (45 g) · 45 g". A weight in the label that is
+ * not the measure's own stays, since it says something.
+ */
+export function portionName(portion: Pick<FoodPortion, "label" | "grams">): string {
+  const same = (weight: string) => Math.abs(Number(weight.replace(",", ".")) - portion.grams) <= 0.05;
+  const name = portion.label
+    .replace(WEIGHT_IN_BRACKETS, (match, weight: string) => (same(weight) ? "" : match))
+    .replace(WEIGHT_BEFORE_BRACKET, (match, weight: string) => (same(weight) ? "" : match))
+    .trim();
+  return name || portion.label;
+}
+
+/** "3 × 1 item (114 g)", for the meal log: the measure named once, the weight once. */
 export function describePortion(count: number, portion: FoodPortion, grams: number): string {
-  return `${formatAmount(count)} × ${portion.label} (${formatAmount(grams)} g)`;
+  return `${formatAmount(count)} × ${portionName(portion)} (${formatAmount(grams)} g)`;
 }
 
 /** The amount part of what was typed: "200 g", "1 tablespoon", "2 large", or "" when there is none. */

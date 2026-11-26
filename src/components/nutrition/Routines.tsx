@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { CalendarDays, Trash2, Utensils } from "lucide-react";
 import { type MealTemplate } from "@/lib/food/client-data";
+import { noRoutinesText, type DayActionLabels } from "@/app/(dashboard)/nutrition/day-labels";
 import styles from "./FoodUi.module.css";
 
 interface RoutinesProps {
@@ -12,6 +13,8 @@ interface RoutinesProps {
   loading: boolean;
   busy: boolean;
   dateLabel: string;
+  /** The Meals tab's day buttons as it shows them for the day viewed, so the hints name buttons that are there. */
+  labels: Pick<DayActionLabels, "saveDay">;
   /** The meal sections a saved meal can be added to: the four standard ones, then the member's own. */
   sections: readonly string[];
   onApply: (template: MealTemplate, slot: string | null) => void;
@@ -19,13 +22,13 @@ interface RoutinesProps {
 }
 
 /** Saved meals and daily routines, applied to the day shown at the top of the page. */
-export function Routines({ templates, ready, loading, busy, dateLabel, sections, onApply, onDelete }: RoutinesProps) {
+export function Routines({ templates, ready, loading, busy, dateLabel, labels, sections, onApply, onDelete }: RoutinesProps) {
   const [slots, setSlots] = useState<Record<string, string>>({});
   if (!ready) {
     return (
       <section className="fitx-panel p-4 sm:p-5">
         <h2 className="mb-2 font-medium">Saved meals and routines</h2>
-        <div className={styles.callout}><p>Saving meals and daily routines needs a database update that hasn&apos;t been applied yet. Until then you can still copy yesterday&apos;s meals from the Meals tab.</p></div>
+        <div className={styles.callout}><p>Saving meals and daily routines needs a database update that hasn&apos;t been applied yet. Until then you can still copy the meals of the day before from the Meals tab.</p></div>
       </section>
     );
   }
@@ -70,7 +73,7 @@ export function Routines({ templates, ready, loading, busy, dateLabel, sections,
       {/* Only before the first answer: a reload keeps the rows, so "Add to <day>" keeps the focus once it is added. */}
       {loading && templates.length === 0 ? <p className={styles.muted}>Loading…</p> : <>
         {group("Saved meals", meals, <Utensils size={15} className="text-fitx-primary"/>, "No saved meals yet. Save one from its bookmark on Meals.")}
-        {group("Daily routines", days, <CalendarDays size={15} className="text-fitx-primary"/>, "No routines yet. Use “Save today as a routine” on the Meals tab.")}
+        {group("Daily routines", days, <CalendarDays size={15} className="text-fitx-primary"/>, noRoutinesText(labels))}
       </>}
     </section>
   );

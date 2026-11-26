@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Check, ChevronLeft, X } from "lucide-react";
 import { Sheet } from "@/components/ui/Sheet";
 import { NUTRITION_MEDIA } from "@/data/nutrition-media";
@@ -9,7 +9,7 @@ import {
   ALLERGY_OPTIONS, DIET_OPTIONS, FOOD_RULE_OPTIONS, FOOD_SOURCE_OPTIONS, NUTRITION_FOCUS_OPTIONS,
   type AllergyKey, type DietType, type FoodRule,
 } from "@/lib/domain/profile-options";
-import { SETUP_DIETS, SETUP_STEPS, addTag, firstSetupProblem, setupProblem, type NutritionSetupAnswers } from "@/lib/food/setup";
+import { SETUP_DIETS, SETUP_STEPS, addTag, firstSetupProblem, setupProblem, tagFocusAfterRemoving, type NutritionSetupAnswers } from "@/lib/food/setup";
 import styles from "./NutritionSetup.module.css";
 
 const DIET_IMAGES: Partial<Record<DietType, keyof typeof NUTRITION_MEDIA>> = {
@@ -211,6 +211,11 @@ function SetupSteps({ mode, initial, busy, error, onSave, onLater, onClose }: {
   );
 }
 
+/**
+ * A list of typed words (other allergies, foods you dislike) with a box and Add. Neither button lets the focus fall to
+ * the page (D5): Add is only marked unavailable while there is nothing to add (aria-disabled, not disabled, so it keeps
+ * the focus once it has added the word and the box is empty again), and Remove hands the focus on before its entry goes.
+ */
 function TagInput({ label: name, values, draft, onDraft, onAdd, onRemove }: {
   label: string;
   values: readonly string[];
@@ -219,19 +224,28 @@ function TagInput({ label: name, values, draft, onDraft, onAdd, onRemove }: {
   onAdd: () => void;
   onRemove: (value: string) => void;
 }) {
+  const list = useRef<HTMLUListElement>(null);
+  const add = useRef<HTMLButtonElement>(null);
+  const empty = !draft.trim();
+  /** The next entry's Remove takes the focus, else the one before, else Add (tagFocusAfterRemoving); then the entry goes. */
+  function remove(value: string) {
+    const next = tagFocusAfterRemoving(values, value);
+    (next === "add" ? add.current : list.current?.querySelectorAll<HTMLButtonElement>("button")[next] ?? add.current)?.focus();
+    onRemove(value);
+  }
   return (
     <div className={styles.tags}>
       {values.length ? (
-        <ul className={styles.tagList}>
+        <ul ref={list} className={styles.tagList}>
           {values.map((value) => (
-            <li key={value}>{value}<button type="button" onClick={() => onRemove(value)} aria-label={`Remove ${value}`}><X size={13} aria-hidden="true" /></button></li>
+            <li key={value}>{value}<button type="button" onClick={() => remove(value)} aria-label={`Remove ${value}`}><X size={13} aria-hidden="true" /></button></li>
           ))}
         </ul>
       ) : null}
       <div className={styles.tagRow}>
         <input className="fitx-field" value={draft} onChange={(event) => onDraft(event.target.value)} aria-label={name} placeholder={name}
           onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); if (draft.trim()) onAdd(); } }} />
-        <button type="button" className="fitx-button fitx-button-secondary" disabled={!draft.trim()} onClick={onAdd}>Add</button>
+        <button ref={add} type="button" className="fitx-button fitx-button-secondary" aria-disabled={empty || undefined} onClick={() => { if (!empty) onAdd(); }}>Add</button>
       </div>
     </div>
   );

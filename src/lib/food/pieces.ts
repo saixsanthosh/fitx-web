@@ -31,8 +31,14 @@ export function isPiecePortion(portion: Pick<FoodPortion, "unit" | "label" | "gr
 export type CountMode =
   /** Pieces can be counted: `indices` point into the options list, `preferred` is the size a count starts on. */
   | { kind: "pieces"; indices: number[]; preferred: number }
-  /** A food people count, with no sourced piece weight: grams only, and why. */
+  /** A food people count, with no sourced piece weight and no measure at all: grams only, and why. */
   | { kind: "grams-only"; reason: string }
+  /**
+   * A food people count, with no sourced piece weight but other measures (your serving, a label's serving or pack, a
+   * cup): it is logged by those or in grams, never by the piece, and the line says why. Never "Grams only" while the
+   * sheet offers a serving, which is where a food of your own with a weight-only serving opens.
+   */
+  | { kind: "no-pieces"; reason: string }
   /** Not a counted food and no piece weight: nothing to say. */
   | { kind: "none" };
 
@@ -47,15 +53,23 @@ export function countMode(food: { name: string; kind?: string; source?: string }
     return { kind: "pieces", indices, preferred };
   }
   if (!isCountableName(food.name)) return { kind: "none" };
+  if (options.length) return { kind: "no-pieces", reason: notByPieceReason(food) };
   return { kind: "grams-only", reason: noPieceReason(food) };
 }
 
-/** One line on why a counted food can only be logged in grams. */
+/** One line on why a counted food with no measure at all can only be logged in grams. */
 export function noPieceReason(food: { kind?: string; source?: string }): string {
   // A saved serving that names one piece ("1 idli", 45 g) is the piece weight (src/lib/food/saved-foods.ts).
   if (food.kind === "custom") return "Grams only: your food has no piece weight saved. To count it, edit it and set its serving to one piece, such as “1 idli”, with that piece's weight.";
   if (food.source === "Open Food Facts") return "Grams only: the package label gives no weight per piece.";
   return "Grams only: the source data has no weight per piece, and FITX won't guess one.";
+}
+
+/** One line on why a counted food that has other measures (a serving, a pack, a cup) is not counted by the piece. */
+export function notByPieceReason(food: { kind?: string; source?: string }): string {
+  if (food.kind === "custom") return "Logged by your serving or in grams: your food has no piece weight saved. To count it by the piece, edit it and set its serving to one piece, such as “1 idli”, with that piece's weight.";
+  if (food.source === "Open Food Facts") return "Logged by the label's measures or in grams: the package label gives no weight per piece.";
+  return "Logged by its measures or in grams: the source data has no weight per piece, and FITX won't guess one.";
 }
 
 /**

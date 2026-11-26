@@ -42,7 +42,8 @@ test("a saved serving that names one measure counts as that measure", () => {
   const plainIdli = customFoodResult(row({ id: "c-own", name: "Idli", value_basis: "user_entered" }));
   assert.equal(grams(plainIdli, "3 idli"), null, "3 idli is asked about, never 3 × 100 g");
   assert.equal(grams(plainIdli, "150 g idli"), 150);
-  assert.deepEqual(customServingPortion("2 biscuits", 25), { label: "1 serving (2 biscuits, 25 g)", unit: "serving", grams: 25, countDefault: true, estimate: false });
+  // Fix round 3a (review numbers): a serving of several pieces is not a count, or "3 biscuits" would be 3 × 2 biscuits.
+  assert.deepEqual(customServingPortion("2 biscuits", 25), { label: "1 serving (2 biscuits, 25 g)", unit: "serving", grams: 25, estimate: false });
   assert.equal(customServingPortion(null, null).grams, 100);
   const dal = customFoodResult(row({ id: "c-dal", name: "Dal", serving_size: "1 cup", serving_grams: 240, value_basis: "user_entered" }));
   assert.equal(grams(dal, "1 cup dal"), 240);

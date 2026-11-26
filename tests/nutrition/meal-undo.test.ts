@@ -28,6 +28,9 @@ test("a removed food is put back exactly as it was, for this member", () => {
   assert.deepEqual(restoreRow({ row }, "user-1"), { ...row, user_id: "user-1" });
   assert.equal(removedText({ name: "Ghee, clarified butter" }), "Removed Ghee, clarified butter.");
   assert.match(removedText({ name: "Ghee", failed: true }), /couldn't be put back\. Try Undo again/);
+  // Review a11y-copy (fix round 3a): Recent is built from logged entries, so a food logged once has left it once removed.
+  assert.equal(removedText({ name: "Ghee", failed: true }), "Ghee couldn't be put back. Try Undo again, or search for it in Log food.");
+  assert.doesNotMatch(removedText({ name: "Ghee", failed: true }), /Recent/, "never a list the food may no longer be in");
 });
 
 test("the page removes with a way back and keeps the focus, and the meal log shows the Undo in place", () => {
@@ -42,5 +45,5 @@ test("the page removes with a way back and keeps the focus, and the meal log sho
   const log = read("src/components/nutrition/MealLog.tsx");
   assert.match(log, /data-undo=\{entry\.id\}/);
   assert.match(log, /const removed = removedFoods\.filter\(\(item\) => !entries\.some\(\(entry\) => entry\.id === item\.id\)\);/, "never the row and its Undo at once");
-  assert.match(log, /aria-label=\{`Undo removing \$\{entry\.name\}`\}/);
+  assert.match(log, /aria-label=\{undoLabel\(entry\)\}/, "named \"Undo removing <food> from <meal>\" (fix round 3a)");
 });

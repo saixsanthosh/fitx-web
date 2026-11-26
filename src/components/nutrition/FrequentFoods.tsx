@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import type { FrequentFood } from "@/lib/food/client-data";
+import { foodCardKey } from "@/lib/food/log-sheet";
 import styles from "./FoodUi.module.css";
 
 /**
@@ -13,7 +14,8 @@ export function FrequentFoods({ items, meal, busy, onAdd, onChoose }: { items: r
       <p className={styles.frequentLabel}>Frequent · your last 30 days</p>
       {items.map((item) => (
         <div key={item.key} className={styles.frequentRow}>
-          <button type="button" className={styles.frequentName} onClick={() => onChoose(item)}>
+          {/* Named (data-food-card), so Back to results gives this name the focus again. */}
+          <button type="button" className={styles.frequentName} data-food-card={foodCardKey("frequent", item.key)} onClick={() => onChoose(item)}>
             <span>{item.name}</span>
             <small>{item.amountText} · {Math.round(Number(item.entry.calories))} kcal · logged {item.count} times</small>
           </button>

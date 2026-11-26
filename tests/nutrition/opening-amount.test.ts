@@ -61,7 +61,7 @@ test("a package saved to My foods opens on the label's serving it kept", () => {
 
 test("a default piece or serving still comes first; other foods open as before", () => {
   const named = customFoodResult({ ...biscuits, id: "c-named", serving_size: "2 biscuits", serving_grams: 25 });
-  assert.equal(opening(named).label, "1 serving (2 biscuits, 25 g)", "a named serving is the default count, as before");
+  assert.equal(opening(named).label, "1 serving (2 biscuits, 25 g)", "a serving of two biscuits is still what it opens on (since fix round 3a no longer the default count)");
   const oldCopy = customFoodResult({ ...biscuits, id: "c-idli", name: "Idli", serving_size: "100 g", serving_grams: 100, value_basis: "recipe_calculated", source_ref: "2708346" }, null, IDLI);
   assert.deepEqual([opening(oldCopy).label, opening(oldCopy).grams], ["1 item", 38], "an old 100 g copy of Idli opens on Idli's piece, which counts \"3 idli\"");
   assert.deepEqual([opening(IDLI).label, opening(IDLI).grams], ["1 item", 38]);

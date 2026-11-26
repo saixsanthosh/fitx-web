@@ -25,7 +25,9 @@ test("the page moves the focus only after Try again, and only when it fell to th
   assert.match(lookup, /async \(value: string, \{ retry = false \}: \{ retry\?: boolean \} = \{\}\) =>/);
   assert.match(lookup, /if \(!retry \|\| !target\) return;/);
   assert.match(lookup, /if \(document\.activeElement && document\.activeElement !== document\.body\) return;/);
-  assert.equal((lookup.match(/refocus\(focusAfterRetry\(/g) ?? []).length, 3, "a miss, a wrong number and an error");
+  assert.equal((lookup.match(/refocus\(focusAfterRetry\(/g) ?? []).length, 2, "a miss, and every failure (a wrong number, a refusal, a request that failed) through failed()");
+  assert.match(lookup, /data\.barcodeStatus === "invalid"\) \{\s*failed\(data\.error \|\| barcodeProblem\("check-digit"\)\);/, "a wrong number");
+  assert.match(lookup, /catch \{\s*if \(current\(\)\) failed\(/, "a request that failed");
   assert.match(page, /void lookupBarcode\(barcodeMiss\.code, \{ retry: true \}\); \}\}>\{busy \? "Checking…" : "Try again"\}<\/button>/);
   for (const id of ["log-barcode-create", "barcode-number"]) assert.match(page, new RegExp(`id="${id}"`), id);
 });

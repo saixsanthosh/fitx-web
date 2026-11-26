@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { toast } from "sonner";
 import Link from "next/link";
+import type { User } from "@supabase/supabase-js";
 import { ArrowLeft, ArrowRight, BookOpen, ChevronLeft, ListChecks, PackageSearch, Plus, ScanBarcode, Search } from "lucide-react";
 import { progressGoals } from "@/config/routes";
+import { checkSession, signInHref, type SessionState } from "@/components/account/session-state";
 import { BarcodeScanner } from "@/components/app/BarcodeScanner";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { DayOverview } from "@/components/nutrition/DayOverview";
@@ -36,19 +38,21 @@ import { loadBirthDate, notifyUserContextChanged } from "@/lib/domain/user-conte
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { amountAfterUnitChange, amountProblemMessage, askForGramsMessage, describePortion, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
-import { checkSectionName, mealForOpen, mealSections } from "@/lib/domain/meal-time";
+import { checkSectionName, keepSectionOrder, mealForOpen, mealSections, sameSectionOrder } from "@/lib/domain/meal-time";
 import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
 import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
 import { dietFilterFor, hiddenByDiet, type DietFilter } from "@/lib/food/diet";
-import { signedPhotoUrls, uploadFoodPhoto } from "@/lib/food/food-photos";
+import { photoNotSavedText, shrinkPhoto, signedPhotoUrls } from "@/lib/food/food-photos";
+import { askFoodSearch, unansweredText } from "@/lib/food/food-request";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
+import { dayReadProblem, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
   buildMealValues, sameMeal, clearTargets, customFoodResult, deleteTemplate, detectCapabilities, entryUpdate, foodFromEntry, frequentFromEntries, insertEntries, isEstimateSnapshot, loadCustomFoods,
-  loadRecentFoods, loadRecentMeals, loadSavedFrom, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, rowsFromItems, saveCustomFood,
+  loadRecentFoods, loadRecentMeals, loadSavedFrom, loadTargets, loadTemplates, MEAL_COLUMNS, removeCustomFood, removeCustomFoodPhoto, replaceCustomFoodPhoto, rowsFromItems, saveCustomFood,
   saveTargets, saveTemplate, sourceOf, usualAmount, withCurrentCustomFoods, type CustomFoodInput, type CustomFoodRow, type FrequentFood, type ManualTargets, type MealEntry,
   type MealTemplate, type NutritionCapabilities, type SavedFrom,
 } from "@/lib/food/client-data";
@@ -56,7 +60,7 @@ import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
 import { focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
-import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, foodCardKey, listedFoods, noSearchReason, openingPortion, startView, swapFocusTargets, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -98,6 +102,8 @@ export default function NutritionPage() {
   // The page is prerendered at build time, so the chosen day is named only after hydration (nutritionDayLabels).
   const hydrated = useHydrated();
   const [userId, setUserId] = useState<string | null>(null);
+  /** What the day's last sign-in check said (null until it answers): a save without a member says signed out only on "signed_out". */
+  const [checkedSession, setCheckedSession] = useState<SessionState | null>(null);
   const [capabilities, setCapabilities] = useState<NutritionCapabilities>(NO_CAPABILITIES);
   const [entries, setEntries] = useState<MealEntry[]>([]);
   const [customRows, setCustomRows] = useState<CustomFoodRow[]>([]);
@@ -131,6 +137,8 @@ export default function NutritionPage() {
   const searchGate = useRef(answerGate());
   const barcodeGate = useRef(answerGate());
   const [selected, setSelected] = useState<FoodResult | null>(null);
+  /** The entry of the sheet's lists the chosen food was picked from (its data-food-card), or null: Back to results focuses it. */
+  const chosenFrom = useRef<string | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   /** A volume weight worked out from another USDA measure, such as 1 fl oz from the cup. */
@@ -139,6 +147,8 @@ export default function NutritionPage() {
   const [barcodeMiss, setBarcodeMiss] = useState<BarcodeMiss | null>(null);
   /** The browse list, kept so the sheet can go back to its start view without asking again. */
   const [browse, setBrowse] = useState<BrowseList | null>(null);
+  /** Why the browse list didn't come (said where it would be, with Try again); `attempt` makes a repeat read out again. */
+  const [browseProblem, setBrowseProblem] = useState<{ text: string; attempt: number } | null>(null);
   /** Add to log was pressed with an amount that can't be logged: its problem shows next to the amount while it lasts. */
   const [amountTried, setAmountTried] = useState(false);
   /** The meal the open Log food adds to; set each time it opens (mealForOpen). */
@@ -175,7 +185,13 @@ export default function NutritionPage() {
   const logOpener = useRef<HTMLElement | null>(null);
   const logButton = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  /** The page's message about what the member just did: a sentence, or a sign-in check that gave no member (with Sign in). */
+  const [error, setError] = useState<string | SessionProblem>("");
+  /**
+   * Why the day's last load failed, with Sign in or Try again: shown under the tabs for as long as that day's load stays
+   * failed (failedKey), whatever else is said meanwhile. `attempt` counts the failures, so one after Try again is read out.
+   */
+  const [dayProblem, setDayProblem] = useState<{ problem: string | SessionProblem; attempt: number } | null>(null);
   const [notice, setNotice] = useState("");
   /** "Tap the one you mean": a typed amount matched more than one food. */
   const [pickHint, setPickHint] = useState("");
@@ -214,9 +230,9 @@ export default function NutritionPage() {
     // A newer load (another day, or a reload after a save) replaces this one: a replaced load sets nothing.
     const seq = ++loadSeq.current;
     const current = () => seq === loadSeq.current;
-    const fail = (message: string) => {
+    const fail = (message: string | SessionProblem) => {
       if (!current()) return;
-      setError(message);
+      setDayProblem((old) => ({ problem: message, attempt: (old?.attempt ?? 0) + 1 }));
       setFailedKey(dateKey);
       setLoading(false);
       // What a save meant to focus once the day was back: it isn't, so a later load must not move the focus for it.
@@ -226,10 +242,12 @@ export default function NutritionPage() {
     setLoading(true);
     const supabase = createClient();
     if (!supabase) return fail("Nutrition tracking is not connected to Supabase.");
-    const { data: auth } = await supabase.auth.getUser();
+    // Signed out says so and offers Sign in; a check that failed (offline, an auth outage) is never called a sign-out.
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
     if (!current()) return;
-    if (!auth.user) return fail("Sign in to track food and water.");
-    const uid = auth.user.id;
+    setCheckedSession(state);
+    if (!user) return fail(sessionProblem(state, "load") ?? dayReadProblem([]));
+    const uid = user.id;
     setUserId(uid);
     // Once per page view: a member who has not answered the food questions (and did not choose Later on this
     // device in the last few days) gets the setup. A read that fails never asks again by mistake.
@@ -257,8 +275,9 @@ export default function NutritionPage() {
     ]);
     if (!current()) return;
     setCapabilities(caps);
-    const failure = [mealResult.error, waterResult.error, profileResult.error, prefsResult.error].find(Boolean) ?? (custom.error ? new Error("custom foods") : null);
-    if (failure) return fail("Your nutrition data could not be loaded. Please try again.");
+    // A read that failed: Try again reads the day again (status 0: it never reached FITX, so the connection is named).
+    const failed = [mealResult, waterResult, profileResult, prefsResult].filter((result) => result.error);
+    if (failed.length || custom.error) return fail(dayReadProblem(failed.map((result) => result.status)));
     setEntries((mealResult.data || []) as MealEntry[]);
     setWaterMl(((waterResult.data || []) as Array<{ amount_ml: number }>).reduce((sum: number, row) => sum + Number(row.amount_ml || 0), 0));
     const prefs = prefsResult.data as Prefs | null;
@@ -274,6 +293,7 @@ export default function NutritionPage() {
     // This day's figures are in: the overview and meals may show them now.
     setShownKey(dateKey);
     setFailedKey(null);
+    setDayProblem(null);
     setError("");
     setLoading(false);
     // Photo links don't hold up the day: signed afterwards.
@@ -321,7 +341,19 @@ export default function NutritionPage() {
     () => (selected ? [...selected.portions, ...extraPortions(selected.portions, selected.name, household), ...(derived ? [derived] : [])] : []),
     [selected, derived, household],
   );
-  const sections = useMemo(() => mealSections([...recentMeals, ...entries].map((entry) => entry.meal), addedSections), [recentMeals, entries, addedSections]);
+  /** Foods removed from the day shown, each with its Undo in its own meal until the member moves to another day. */
+  const removedToday = useMemo(() => removed.filter((item) => item.date === dateKey), [removed, dateKey]);
+  // The sections: the four standard ones, then the member's own: used in the last 30 days or on this day, added on this
+  // page, or holding a removed food's Undo (a section whose only food was removed stays while its Undo does). They keep
+  // the order this visit first listed them in, so a reload never moves a section and the focused control inside it.
+  const listedSections = useMemo(
+    () => mealSections([...recentMeals, ...entries, ...removedToday].map((entry) => entry.meal), addedSections),
+    [recentMeals, entries, removedToday, addedSections],
+  );
+  const [sectionOrder, setSectionOrder] = useState<readonly string[]>([]);
+  const sections = useMemo(() => keepSectionOrder(sectionOrder, listedSections), [sectionOrder, listedSections]);
+  // Stored while rendering (React's pattern for a value worked out from an earlier render), only when it changed.
+  if (!sameSectionOrder(sectionOrder, sections)) setSectionOrder(sections);
   const chosenPortion = unitKey.startsWith("portion:") ? portionOptions[Number(unitKey.slice("portion:".length))] ?? null : null;
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
@@ -386,12 +418,16 @@ export default function NutritionPage() {
     setAmountPrompt(null);
   }
 
-  /** Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. */
-  const chooseFood = useCallback((food: FoodResult, typed: ParsedFoodQuery = NO_AMOUNT) => {
+  /**
+   * Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. `from`: the entry
+   * of the sheet's lists it was picked from (foodCardKey), which takes the focus again after Back to results.
+   */
+  const chooseFood = useCallback((food: FoodResult, typed: ParsedFoodQuery = NO_AMOUNT, from: string | null = null) => {
     // Its own portions, then ml, cups and katori worked out from its USDA volume measure (when it has one).
     const own = food.portions ?? [];
     const portions = [...own, ...extraPortions(own, food.name, household)];
     const resolution = resolvePortion(typed, portions);
+    chosenFrom.current = from;
     setSelected(food);
     setDerived(null);
     setAmountPrompt(null);
@@ -467,13 +503,18 @@ export default function NutritionPage() {
         document.getElementById(target)?.focus();
       }, 60);
     };
+    // A lookup that failed says why in FITX's words (never the browser's "Failed to fetch"), with no answer shown.
+    const failed = (message: string) => {
+      setBarcodeMiss(null); setError(message);
+      refocus(focusAfterRetry({ found: false, miss: null }));
+    };
     // Trying the same barcode again keeps its answer on screen (and its Try again button under the focus) until the new one.
     setBusy(true); setError(""); setNotice(""); setBarcodeMiss((miss) => (miss?.code === checked.code ? miss : null));
     try {
-      const response = await fetch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
+      const answer = await askFoodSearch(`/api/foods/search?barcode=${encodeURIComponent(checked.code)}`, { kind: "barcode", code: checked.code }, SEARCH_FETCH);
       if (!current()) return;
-      if (!response.ok) throw new Error(data.error || "Barcode lookup failed.");
+      if (!answer.ok) { failed(answer.message); return; }
+      const data = answer.data;
       setResults(data.foods || []);
       setSources(data.sources || []);
       setSearchMode("barcode");
@@ -483,19 +524,15 @@ export default function NutritionPage() {
         // The barcode controls make way for the product: its amount takes the focus.
         window.setTimeout(() => document.getElementById("log-portion-amount")?.focus({ preventScroll: true }), 60);
       } else if (data.barcodeStatus === "invalid") {
-        setBarcodeMiss(null); setError(data.error || barcodeProblem("check-digit"));
-        refocus(focusAfterRetry({ found: false, miss: null }));
+        failed(data.error || barcodeProblem("check-digit"));
       } else {
         // Unknown, no label, or not checked (busy, no answer): each says why and offers to add the product with this barcode.
         const miss = barcodeMissFor(data.barcodeStatus, checked.code, data.productName);
         setSelected(null); setBarcodeMiss(miss);
         refocus(focusAfterRetry({ found: false, miss }));
       }
-    } catch (cause) {
-      if (current()) {
-        setBarcodeMiss(null); setError(cause instanceof Error ? cause.message : "Barcode lookup failed.");
-        refocus(focusAfterRetry({ found: false, miss: null }));
-      }
+    } catch {
+      if (current()) failed(unansweredText({ kind: "barcode", code: checked.code }));
     }
     finally { setBusy(false); }
   }, [chooseFood]);
@@ -513,15 +550,33 @@ export default function NutritionPage() {
 
   const browseFoods = useCallback(async () => {
     setSearchingFoods(true);
+    // Why it didn't come is said where the list would be, with Try again, never as the page's message (which would
+    // hide the day's own, with its Try again, in an outage).
+    const failed = (text: string) => setBrowseProblem((old) => ({ text, attempt: (old?.attempt ?? 0) + 1 }));
     try {
-      const response = await fetch("/api/foods/search?browse=1", SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
-      if (!response.ok) throw new Error(data.error || "Food search failed.");
+      const answer = await askFoodSearch("/api/foods/search?browse=1", { kind: "browse" }, SEARCH_FETCH);
+      if (!answer.ok) { failed(answer.message); return; }
       // Listed whenever the sheet shows its start view (listedFoods), never over a search typed meanwhile.
-      setBrowse({ foods: data.foods || [], sources: data.sources || [] });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+      setBrowse({ foods: answer.data.foods || [], sources: answer.data.sources || [] });
+      setBrowseProblem(null);
+    } catch {
+      failed(unansweredText({ kind: "browse" }));
+    }
     finally { setSearchingFoods(false); }
   }, []);
+
+  /**
+   * Try again, after the day couldn't be read (its reads failed, or the sign-in check couldn't be made): the day, Recent
+   * and (if it never came) the food list are read again. Once the day is in, the message and its button go, so the
+   * focus moves to the tab's heading (or My foods' Add a food) instead of falling to the page; while it reads, the
+   * button stays (unavailable), so a failure again leaves the focus on it.
+   */
+  function retryLoad() {
+    focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]", "#history-title"];
+    void load();
+    void refreshRecent();
+    if (!browse) void browseFoods();
+  }
 
   /**
    * Back to the start view (Frequent, Recent and the browse list), with nothing left of an earlier search or barcode
@@ -539,6 +594,8 @@ export default function NutritionPage() {
     setLastSearch(view.lastSearch);
     setLastQuery(view.lastQuery);
     setSelected(null); setDerived(null); setAmountPrompt(null); setAmountTried(false); setPickHint("");
+    // A new list: the entry a food was picked from is gone with the old one.
+    chosenFrom.current = null;
     if (!keepMiss) setBarcodeMiss(null);
     // Waits only for the browse list, when it has never arrived.
     setSearchingFoods(false);
@@ -591,10 +648,11 @@ export default function NutritionPage() {
     }
     setSearchingFoods(true); setError(""); setNotice(""); setPickHint(""); setBarcodeMiss(null);
     try {
-      const response = await fetch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, SEARCH_FETCH);
-      const data = (await response.json()) as FoodSearchResponse;
+      const answer = await askFoodSearch(`/api/foods/search?q=${encodeURIComponent(value.trim())}${packaged ? "&packaged=1" : ""}`, { kind: "search" }, SEARCH_FETCH);
       if (!current()) return;
-      if (!response.ok) throw new Error(data.error || "Food search failed.");
+      // In FITX's words: FITX couldn't be reached, the search isn't working just now, or FITX's own refusal.
+      if (!answer.ok) { setError(answer.message); return; }
+      const data = answer.data;
       const found = (data.foods || []).map(withPhoto);
       setResults(found);
       setSources(data.sources || []);
@@ -612,7 +670,8 @@ export default function NutritionPage() {
       // Select the food that is clearly meant, or ask which one (keeping the amount, or saying why it can't be used).
       const outcome = searchOutcome(typed, found, data.pick, dietFilter, packaged, data.passedOver);
       if (outcome.kind === "pick") {
-        chooseFood(outcome.food, typed);
+        // Picked from the results it lists: Back to results returns to that result.
+        chooseFood(outcome.food, typed, foodCardKey("result", outcome.food.id, outcome.food.source));
         // The member's own food of that name couldn't weigh the amount typed: say which food is selected instead.
         if (outcome.note) setNotice(outcome.note);
       } else if (outcome.kind === "choose") {
@@ -621,7 +680,7 @@ export default function NutritionPage() {
         setAmountPrompt(null);
         setPickHint(outcome.hint);
       }
-    } catch (cause) { if (current()) setError(cause instanceof Error ? cause.message : "Food search is temporarily unavailable."); }
+    } catch { if (current()) setError(unansweredText({ kind: "search" })); }
     finally { if (current()) setSearchingFoods(false); }
   }
 
@@ -673,14 +732,14 @@ export default function NutritionPage() {
     const supabase = createClient();
     if (!supabase) return setError("Nutrition tracking is not connected to Supabase.");
     setBusy(true);
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) return setError("Sign in to log food.");
+    const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+    if (!user) return setError(sessionProblem(state, "log-food") ?? "That food could not be logged. Please try again.");
     setError(""); setNotice("");
     // Unknown protein, carbs or fat are NULL in the entry and listed in the snapshot, never logged as 0 g.
     const values = buildMealValues(food, grams);
     const portion = chosenPortion;
     const inserted = await supabase.from("meals").insert({
-      user_id: auth.user.id, date: dateKey, meal, food_name: food.name, brand: food.brand,
+      user_id: user.id, date: dateKey, meal, food_name: food.name, brand: food.brand,
       barcode: food.barcode, provider_id: food.id,
       source: food.source, serving_size: portion ? describePortion(amountNumber, portion, grams) : `${formatAmount(grams)} g`,
       servings: grams / 100, quantity_grams: grams,
@@ -744,7 +803,7 @@ export default function NutritionPage() {
   function chooseFrequent(item: FrequentFood) {
     const food = foodFromEntry(item.entry);
     if (!food) return;
-    chooseFood(food);
+    chooseFood(food, NO_AMOUNT, foodCardKey("frequent", item.key));
     const usual = usualAmount(item.entry);
     if (usual) { setAmount(formatAmount(usual.amount)); setUnitKey(usual.unitKey); }
   }
@@ -813,6 +872,17 @@ export default function NutritionPage() {
     const timer = window.setTimeout(() => { document.getElementById(logFocus)?.focus(); setLogFocus(null); }, 80);
     return () => window.clearTimeout(timer);
   }, [logOpen, logFocus]);
+  // The Add to log panel and the list take each other's place in the sheet, and a search's answer can take away what
+  // was pressed (an example, Packaged), so the control that had the focus goes and it would fall to the page (D5): the
+  // panel's heading takes it, or, back on the list, the food just left (else the search or barcode box). Only when it
+  // fell: a control that is still there keeps it (a found barcode's amount, focused just after, as before).
+  useEffect(() => {
+    if (!logOpen || !focusFellToPage(document.activeElement, document.body)) return;
+    for (const selector of swapFocusTargets({ panel: Boolean(selected), mode: logMode, from: chosenFrom.current }, CSS.escape)) {
+      const target = document.querySelector<HTMLElement>(selector);
+      if (target) { target.focus(); return; }
+    }
+  }, [logOpen, selected, logMode, lastSearch, searchMode, searchingFoods]);
   // After the day (or My foods, or Routines) reloads, focus what replaced the control that had it (an entry moved to
   // another meal is a new row, a removed one leaves its Undo), or the next choice when that is not there; or, when the
   // control that had it went with the reload, where it is now sensible (reloadFocusTargets).
@@ -855,9 +925,9 @@ export default function NutritionPage() {
       const supabase = createClient();
       if (!supabase) return setError("Water tracking is not connected to Supabase.");
       setBusy(true);
-      const { data: auth } = await supabase.auth.getUser();
-      if (!auth.user) return setError("Sign in to log water.");
-      const result = await supabase.from("water_logs").insert({ user_id: auth.user.id, amount_ml: amountMl, local_date: dateKey });
+      const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
+      if (!user) return setError(sessionProblem(state, "log-water") ?? "Water could not be logged.");
+      const result = await supabase.from("water_logs").insert({ user_id: user.id, amount_ml: amountMl, local_date: dateKey });
       if (result.error) setError("Water could not be logged."); else setWaterMl((current) => current + amountMl);
     } finally {
       loggingWater.current = false;
@@ -905,7 +975,7 @@ export default function NutritionPage() {
   /** Saves an edited entry. A refusal is returned to the dialog, which stays open and shows it (the page's messages are behind it). */
   async function saveEntry(entry: MealEntry, change: EntryChange): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return "Sign in to change your entries.";
+    if (!supabase || !userId) return noMemberText(checkedSession, "change your entries");
     setBusy(true); setError("");
     const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
     setBusy(false);
@@ -924,7 +994,7 @@ export default function NutritionPage() {
    */
   async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean): Promise<CustomFoodSaveProblem | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return { field: null, message: "Sign in to save your own foods." };
+    if (!supabase || !userId) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
     const editing = foodForm?.editing ?? null;
     setBusy(true); setError("");
     const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
@@ -940,12 +1010,13 @@ export default function NutritionPage() {
     }
     if (photo && capabilities.customFoodsV2) {
       try {
-        const path = await uploadFoodPhoto(supabase, userId, row.id, photo, row.image_path ?? null);
-        const updated = await supabase.from("custom_foods").update({ image_path: path }).eq("id", row.id).eq("user_id", userId);
-        if (updated.error) throw new Error("not saved");
-        photoUrl = (await signedPhotoUrls(supabase, [path])).get(path) ?? null;
+        // The food points at the new photo before its old one goes, so a failed save keeps the old photo.
+        const path = await replaceCustomFoodPhoto(supabase, userId, row, await shrinkPhoto(photo));
+        // Saved: a link that can't be made now waits for the next load, and never reads "not saved".
+        photoUrl = await signedPhotoUrls(supabase, [path]).then((urls) => urls.get(path) ?? null, () => null);
       } catch (cause) {
-        photoProblem = ` The photo was not saved: ${cause instanceof Error ? cause.message : "please try again"}`;
+        // FITX's reason (a photo it can't read, a failed upload or save), never a browser's own words.
+        photoProblem = ` ${photoNotSavedText(cause)}`;
       }
     }
     setBusy(false);
@@ -1005,7 +1076,7 @@ export default function NutritionPage() {
     const prompt = namePrompt;
     const supabase = createClient();
     if (prompt?.kind === "section") { addSection(name, prompt.then); return null; }
-    if (!prompt || !supabase || !userId) return "Sign in to save meals and routines.";
+    if (!prompt || !supabase || !userId) return noMemberText(checkedSession, "save meals and routines");
     const items = prompt.kind === "meal" ? entries.filter((entry) => sameMeal(entry.meal, prompt.slot)) : entries;
     setBusy(true); setError("");
     const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
@@ -1069,7 +1140,7 @@ export default function NutritionPage() {
   /** Saves the member's targets, or goes back to the estimate. A refusal is returned to the targets dialog. */
   async function updateTargets(next: ManualTargets | null): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return "Sign in to set your targets.";
+    if (!supabase || !userId) return noMemberText(checkedSession, "set your targets");
     setBusy(true); setError("");
     const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
     setBusy(false);
@@ -1157,12 +1228,42 @@ export default function NutritionPage() {
   }
 
   const messages = <>
-    {error && <p role="alert" className={styles.alert}>{error}</p>}
+    {error && (typeof error === "string"
+      ? <p role="alert" className={styles.alert}>{error}</p>
+      : <div role="alert" className={styles.alert}>
+        <p>{error.text}</p>
+        {error.signIn && <div className="mt-2 flex flex-wrap gap-2">
+          <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>
+        </div>}
+      </div>)}
     {notice && !error && <p role="status" className={styles.notice}>{notice}</p>}
   </>;
 
+  /**
+   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. A new paragraph per failure,
+   * so a Try again that fails again is read out again; the button is the same one, unavailable while the day is read.
+   */
+  const dayAlert = failedKey === dateKey && dayProblem && (() => {
+    const { problem, attempt } = dayProblem;
+    const said = typeof problem === "string" ? { text: problem, signIn: false, retry: false } : problem;
+    return <div role="alert" className={styles.alert}>
+      <p key={attempt}>{said.text}</p>
+      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2">
+        {said.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
+        {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-xs ${ui.actionBusy}`} aria-disabled={loading || undefined} onClick={() => { if (!loading) retryLoad(); }}>{loading ? "Loading…" : "Try again"}</button>}
+      </div>}
+    </div>;
+  })();
+
   const foodList = (
     <div aria-live="polite" className={styles.foodResults}>
+      {/* Where the common foods would be: why they didn't come, with Try again, which stays (unavailable) while it asks. */}
+      {showBrowse && !browse && browseProblem && <div className={ui.callout}>
+        <p key={browseProblem.attempt}>{browseProblem.text}</p>
+        <div className={ui.toolbar}>
+          <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-3 text-xs ${ui.actionBusy}`} aria-disabled={searchingFoods || undefined} onClick={() => { if (!searchingFoods) void browseFoods(); }}>Try again</button>
+        </div>
+      </div>}
       {searchingFoods ? <p className={styles.loading}>Loading foods…</p> : <>
         {unsourced && <div className={ui.callout}>
           <p><strong>{unsourced.label}</strong> has no sourced values in FITX yet, so nothing is guessed.{shownResults.length > 0 ? " These only contain the word." : ""}</p>
@@ -1175,14 +1276,15 @@ export default function NutritionPage() {
         {showBrowse && shownRecent.length > 0 && <>
           <p className={styles.listLabel}>Recent</p>
           {shownRecent.map((food, index) => <div key={`recent-${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
-            <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+            <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} card={foodCardKey("recent", food.id, food.source)} onSelect={(chosen) => chooseFood(chosen, lastQuery, foodCardKey("recent", chosen.id, chosen.source))}/>
           </div>)}
         </>}
-        {showBrowse && <p className={styles.listLabel}>Common foods</p>}
+        {/* Only over the list itself: when it didn't come, the message above says so instead of a label over nothing. */}
+        {showBrowse && browse && <p className={styles.listLabel}>Common foods</p>}
         {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered from labels by its community.</p>}
         {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>No exact match. Closest spellings:</p>}
         {shownResults.map((food, index) => <div key={`${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
-          <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+          <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} card={foodCardKey("result", food.id, food.source)} onSelect={(chosen) => chooseFood(chosen, lastQuery, foodCardKey("result", chosen.id, chosen.source))}/>
         </div>)}
         {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} {hiddenCount === 1 ? "food" : "foods"} marked {dietFilter.nonVeg && dietFilter.egg ? "non-veg or egg" : dietFilter.egg ? "egg" : "non-veg"} {hiddenCount === 1 ? "is" : "are"} hidden.</p>}
         {filtering && shownResults.some((food) => !food.dietType) && <p className={ui.muted}>Foods without a diet label stay visible, marked “Diet not checked”.</p>}
@@ -1224,18 +1326,19 @@ export default function NutritionPage() {
       <nav aria-label="Nutrition sections" className={styles.tabs}>
         {tabs.map(([value, label]) => <button key={value} type="button" onClick={() => setTab(value)} aria-current={tab === value ? "page" : undefined} className={styles.tab}>{label}</button>)}
       </nav>
+      {dayAlert}
       {!logOpen && messages}
 
       <div className={styles.panel}>
         {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} labels={actionLabels} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
-          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removed.filter((item) => item.date === dateKey)} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
+          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removedToday} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
           onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
           onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}
         {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
           photoFor={photoFor} onUse={(row) => { chooseFood(savedFood(row)); openLog({ quiet: true }); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
           onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
-        {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
+        {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })} labels={actionLabels}
           onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
         {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
           onOpenDay={openDay}/>}
@@ -1248,7 +1351,8 @@ export default function NutritionPage() {
             <section className={styles.addPanel} aria-labelledby="add-title">
               <div className={styles.addHead}>
                 <button type="button" onClick={() => { setSelected(null); setAmountPrompt(null); setAmountTried(false); setNotice(""); }} className={styles.back} aria-label="Back to results"><ChevronLeft size={18} aria-hidden="true"/></button>
-                <h3 id="add-title" className={styles.addTitle}>Add to log</h3>
+                {/* Focusable from script only: the panel takes the focus here when it replaces the list (swapFocusTargets). */}
+                <h3 id="add-title" tabIndex={-1} className={styles.addTitle}>Add to log</h3>
               </div>
               {detailFor(selected)}
               <div className={styles.addActions}>
@@ -1262,7 +1366,7 @@ export default function NutritionPage() {
             {logMode === "search" ? <>
               <form onSubmit={searchFoods} className={styles.search} role="search">
                 <Search size={17} aria-hidden="true" className={styles.searchIcon}/>
-                <input ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
+                <input id="log-search" ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
                 <button className={styles.searchGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
               </form>
               {!lastSearch && <div className={styles.suggestions} aria-label="Examples">

@@ -1,9 +1,10 @@
 import { Bookmark, CalendarDays, Copy, Pencil, Plus, X } from "lucide-react";
 import { formatAmount } from "@/lib/domain/food-query";
+import { mealSections } from "@/lib/domain/meal-time";
 import { MACRO_LABEL, sumKnown } from "@/lib/domain/nutrition";
 import { mealsStatusText, type DayLoad } from "@/lib/domain/nutrition-day";
 import { entryBasis, entryMissing, isEstimateSnapshot, sameMeal, type MealEntry } from "@/lib/food/client-data";
-import { removedText, type RemovedEntry } from "@/lib/food/meal-undo";
+import { removedText, undoLabel, type RemovedEntry } from "@/lib/food/meal-undo";
 import type { DayActionLabels } from "@/app/(dashboard)/nutrition/day-labels";
 import { BasisBadge, PortionEstimateBadge } from "./FoodBadges";
 import styles from "./FoodUi.module.css";
@@ -49,8 +50,9 @@ export function MealLog({ entries, title, labels, state, busy, templatesReady, s
   // A removed food's Undo shows once its row is gone (the day has reloaded), and goes once it is back.
   const removed = removedFoods.filter((item) => !entries.some((entry) => entry.id === item.id));
   const unknown = sumKnown(entries).unknown;
-  /** Removed foods whose meal is no longer listed (a member's own section whose last food went) show above the meals. */
-  const orphans = removed.filter((item) => !sections.some((slot) => sameMeal(item.meal, slot)));
+  // Each Undo sits in its own meal, never moved above the meals: a section whose last food was removed is still drawn
+  // (the page lists it while its Undo stands, in the same place, so the Undo keeps the focus when the day reloads).
+  const listed = mealSections(sections, removedFoods.map((item) => item.meal));
   const undo = (item: RemovedEntry) => <RemovedRow key={`removed-${item.id}`} entry={item} onUndo={onUndoRemove}/>;
   const lacking = (["protein", "carbs", "fat"] as const).filter((key) => unknown[key] > 0);
   return (
@@ -69,7 +71,6 @@ export function MealLog({ entries, title, labels, state, busy, templatesReady, s
       {lacking.length > 0 && <p className={diary.note}>
         {lacking.length > 0 && `${lacking.map((key) => `${unknown[key]} without ${MACRO_LABEL[key]}`).join(", ")}: left out of totals, not counted as 0 g.`}
       </p>}
-      {state === "ready" && orphans.length > 0 && entries.length > 0 && <ul className={diary.orphans}>{orphans.map(undo)}</ul>}
       {state !== "ready" ? <p role="status" className={styles.muted}>{mealsStatusText(state)}</p> : entries.length === 0 ? (
         <div className={diary.empty}>
           {removed.length > 0 && <ul className={diary.orphans}>{removed.map(undo)}</ul>}
@@ -81,7 +82,7 @@ export function MealLog({ entries, title, labels, state, busy, templatesReady, s
         </div>
       ) : (
         <div className={diary.meals}>
-          {sections.map((slot) => {
+          {listed.map((slot) => {
             const rows = entries.filter((entry) => sameMeal(entry.meal, slot));
             const gone = removed.filter((item) => sameMeal(item.meal, slot));
             const kcal = Math.round(sumKnown(rows).calories);
@@ -108,7 +109,7 @@ function RemovedRow({ entry, onUndo }: { entry: RemovedEntry; onUndo: (entry: Re
   return (
     <li className={diary.removed}>
       <p role="status" className={diary.removedText}>{removedText(entry)}</p>
-      <button type="button" data-undo={entry.id} onClick={() => onUndo(entry)} aria-label={`Undo removing ${entry.name}`} className={styles.textButton}>Undo</button>
+      <button type="button" data-undo={entry.id} onClick={() => onUndo(entry)} aria-label={undoLabel(entry)} className={styles.textButton}>Undo</button>
     </li>
   );
 }
