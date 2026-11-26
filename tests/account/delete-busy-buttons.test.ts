@@ -40,9 +40,11 @@ test("Sign in again stays focusable while it signs out, and a second press does 
 
 test("Cancel stays focusable while deleting or signing out; close() already does nothing then", () => {
   const cancel = find("onClick={close}");
-  assert.match(cancel, /aria-disabled=\{step === "deleting" \|\| leaving \|\| undefined\}/);
+  // Since fix round 3d a deletion that is slow may be closed (deletion-wait.ts canCloseDeletion, delete-time-limit.test.ts).
+  assert.match(cancel, /aria-disabled=\{!closable \|\| undefined\}/);
   assert.doesNotMatch(cancel.replace(/aria-disabled=\{[^}]*\}/g, ""), /\bdisabled=/);
-  assert.match(source, /function close\(\) \{\s*if \(step === "deleting" \|\| step === "deleted" \|\| leaving\) return;/);
+  assert.match(source, /const closable = canCloseDeletion\(step, \{ leaving, slow \}\);/);
+  assert.match(source, /function close\(\) \{\s*if \(!closable\) return;/);
 });
 
 test("Delete permanently: disabled only until DELETE is typed; while deleting it keeps focus and does nothing", () => {

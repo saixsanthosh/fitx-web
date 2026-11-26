@@ -171,7 +171,8 @@ describe("Settings and Profile use it", () => {
 
   test("Delete my account says the member is signed out rather than asking for a recent sign-in", () => {
     const remove = read("components/account/DeleteAccount.tsx");
-    assert.match(remove, /if \(response\.status === 401\) \{\s*return \{ kind: "ok", signedOut: true,/);
+    // The check moved to deletion-wait.ts in fix round 3d (its time limit: delete-time-limit.test.ts).
+    assert.match(read("components/account/deletion-wait.ts"), /if \(response\.status === 401\) \{\s*return \{ kind: "ok", signedOut: true,/);
     assert.match(remove, /You’re signed out\. Sign in again and you’ll come back here to finish\./);
   });
 });

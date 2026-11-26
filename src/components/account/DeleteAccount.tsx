@@ -8,6 +8,7 @@ import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
 import { recordingStore } from "@/lib/activity/local-store";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
+import { DELETE_TAKING_LONG, DELETION_TIME_LIMIT_MS, canCloseDeletion, fetchDeletionStatus, type DeletionStep } from "./deletion-wait";
 
 /**
  * "Delete my account": the Settings row, or a quiet link (onboarding, so an account made with the wrong
@@ -16,31 +17,10 @@ import { createClient } from "@/lib/supabase/client";
  * another tab), it says so and deletes nothing; the server refuses too (expectedUserId).
  */
 
-type DeleteStep = "checking" | "unavailable" | "reauth" | "switched" | "confirm" | "deleting" | "deleted" | "error";
-/** `signedOut`: the session here has ended (signed out everywhere, or this page shown again by Back after Log out). */
-type StatusResult = { kind: "ok"; status: DeletionStatus; signedOut: boolean } | { kind: "outage" } | { kind: "error" };
+type DeleteStep = DeletionStep;
 type StartedFor = { id: string | null; email: string | null };
 
 const OUTAGE = "FITX can’t reach its sign-in service right now, so nothing was deleted. Try again in a moment.";
-
-/** Whether this account can be deleted now. A signed-out answer means "sign in again". */
-async function fetchDeletionStatus(): Promise<StatusResult> {
-  try {
-    const response = await fetch("/api/account", { headers: { accept: "application/json" }, cache: "no-store" });
-    if (response.status === 401) {
-      return { kind: "ok", signedOut: true, status: { available: true, recentSignIn: false, signedInAt: null, windowMinutes: RECENT_SIGN_IN_MINUTES, userId: null, email: null } };
-    }
-    if (response.status === 503) {
-      const { error } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };
-      if (error === "auth_unavailable") return { kind: "outage" };
-    }
-    if (!response.ok) return { kind: "error" };
-    const { deletion } = (await response.json()) as { deletion: DeletionStatus };
-    return { kind: "ok", status: deletion, signedOut: false };
-  } catch {
-    return { kind: "error" };
-  }
-}
 
 function readStarted(): StartedFor | null {
   try {
@@ -110,6 +90,11 @@ export function DeleteAccount({
   const [leaving, setLeaving] = useState(false);
   // The session here has ended: "Sign in again" says so instead of asking for a more recent sign-in.
   const [signedOut, setSignedOut] = useState(false);
+  // Deleting has gone on past DELETION_TIME_LIMIT_MS.slow: the dialog says so and may be closed (deletion-wait.ts).
+  const [slow, setSlow] = useState(false);
+  const closable = canCloseDeletion(step, { leaving, slow });
+  // A deletion on its way: opening the dialog again shows it rather than starting another.
+  const deleting = useRef(false);
   const support = BRAND.supportEmail;
 
   // The Settings row checks up front, so it can say when deletion isn't switched on. The link only checks when opened.
@@ -134,6 +119,10 @@ export function DeleteAccount({
   }, [step]);
 
   async function open() {
+    if (deleting.current) {
+      if (!dialog.current?.open) dialog.current?.showModal();
+      return null;
+    }
     setTyped("");
     setError("");
     setSwitchedFrom(null);
@@ -163,7 +152,7 @@ export function DeleteAccount({
   }
 
   function close() {
-    if (step === "deleting" || step === "deleted" || leaving) return;
+    if (!closable) return;
     dialog.current?.close();
   }
 
@@ -192,6 +181,10 @@ export function DeleteAccount({
     setError("");
     // Read before the request: whose activity recordings on this device to clear once the account is gone.
     const userId = await sessionUserId();
+    // The request is never cancelled (FITX deletes once it has it, and only its answer says so). Past the slow limit the
+    // dialog says it is slow and may be closed; the answer is still used when it comes.
+    const slowTimer = window.setTimeout(() => setSlow(true), DELETION_TIME_LIMIT_MS.slow);
+    deleting.current = true;
     let response: Response;
     try {
       response = await fetch("/api/account", {
@@ -202,6 +195,10 @@ export function DeleteAccount({
     } catch {
       setStep("confirm");
       return setError("We couldn’t reach FITX. Nothing was deleted. Check your connection and try again.");
+    } finally {
+      window.clearTimeout(slowTimer);
+      deleting.current = false;
+      setSlow(false);
     }
     if (response.ok) {
       writeStarted(null);
@@ -210,6 +207,11 @@ export function DeleteAccount({
       // The server already ended the session; this clears what the browser still holds.
       await createClient()?.auth.signOut({ scope: "local" }).catch(() => undefined);
       forgetAccountInBrowser({ deleted: true });
+      // Closed while it was slow: open again to say the account is deleted, with focus on its only button.
+      if (dialog.current && !dialog.current.open) {
+        dialog.current.showModal();
+        dialog.current.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+      }
       return;
     }
     const { error: code } = ((await response.json().catch(() => ({}))) ?? {}) as { error?: string };
@@ -246,7 +248,7 @@ export function DeleteAccount({
     <dialog
       ref={dialog}
       aria-labelledby="delete-account-title"
-      onCancel={(event) => { if (step === "deleting" || step === "deleted" || leaving) event.preventDefault(); }}
+      onCancel={(event) => { if (!closable) event.preventDefault(); }}
       className="m-auto w-[min(calc(100vw-2rem),30rem)] rounded-2xl border border-fitx-border bg-fitx-elevated p-0 text-fitx-text shadow-xl backdrop:bg-fitx-scrim/60"
     >
       <div className="p-5 sm:p-6">
@@ -303,6 +305,8 @@ export function DeleteAccount({
               </form>
             )}
 
+            {step === "deleting" && slow && <p role="status" className="mt-4 text-sm leading-6 text-fitx-text-secondary">{DELETE_TAKING_LONG}</p>}
+
             {step === "deleted" && (
               <p role="status" className="mt-2 text-sm leading-6 text-fitx-text-secondary">Your login, data and images have been removed from FITX. Thank you for training with us.</p>
             )}
@@ -316,10 +320,10 @@ export function DeleteAccount({
             <button type="button" data-autofocus onClick={() => window.location.replace("/")} className="fitx-button">Go to the FITX home page</button>
           ) : (
             <>
-              {/* While deleting or signing out these stay focusable (aria-disabled) and do nothing; Delete permanently is
-                  disabled only until DELETE is typed. */}
-              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} aria-disabled={step === "deleting" || leaving || undefined} className="fitx-button fitx-button-secondary aria-disabled:opacity-60">
-                {step === "switched" ? "Close" : "Cancel"}
+              {/* While deleting (until it is slow) or signing out these stay focusable (aria-disabled) and do nothing; Delete
+                  permanently is disabled only until DELETE is typed. Once deleting is slow, Close closes the dialog. */}
+              <button type="button" data-autofocus={step === "switched" || step === "error" || step === "unavailable" ? true : undefined} onClick={close} aria-disabled={!closable || undefined} className="fitx-button fitx-button-secondary aria-disabled:opacity-60">
+                {step === "switched" || (step === "deleting" && slow) ? "Close" : "Cancel"}
               </button>
               {step === "reauth" && <button type="button" data-autofocus onClick={() => void signInAgain()} aria-disabled={leaving || undefined} className="fitx-button aria-disabled:opacity-60">{leaving ? "Signing out…" : "Sign in again"}</button>}
               {(step === "confirm" || step === "deleting") && (
