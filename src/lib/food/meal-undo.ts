@@ -32,6 +32,14 @@ export function removedText(entry: Pick<RemovedEntry, "name" | "failed">): strin
 }
 
 /**
+ * The Undo button's name: the food and its meal ("Undo removing Ghee, clarified butter from Breakfast"), so the same
+ * food removed from two meals gives two buttons a screen reader can tell apart.
+ */
+export function undoLabel(entry: Pick<RemovedEntry, "name" | "meal">): string {
+  return `Undo removing ${entry.name} from ${entry.meal}`;
+}
+
+/**
  * Which "Added …" toast can still take back which entries. Removing an entry (or using an Undo) forgets it, so a
  * toast still on screen can never delete it, or a restored copy of it, again.
  */

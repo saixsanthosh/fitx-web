@@ -36,7 +36,7 @@ import { loadBirthDate, notifyUserContextChanged } from "@/lib/domain/user-conte
 import { isMissingColumnError } from "@/lib/supabase/errors";
 import { amountAfterUnitChange, amountProblemMessage, askForGramsMessage, describePortion, extraPortions, formatAmount, parseFoodQuery, resolvePortion, type HouseholdMl } from "@/lib/domain/food-query";
 import type { FoodPortion, ParsedFoodQuery } from "@/lib/domain/food-query";
-import { checkSectionName, mealForOpen, mealSections } from "@/lib/domain/meal-time";
+import { checkSectionName, keepSectionOrder, mealForOpen, mealSections, sameSectionOrder } from "@/lib/domain/meal-time";
 import { estimateNutritionTargets, resolveDayTargets, resolveWaterTarget, scaleMacros, sumKnown } from "@/lib/domain/nutrition";
 import { dayLoadState } from "@/lib/domain/nutrition-day";
 import { barcodeProblem, checkBarcode } from "@/lib/food/barcode";
@@ -321,7 +321,19 @@ export default function NutritionPage() {
     () => (selected ? [...selected.portions, ...extraPortions(selected.portions, selected.name, household), ...(derived ? [derived] : [])] : []),
     [selected, derived, household],
   );
-  const sections = useMemo(() => mealSections([...recentMeals, ...entries].map((entry) => entry.meal), addedSections), [recentMeals, entries, addedSections]);
+  /** Foods removed from the day shown, each with its Undo in its own meal until the member moves to another day. */
+  const removedToday = useMemo(() => removed.filter((item) => item.date === dateKey), [removed, dateKey]);
+  // The sections: the four standard ones, then the member's own: used in the last 30 days or on this day, added on this
+  // page, or holding a removed food's Undo (a section whose only food was removed stays while its Undo does). They keep
+  // the order this visit first listed them in, so a reload never moves a section and the focused control inside it.
+  const listedSections = useMemo(
+    () => mealSections([...recentMeals, ...entries, ...removedToday].map((entry) => entry.meal), addedSections),
+    [recentMeals, entries, removedToday, addedSections],
+  );
+  const [sectionOrder, setSectionOrder] = useState<readonly string[]>([]);
+  const sections = useMemo(() => keepSectionOrder(sectionOrder, listedSections), [sectionOrder, listedSections]);
+  // Stored while rendering (React's pattern for a value worked out from an earlier render), only when it changed.
+  if (!sameSectionOrder(sectionOrder, sections)) setSectionOrder(sections);
   const chosenPortion = unitKey.startsWith("portion:") ? portionOptions[Number(unitKey.slice("portion:".length))] ?? null : null;
   const amountNumber = amount.trim() ? Number(amount) : Number.NaN;
   const grams = Number.isFinite(amountNumber) ? Math.round(amountNumber * (chosenPortion ? chosenPortion.grams : 1) * 10) / 10 : Number.NaN;
@@ -1228,7 +1240,7 @@ export default function NutritionPage() {
 
       <div className={styles.panel}>
         {tab === "meals" && <MealLog entries={dayEntries} title={dayLabels.diary} labels={actionLabels} state={dayState} busy={busy} templatesReady={capabilities.templates} sections={sections}
-          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removed.filter((item) => item.date === dateKey)} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
+          onEdit={setEditingEntry} onDelete={(entry) => void removeMeal(entry)} removed={removedToday} onUndoRemove={(item) => void undoRemove(item)} onLogFood={() => openLog()} onAddTo={(slot) => openLog({ meal: slot })} onCopyYesterday={() => void copyYesterday()}
           onAddSection={() => setNamePrompt({ kind: "section", then: "none" })}
           onSaveMeal={(slot) => setNamePrompt({ kind: "meal", slot, initial: `My ${slot.toLowerCase()}` })}
           onSaveDay={() => setNamePrompt({ kind: "day", initial: `${readableDate(date, { weekday: "long" })} routine` })}/>}

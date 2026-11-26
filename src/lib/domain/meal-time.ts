@@ -56,6 +56,22 @@ export function mealSections(used: readonly string[], extra: readonly string[] =
   return out;
 }
 
+/**
+ * The sections in the order the page already lists them (`shown`, as last drawn): a name still listed keeps its place,
+ * spelled as shown, and names new to the list follow in `next`'s order. A reload after removing a food, putting it back
+ * or logging one can change which day last used a section, and so `next`'s order; keeping the order means no section is
+ * moved, and with it the control inside that has the focus (an element moved in the page loses the focus).
+ */
+export function keepSectionOrder(shown: readonly string[], next: readonly string[]): string[] {
+  const kept = shown.filter((name) => next.some((item) => same(item, name)));
+  return [...kept, ...next.filter((name) => !kept.some((item) => same(item, name)))];
+}
+
+/** Whether two section lists are the same names in the same order (so the page stores a new order only when it changes). */
+export function sameSectionOrder(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((name, index) => name === b[index]);
+}
+
 /** The standard spelling of a typed section that is one of the four standard ones; otherwise the name as typed. */
 export function canonicalMeal(name: string): string {
   const trimmed = name.replace(/\s+/g, " ").trim();
