@@ -67,6 +67,7 @@ import {
   unavailableProfileGoals,
 } from "@/lib/domain/profile-options";
 import { changedFields, loadBirthDate, logWeighIn, markNutritionSetupAnswered, markWorkoutSetupAnswered, savePreferences, trainingAnswerPatch, trainingAnswersKnown, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { focusAfterRemoval } from "@/lib/social/focus";
 import { createClient } from "@/lib/supabase/client";
 import { saveEquipmentProfile } from "@/lib/training/data";
 import { equipmentLabel } from "@/lib/training/equipment";
@@ -367,9 +368,21 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
   const [draft, setDraft] = useState(original);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof TrainingDraft>(key: K, value: TrainingDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
     setError("");
+  };
+  // An older entry's chip goes with its Remove button: focus moves to the next entry's Remove (else the one before
+  // it), or to Save once none are left, instead of falling to the page (D5).
+  const removeOlder = (word: string) => {
+    const next = focusAfterRemoval(draft.unknownEquipment, [word]);
+    set("unknownEquipment", draft.unknownEquipment.filter((item) => item !== word));
+    requestAnimationFrame(() => {
+      const form = formRef.current;
+      const target = next === null ? form?.querySelector<HTMLElement>('button[type="submit"]') : form?.querySelector<HTMLElement>(`[data-older-entry="${CSS.escape(next)}"]`);
+      target?.focus();
+    });
   };
   const sessionOptions = [...new Set([...SESSION_LENGTHS, prefs.session_duration_minutes])].sort((a, b) => a - b).map((value) => ({ value, label: `${value} min` }));
   // Weekly availability is 2 to 7 days; an older answer of 1 stays offered so it is never changed silently.
@@ -466,7 +479,7 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
           </Detail>
         </DetailList>
       ) : (
-        <form noValidate onSubmit={(event) => void save(event)}>
+        <form ref={formRef} noValidate onSubmit={(event) => void save(event)}>
           <div className="space-y-7">
             <ChoiceGroup legend="Experience" options={EXPERIENCE_OPTIONS} value={draft.experience} onChange={(value) => set("experience", value)} columns="grid-cols-1 sm:grid-cols-3" />
             <ChoiceGroup legend="Workout setup" options={LOCATION_OPTIONS} value={draft.location} onChange={(value) => set("location", value)} columns="grid-cols-2 sm:grid-cols-4" showHints={false} compact />
@@ -482,7 +495,7 @@ export function TrainingSection({ data, editing, notice, onEdit, onClose, onSave
                   {draft.unknownEquipment.map((word) => (
                     <li key={word} className="inline-flex min-h-11 items-center rounded-full border border-fitx-border bg-fitx-surface-variant pl-4 text-sm text-fitx-text">
                       <span className="max-w-[16rem] truncate">{word}</span>
-                      <button type="button" onClick={() => set("unknownEquipment", draft.unknownEquipment.filter((item) => item !== word))} aria-label={`Remove ${word}`} className="grid min-h-11 min-w-11 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text">
+                      <button type="button" data-older-entry={word} onClick={() => removeOlder(word)} aria-label={`Remove ${word}`} className="grid min-h-11 min-w-11 place-items-center rounded-full text-fitx-text-secondary hover:text-fitx-text">
                         <X size={15} aria-hidden="true" />
                       </button>
                     </li>
