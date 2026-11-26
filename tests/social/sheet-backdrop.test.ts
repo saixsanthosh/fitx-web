@@ -39,7 +39,8 @@ test("a click without its own press on the backdrop does not close it", () => {
 test("Sheet closes from the backdrop only through that rule; Escape and Close are unchanged", () => {
   const sheet = readFileSync("src/components/ui/Sheet.tsx", "utf8");
   assert.match(sheet, /const \[taps\] = useState\(backdropTaps\);/);
-  assert.match(sheet, /onPointerDown=\{\(event\) => taps\.press\(event\.target === event\.currentTarget\)\}/);
+  // Capture phase: a control inside that stops its pointerdown from bubbling can't leave an earlier backdrop press set.
+  assert.match(sheet, /onPointerDownCapture=\{\(event\) => taps\.press\(event\.target === event\.currentTarget\)\}/);
   assert.match(sheet, /onClick=\{\(event\) => \{ if \(taps\.click\(event\.target === event\.currentTarget\)\) onClose\(\); \}\}/);
   assert.doesNotMatch(sheet, /if \(event\.target === event\.currentTarget\) onClose\(\)/, "the old close on any click on the dialog is gone");
   assert.match(sheet, /dialog\.addEventListener\("cancel", cancel\);/, "Escape still closes");

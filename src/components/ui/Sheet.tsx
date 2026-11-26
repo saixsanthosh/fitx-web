@@ -86,7 +86,8 @@ export function Sheet({ open, onClose, title, description, children, footer, sid
       ref={ref}
       aria-labelledby={titleId}
       className={`${styles.sheet} ${side === "center" ? styles.center : styles.auto} ${className}`}
-      onPointerDown={(event) => taps.press(event.target === event.currentTarget)}
+      // In the capture phase, so every press inside the sheet is seen, also one a control stops from bubbling.
+      onPointerDownCapture={(event) => taps.press(event.target === event.currentTarget)}
       onClick={(event) => { if (taps.click(event.target === event.currentTarget)) onClose(); }}
     >
       {open && (
