@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { forgetAccountInBrowser } from "@/lib/account/device-cleanup";
-import { signedOutAddress } from "@/lib/auth/address-messages";
+import { noticeProofCookie, signedOutAddress } from "@/lib/auth/address-messages";
 import { AUTH_HINT_COOKIE } from "@/lib/auth/cookies";
 import { signOutWithDeviceActivity } from "@/lib/auth/device-sign-out";
 import { createClient } from "@/lib/supabase/client";
@@ -44,8 +44,12 @@ export function LogoutButton({ className = "", scope = "local", label }: { class
       return;
     }
     forgetAccountInBrowser();
-    document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${window.location.protocol === "https:" ? "; Secure" : ""}`;
-    // The sign-in page says which: "signed out on this device", or "signed out everywhere" (bug 42).
+    const secure = window.location.protocol === "https:";
+    document.cookie = `${AUTH_HINT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax${secure ? "; Secure" : ""}`;
+    // The sign-in page says which: "signed out on this device", or "signed out everywhere" (bug 42). It says the second
+    // only with this proof, which only a Sign out everywhere that worked leaves: a link can carry the address too
+    // (address-messages.ts).
+    if (everywhere) document.cookie = noticeProofCookie("everywhere", secure);
     window.location.replace(signedOutAddress(scope));
   }
 

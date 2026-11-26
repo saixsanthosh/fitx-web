@@ -33,6 +33,20 @@ export const WELCOME_VALUE = "return";
 /** Long enough to cover the redirect and the first app page, short enough never to replay on a later visit. */
 export const WELCOME_MAX_AGE = 120;
 
+/**
+ * One word FITX leaves for the sign-in page just before it sends this browser there, naming what FITX itself just did:
+ * "everywhere" after a Sign out everywhere that worked (LogoutButton). The page makes that stronger claim only with
+ * this cookie, reads it once and removes it (src/lib/auth/address-messages.ts): a link can carry any address, but it
+ * can't set FITX's cookies. Only the sign-in page sees it (its path), readable by page scripts on purpose; it grants
+ * nothing. Two minutes, like WELCOME_COOKIE: long enough for the page to load, never long enough for a later visit.
+ */
+export const NOTICE_PROOF_COOKIE = "fitx_signin_notice";
+export const NOTICE_PROOF_MAX_AGE = 120;
+
+export function noticeProofCookieOptions(secure: boolean): CookieOptions {
+  return { path: "/signin", sameSite: "lax", secure, httpOnly: false, maxAge: NOTICE_PROOF_MAX_AGE };
+}
+
 /** Browsers cap cookie lifetimes at 400 days. */
 export const LONG_MAX_AGE = 400 * 24 * 60 * 60;
 /**
