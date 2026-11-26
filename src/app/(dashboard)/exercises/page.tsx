@@ -15,6 +15,7 @@ import { MuscleRail } from "@/components/training/MuscleRail";
 import { ModePanel, ModeTabs } from "@/components/workouts/ModeTabs";
 import { clearRecentSearches, forgetSearch, readRecentExercises, readRecentSearches, rememberSearch } from "@/lib/domain/exercise-preferences";
 import { localDateKey } from "@/lib/domain/dates";
+import { notifyUserContextChanged } from "@/lib/domain/user-context";
 import { createClient, SUPABASE_URL } from "@/lib/supabase/client";
 import type { CatalogExercise } from "@/lib/training/catalog";
 import { focusAreaCounts, loadCatalogThumbnails, queryCatalog, relaxSuggestions, resultCountLine, type QueryFacet, type RankedExercise } from "@/lib/training/catalog-search";
@@ -241,6 +242,8 @@ export default function ExerciseLibraryPage() {
     const { error } = await saveEquipmentProfile(supabase, account.userId, context, keys);
     setSavingList(false);
     if (error) { setListNote({ tone: "error", text: `Your ${contextName} list could not be saved. Check your connection and try again.` }); return; }
+    // Profile shows the lists (and counts a saved one as setup done) from the shared context: it reloads now.
+    notifyUserContextChanged();
     await reloadProfiles({ context, keys });
     navigate({ ...state, have: null });
     setListSaved((value) => value + 1);

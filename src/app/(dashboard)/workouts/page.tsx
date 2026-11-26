@@ -816,6 +816,8 @@ export default function WorkoutsPage() {
     setEquipmentSaving(true); setEquipmentError(""); setEquipmentNote(null);
     const result = await saveEquipmentProfile(supabase, userId, saved.context, saved.keys);
     if (result.error) { setEquipmentSaving(false); return setEquipmentError("Your equipment list couldn’t be saved. Check your connection and try again."); }
+    // Profile shows the lists (and counts a saved one as setup done) from the shared context: it reloads now.
+    notifyUserContextChanged();
     setProfiles((current) => ({ ...current, [saved.context]: saved.keys }));
     // A saved list counts as setup done (brief 3.4), so the first-visit setup steps aside.
     setSetup((current) => current ? { ...current, profiles: { ...current.profiles, [saved.context]: saved.keys }, done: true } : current);
