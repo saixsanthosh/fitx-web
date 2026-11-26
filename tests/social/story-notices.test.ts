@@ -59,7 +59,8 @@ test("Sheet has a message region for what was done in it (additive: drawn only f
   assert.match(sheet, /<p role="status" className=/);
   assert.match(sheet, /\{notice\?\.tone === "error" && <p key=\{notice\.id \?\? notice\.text\} role="alert"/);
   // Between the content and the actions, never in the scrolling part.
-  assert.ok(sheet.indexOf("<div className={styles.content}>") < sheet.indexOf("styles.notices") && sheet.indexOf("styles.notices") < sheet.indexOf("<footer"));
+  const contentAt = sheet.indexOf("className={styles.content}>");
+  assert.ok(contentAt > 0 && contentAt < sheet.indexOf("styles.notices") && sheet.indexOf("styles.notices") < sheet.indexOf("<footer"));
   const css = source("src/components/ui/Sheet.module.css");
   for (const rule of [".notices", ".notice", ".noticeOk", ".noticeInfo", ".noticeError", ".noticeIdle"]) assert.match(css, new RegExp(`\\${rule} \\{`), rule);
 });
