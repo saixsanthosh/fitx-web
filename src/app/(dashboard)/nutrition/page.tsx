@@ -1279,7 +1279,7 @@ export default function NutritionPage() {
         {tab === "foods" && <MyFoods rows={customRows} loading={loading} busy={busy}
           photoFor={photoFor} onUse={(row) => { chooseFood(savedFood(row)); openLog({ quiet: true }); }} onAdd={() => setFoodForm({ editing: null, prefill: null })}
           onEdit={(row) => setFoodForm({ editing: row, prefill: null })} onRemove={(row) => void removeFood(row)}/>}
-        {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })}
+        {tab === "routines" && <Routines templates={templates} ready={capabilities.templates} loading={loading} busy={busy} sections={sections} dateLabel={readableDate(date, { month: "short", day: "numeric" })} labels={actionLabels}
           onApply={(template, slot) => void applyTemplate(template, slot)} onDelete={(template) => void removeTemplate(template)}/>}
         {tab === "history" && <NutritionHistory targets={target ? { calories: target.calories, protein: target.protein } : null} targetSource={`${targetSourceText}.`}
           onOpenDay={openDay}/>}

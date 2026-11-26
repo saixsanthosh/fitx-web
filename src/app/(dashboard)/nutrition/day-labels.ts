@@ -31,6 +31,14 @@ export function dayActionLabels(isToday: boolean): DayActionLabels {
     : { copy: "Copy the day before", copyEmpty: "Copy meals from the day before", saveDay: "Save this day as a routine" };
 }
 
+/**
+ * Routines' line when no daily routine is saved yet: it names the Meals tab's button as that tab shows it for the day
+ * being viewed ("Save today as a routine" on today, "Save this day as a routine" on any other day).
+ */
+export function noRoutinesText(labels: Pick<DayActionLabels, "saveDay">): string {
+  return `No routines yet. Use “${labels.saveDay}” on the Meals tab.`;
+}
+
 /** What copying the day before says, naming that day ("Sunday, 22 November"), never a "yesterday" it isn't. */
 export function copyDayMessages(previous: Date, isToday: boolean) {
   const day = readableDate(previous, { weekday: "long", day: "numeric", month: "long" });
