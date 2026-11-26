@@ -38,12 +38,17 @@ export function equipmentGapMessage(gaps: EquipmentGaps, listName: string, label
  * swap them", but Details has no Swap: Swap is in the builder, reached with Details' Edit plan, which Details does not
  * offer while a workout is in progress (release 3 review). With the card's own workout in progress, the live workout's
  * Swap works (before the exercise's sets are logged); with another one, the swap waits until that one is finished.
+ * The words agree with `count`, the number of exercises the warning names: "it" and "its" for one, "them" and "their"
+ * for two or more (round 3d re-check: after "1 exercise needs dumbbells", a fixed "them" read as the dumbbells).
+ * Nothing when no exercise needs swapping.
  */
-export function swapAdvice(input: { canReplan: boolean; start: TodayStart["kind"] }): string {
-  if (input.canReplan) return "";
-  if (input.start === "continue") return "You can swap them in your workout with Swap, before you log their sets.";
-  if (input.start === "other") return "To swap them, finish your workout in progress, then open Details and choose Edit plan.";
-  return "To swap them, open Details and choose Edit plan.";
+export function swapAdvice(input: { canReplan: boolean; start: TodayStart["kind"]; count: number }): string {
+  if (input.canReplan || !(input.count > 0)) return "";
+  const one = input.count === 1;
+  const them = one ? "it" : "them";
+  if (input.start === "continue") return `You can swap ${them} in your workout with Swap, before you log ${one ? "its" : "their"} sets.`;
+  if (input.start === "other") return `To swap ${them}, finish your workout in progress, then open Details and choose Edit plan.`;
+  return `To swap ${them}, open Details and choose Edit plan.`;
 }
 
 /**

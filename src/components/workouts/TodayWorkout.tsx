@@ -42,11 +42,11 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
   /** The workout in progress, if any: Start opens it instead, and the card says which one it is (bug 30). */
   active: ActiveWorkout | null;
   /**
-   * Exercises the member's list does not allow (bug 17): what to say, and for a programme day a way to re-plan it with
-   * the planner's rules (`note`: how that went). Null when every exercise fits.
+   * Exercises the member's list does not allow (bug 17): how many (`count`), what to say, and for a programme day a way
+   * to re-plan it with the planner's rules (`note`: how that went). Null when every exercise fits.
    */
-  gap?: { message: string; onReplan: (() => void) | null; replanning: boolean; note: string } | null;
-  /* `message` is "" once a re-plan has fixed the day: only its note is left. */
+  gap?: { count: number; message: string; onReplan: (() => void) | null; replanning: boolean; note: string } | null;
+  /* `message` is "" (and `count` 0) once a re-plan has fixed the day: only its note is left. */
   onStart: () => void;
   onDetails: () => void;
   onInfo: (exercise: CatalogExercise) => void;
@@ -57,8 +57,9 @@ export function TodayWorkout({ plan, rows, failed, catalog, starting, startError
   // A re-plan that fixes the day takes "Re-plan this day" away: if it had focus, Start takes it (D5).
   const startRef = useRef<HTMLButtonElement>(null);
   const canReplan = Boolean(gap?.onReplan);
-  // Without Re-plan this day, where the exercises can really be swapped (Details has no Swap of its own).
-  const advice = swapAdvice({ canReplan, start: start.kind });
+  // Without Re-plan this day, where the exercises can really be swapped (Details has no Swap of its own), in words that
+  // agree with how many the warning names.
+  const advice = swapAdvice({ canReplan, start: start.kind, count: gap?.count ?? 0 });
   const hadReplan = useRef(canReplan);
   useEffect(() => {
     if (hadReplan.current && !canReplan && (!document.activeElement || document.activeElement === document.body)) startRef.current?.focus();

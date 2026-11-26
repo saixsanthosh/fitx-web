@@ -1350,6 +1350,7 @@ export default function WorkoutsPage() {
   // What the last re-plan did, while it still describes this day and list: never "re-planned" beside a new warning.
   const todayReplanLine = replanLine(todayReplanHere, todayGaps?.count ?? 0);
   const todayGap = todayCard && (todayGaps?.count || todayReplanLine) ? {
+    count: todayGaps?.count ?? 0,
     message: todayGaps?.count ? equipmentGapMessage(todayGaps, todayContext, equipmentLabel) : "",
     onReplan: todayGaps?.count && today.kind !== "none" && today.programme && enrolment?.status === "active" ? () => void replanToday(todayCard.id) : null,
     replanning: Boolean(todayReplanHere?.busy),

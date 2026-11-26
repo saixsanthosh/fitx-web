@@ -34,13 +34,50 @@ describe("the Today card's equipment check", () => {
 test("the card says where its exercises can really be swapped (release 3 review: Details has no Swap)", () => {
   // Details' Edit plan opens the builder, where each row has Swap; Details shows Edit plan only while no workout is in
   // progress (PlanPreviewSheet), and a live workout has its own Swap.
-  assert.equal(swapAdvice({ canReplan: false, start: "start" }), "To swap them, open Details and choose Edit plan.");
-  assert.equal(swapAdvice({ canReplan: false, start: "other" }), "To swap them, finish your workout in progress, then open Details and choose Edit plan.");
-  assert.equal(swapAdvice({ canReplan: false, start: "continue" }), "You can swap them in your workout with Swap, before you log their sets.");
-  for (const start of ["start", "continue", "other"] as const) assert.equal(swapAdvice({ canReplan: true, start }), "", "Re-plan this day is the way");
+  assert.equal(swapAdvice({ canReplan: false, start: "start", count: 2 }), "To swap them, open Details and choose Edit plan.");
+  assert.equal(swapAdvice({ canReplan: false, start: "other", count: 2 }), "To swap them, finish your workout in progress, then open Details and choose Edit plan.");
+  assert.equal(swapAdvice({ canReplan: false, start: "continue", count: 2 }), "You can swap them in your workout with Swap, before you log their sets.");
+  for (const start of ["start", "continue", "other"] as const) {
+    for (const count of [1, 2]) assert.equal(swapAdvice({ canReplan: true, start, count }), "", "Re-plan this day is the way");
+  }
   const preview = readFileSync("src/components/workouts/PlanPreviewSheet.tsx", "utf8");
   assert.match(preview, /\{onEdit && !done && !activeSession && <button type="button" onClick=\{\(\) => void edit\(\)\}[^>]*>[\s\S]*?"Edit plan"\}/, "Details' Edit plan, hidden while a workout is in progress");
   assert.match(readFileSync("src/app/(dashboard)/workouts/active/page.tsx", "utf8"), /<ArrowRightLeft size=\{14\} aria-hidden="true" \/>Swap<\/button>/, "the live workout's Swap");
+});
+
+describe("the swap advice agrees with how many exercises the warning names (round 3d re-check)", () => {
+  // "1 exercise needs dumbbells, not on your gym list. To swap them, …": after one exercise, "them" read as the
+  // dumbbells. One exercise is "it" and "its"; two or more are "them" and "their", in each of the card's three states.
+  const advice = (start: "start" | "other" | "continue", count: number) => swapAdvice({ canReplan: false, start, count });
+
+  test("one exercise: it, its", () => {
+    assert.equal(advice("start", 1), "To swap it, open Details and choose Edit plan.");
+    assert.equal(advice("other", 1), "To swap it, finish your workout in progress, then open Details and choose Edit plan.");
+    assert.equal(advice("continue", 1), "You can swap it in your workout with Swap, before you log its sets.");
+    for (const start of ["start", "other", "continue"] as const) assert.doesNotMatch(advice(start, 1), /\b(them|their)\b/, start);
+  });
+
+  test("two or more: them, their", () => {
+    for (const count of [2, 3, 12]) {
+      assert.equal(advice("start", count), "To swap them, open Details and choose Edit plan.");
+      assert.equal(advice("other", count), "To swap them, finish your workout in progress, then open Details and choose Edit plan.");
+      assert.equal(advice("continue", count), "You can swap them in your workout with Swap, before you log their sets.");
+      for (const start of ["start", "other", "continue"] as const) assert.doesNotMatch(advice(start, count), /\b(it|its)\b/, `${start}, ${count}`);
+    }
+  });
+
+  test("nothing to swap, nothing to say", () => {
+    for (const start of ["start", "other", "continue"] as const) {
+      for (const count of [0, -1, Number.NaN]) assert.equal(advice(start, count), "", `${start}, ${count}`);
+    }
+  });
+
+  test("read after the warning, the sentence agrees with its count", () => {
+    const one = equipmentGapMessage({ count: 1, missing: ["dumbbell"] }, "gym", equipmentLabel);
+    assert.equal(`${one} ${advice("start", 1)}`, "1 exercise needs dumbbells, not on your gym list. To swap it, open Details and choose Edit plan.");
+    const two = equipmentGapMessage({ count: 2, missing: ["dumbbell", "bench"] }, "gym", equipmentLabel);
+    assert.match(`${two} ${advice("continue", 2)}`, /^2 exercises need .+, not on your gym list\. You can swap them in your workout with Swap, before you log their sets\.$/);
+  });
 });
 
 test("Workout setup changes the programme's list only when it saves a different one", () => {
@@ -121,7 +158,9 @@ describe("the Workouts page (JSX, read from the source)", () => {
     assert.match(page, /equipmentGaps\(loadedToday\.rows, catalogById, ownedFor\(todayContext\)\)/);
     assert.match(page, /onReplan: todayGaps\?\.count && today\.kind !== "none" && today\.programme && enrolment\?\.status === "active" \? \(\) => void replanToday\(todayCard\.id\) : null/);
     assert.match(card, /\{gap\.replanning \? "Re-planning…" : "Re-plan this day"\}/);
-    assert.match(card, /const canReplan = Boolean\(gap\?\.onReplan\);[\s\S]{0,160}?const advice = swapAdvice\(\{ canReplan, start: start\.kind \}\);/, "the member's own plan says where its exercises can be swapped");
+    assert.match(card, /const canReplan = Boolean\(gap\?\.onReplan\);[\s\S]{0,260}?const advice = swapAdvice\(\{ canReplan, start: start\.kind, count: gap\?\.count \?\? 0 \}\);/, "the member's own plan says where its exercises can be swapped, for as many as the warning names");
+    assert.match(card, /gap\?: \{ count: number; message: string;/);
+    assert.match(page, /const todayGap = todayCard && \(todayGaps\?\.count \|\| todayReplanLine\) \? \{\n\s+count: todayGaps\?\.count \?\? 0,\n\s+message: todayGaps\?\.count \? equipmentGapMessage\(todayGaps, todayContext, equipmentLabel\) : "",/, "the card is told the count its warning names");
     assert.match(card, /\{gap\.message\}\{advice \? ` \$\{advice\}` : ""\}/);
     assert.doesNotMatch(card, /Open Details to swap them/);
     assert.match(card, /if \(hadReplan\.current && !canReplan && \(!document\.activeElement \|\| document\.activeElement === document\.body\)\) startRef\.current\?\.focus\(\);/, "a fixed day's Re-plan button goes; focus moves to Start");
