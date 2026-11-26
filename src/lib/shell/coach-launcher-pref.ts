@@ -1,3 +1,4 @@
+import { saveWithinLimit, withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 
 /**
@@ -6,7 +7,13 @@ import { createClient } from "@/lib/supabase/client";
  * new sign-in or another device, and cached on this device (localStorage) so the button never flashes before the
  * account answers. Before the migration is applied the choice is kept on this device only, and Settings says so.
  * A temporary dismiss is something else: it lives in memory for one page load (CoachLauncher).
+ *
+ * Saving waits for the account at most LAUNCHER_SAVE_LIMIT_MS (fix round 3d): past it the request is cancelled and the
+ * save counts as failed, so Settings never stays on "Saving…", and a late answer can't undo a later choice.
  */
+
+/** How long saving the switch waits for the account: the 20 seconds Profile's saves wait. */
+export const LAUNCHER_SAVE_LIMIT_MS = 20_000;
 
 /** localStorage: "on" or "off", the last known choice on this device. */
 export const COACH_LAUNCHER_CACHE_KEY = "fitx-coach-launcher";
@@ -23,7 +30,8 @@ type DbError = { code?: string } | null;
 export type LauncherAccount = {
   userId(): Promise<string | null>;
   read(userId: string): Promise<{ row: { coach_launcher?: unknown } | null; error: DbError }>;
-  write(userId: string, on: boolean): Promise<{ error: DbError }>;
+  /** `signal`, when given, cancels the request once the save's time limit has passed. */
+  write(userId: string, on: boolean, signal?: AbortSignal): Promise<{ error: DbError }>;
 };
 
 type Storageish = Pick<Storage, "getItem" | "setItem">;
@@ -41,9 +49,10 @@ const supabaseAccount: LauncherAccount = {
     const { data, error } = await supabase.from("user_preferences").select("coach_launcher").eq("user_id", userId).maybeSingle();
     return { row: (data as { coach_launcher?: unknown } | null) ?? null, error };
   },
-  async write(userId, on) {
-    const supabase = createClient();
-    if (!supabase) return { error: { code: "unavailable" } };
+  async write(userId, on, signal) {
+    const client = createClient();
+    if (!client) return { error: { code: "unavailable" } };
+    const supabase = signal ? withAbortSignal(client, signal) : client;
     const { error } = await supabase
       .from("user_preferences")
       .upsert({ user_id: userId, coach_launcher: on, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
@@ -101,13 +110,26 @@ export async function loadLauncherPref(account: LauncherAccount = supabaseAccoun
   return { on, where: "account" };
 }
 
-/** Saves a choice from Settings: on this device at once (and to any mounted launcher), then on the account. */
-export async function saveLauncherPref(on: boolean, account: LauncherAccount = supabaseAccount, storage: Storageish | null = browserStorage()): Promise<LauncherPrefSave> {
+/**
+ * Saves a choice from Settings: on this device at once (and to any mounted launcher), then on the account, which is
+ * waited for at most `ms` (setup's saveWithinLimit times it and cancels the request); past that it is a failed save.
+ */
+export async function saveLauncherPref(
+  on: boolean,
+  account: LauncherAccount = supabaseAccount,
+  storage: Storageish | null = browserStorage(),
+  ms: number = LAUNCHER_SAVE_LIMIT_MS,
+): Promise<LauncherPrefSave> {
   cache(storage, on);
   announce(on);
-  const userId = await account.userId().catch(() => null);
-  if (!userId) return { saved: false, reason: "signed-out" };
-  const { error } = await account.write(userId, on).catch(() => ({ error: { code: "network" } }));
-  if (!error) return { saved: true };
-  return { saved: false, reason: isMissingLauncherColumn(error) ? "not-available" : "failed" };
+  // The save answers null once stored, or why not; setup's helper gives its own words past the limit or when it broke off.
+  const outcome = await saveWithinLimit(async (signal) => {
+    const userId = await account.userId().catch(() => null);
+    if (!userId) return "signed-out";
+    const { error } = await account.write(userId, on, signal).catch(() => ({ error: { code: "network" } }));
+    if (!error) return null;
+    return isMissingLauncherColumn(error) ? "not-available" : "failed";
+  }, { ms });
+  if (outcome === null) return { saved: true };
+  return { saved: false, reason: outcome === "signed-out" || outcome === "not-available" ? outcome : "failed" };
 }

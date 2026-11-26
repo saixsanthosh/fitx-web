@@ -6,6 +6,7 @@ import type { AMREntry, AuthChangeEvent, User } from "@supabase/supabase-js";
 import { checkSession, signInHref } from "@/components/account/session-state";
 import { PASSWORD_NOTE, signInMethods, type SignInMethods } from "@/components/account/sign-in-methods";
 import { LogoutButton } from "@/components/app/LogoutButton";
+import { PROFILE_TIME_LIMIT_MS } from "@/components/profile/profile-save";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { SettingsGroup, SettingsRow } from "./SettingsParts";
 
@@ -34,7 +35,8 @@ function accountOf(user: User, amr: readonly AMREntry[]): Account {
  * and signing out here or everywhere. An ended session (signed out everywhere from another device, or this page shown
  * again by Back after Log out) says so and offers sign-in; only a check that really failed says the details could not
  * be loaded. The session is checked when the page mounts and again when Back or Forward brings it back from the
- * browser's back/forward cache.
+ * browser's back/forward cache. Supabase Auth's check can't be cancelled, so one that hasn't answered within
+ * Profile's 20 seconds says the details could not be loaded, and a later answer still shows them (fix round 3d).
  */
 export function SettingsAccount({ profile }: { profile?: ReactNode }) {
   const [view, setView] = useState<View>(isSupabaseConfigured ? { kind: "loading" } : { kind: "failed" });
@@ -46,8 +48,12 @@ export function SettingsAccount({ profile }: { profile?: ReactNode }) {
     let ticket = 0;
     const check = async () => {
       const mine = ++ticket;
+      const overdue = window.setTimeout(() => {
+        if (live && mine === ticket) setView((current) => (current.kind === "loading" ? { kind: "failed" } : current));
+      }, PROFILE_TIME_LIMIT_MS.reload);
       const { state, user } = await checkSession<User>(() => supabase.auth.getUser());
       const amr = state === "signed_in" ? await sessionAmr(supabase) : [];
+      window.clearTimeout(overdue);
       if (!live || mine !== ticket) return;
       if (state === "signed_in" && user) setView({ kind: "ready", account: accountOf(user, amr) });
       else setView({ kind: state === "signed_out" ? "signed_out" : "failed" });

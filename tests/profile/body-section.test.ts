@@ -43,7 +43,9 @@ describe("Profile > Body keeps the stored age of a member without a birth date",
     // words setup shows), so screen readers hear it with the field.
     assert.match(body, /<BirthDateField value=\{draft\.birthDate\} onChange=\{\(value\) => set\("birthDate", value\)\} error=\{errors\.birthDate\} required=\{false\} note=\{BIRTH_DATE_ONCE_NOTE\} \/>/);
     assert.doesNotMatch(body, /You can add it once/, "no separate paragraph that the field doesn't describe");
-    assert.match(body, /if \(isBirthDateLocked\(saved\.error\)\) \{\s*const kept = await loadBirthDate\(supabase, data\.userId\);\s*if \(kept\) setDraft\(\(current\) => \(\{ \.\.\.current, birthDate: kept \}\)\);\s*return failed\(setSaving, setError, BIRTH_DATE_SAVED_ERROR\);/);
+    // Inside the save's time limit (fix round 3d): the saved date is taken only while the save is still waited for.
+    assert.match(body, /if \(isBirthDateLocked\(saved\.error\)\) \{\s*const kept = await loadBirthDate\(db, data\.userId\);\s*if \(kept && !signal\.aborted\) setDraft\(\(current\) => \(\{ \.\.\.current, birthDate: kept \}\)\);\s*return BIRTH_DATE_SAVED_ERROR;/);
+    assert.match(body, /if \(problem\) return failed\(setSaving, setError, problem\);/, "and it shows beside the buttons");
   });
 });
 

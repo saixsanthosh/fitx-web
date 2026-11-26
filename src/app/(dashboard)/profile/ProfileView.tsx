@@ -9,15 +9,18 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { checkSession, confirmSignedOut, type SessionState } from "@/components/account/session-state";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { CountUp } from "@/components/motion";
-import { PHOTO_HEADER_BYTES, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto } from "@/components/profile/photo-file";
+import { PHOTO_HEADER_BYTES, PHOTO_LINK_TIMED_OUT, PHOTO_NOT_AN_IMAGE, checkPhotoFile, downloadUnlessStalled, isOwnPhoto, replacePhoto, signedUrlWithin, uploadLimitMs } from "@/components/profile/photo-file";
+import { NAME_SAVE, PHOTO_REMOVE, PROFILE_TIME_LIMIT_MS, headerNotice, noticeAfterReload, saveWithin, statusAfterWait, waitWithin } from "@/components/profile/profile-save";
 import type { NutritionTargets } from "@/lib/domain/nutrition";
 import { NAME_MAX_LENGTH, formatWeight } from "@/lib/domain/profile-options";
 import { targetReason } from "@/lib/domain/target-reason";
 import { loadUserContext, targetsFor, updateProfileRow, type UserContextData } from "@/lib/domain/user-context";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 import type { SectionNotice } from "./ProfileParts";
 import { BodySection, FoodSection, GoalSection, LimitsSection, TrainingSection, type SectionId, type SectionProps } from "./ProfileSections";
 import { profileHeadline } from "./profile-answers";
+import { focusAfterRetry, type ProfileStatus } from "./profile-focus";
 
 const MEDIA_BUCKET = "fitx-user-media";
 /**
@@ -54,8 +57,6 @@ async function fileOpens(file: Blob): Promise<boolean> {
   }
 }
 
-type Status = "loading" | "ready" | "signed_out" | "unavailable" | "error";
-
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: "body", label: "Body" },
   { id: "goal", label: "Goal" },
@@ -70,6 +71,20 @@ const SECTIONS: { id: SectionId; label: string }[] = [
  */
 export function profileTargets(data: UserContextData): NutritionTargets | null {
   return targetsFor(data.profile, data.preferences, data.currentWeightKg);
+}
+
+/** True once `waiting` has lasted `ms` without a break, and false again as soon as it ends. */
+function useOverdue(waiting: boolean, ms: number): boolean {
+  const [overdue, setOverdue] = useState(false);
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = window.setTimeout(() => setOverdue(true), ms);
+    return () => {
+      window.clearTimeout(timer);
+      setOverdue(false);
+    };
+  }, [waiting, ms]);
+  return waiting && overdue;
 }
 
 /**
@@ -103,7 +118,7 @@ function useProfileData() {
     setAttempt((count) => count + 1);
     await refreshShared?.();
   }, [refreshShared]);
-  const [local, setLocal] = useState<{ status: Status; data: UserContextData | null; avatarUrl: string | null }>({ status: "loading", data: null, avatarUrl: null });
+  const [local, setLocal] = useState<{ status: ProfileStatus; data: UserContextData | null; avatarUrl: string | null }>({ status: "loading", data: null, avatarUrl: null });
   const loadLocal = useCallback(async () => {
     const supabase = createClient();
     if (!supabase) return setLocal({ status: "unavailable", data: null, avatarUrl: null });
@@ -122,11 +137,15 @@ function useProfileData() {
     if (shared) return;
     void Promise.resolve().then(loadLocal);
   }, [shared, loadLocal]);
+  // Neither load has a time limit of its own (the shared one is the provider's): still loading past Profile's reload
+  // limit, the page shows the load as failed, with Try again, until the profile comes (profile-save.ts).
+  const loaded = shared ? confirmSignedOut(shared.status, own) : local.status;
+  const overdue = useOverdue(loaded === "loading", PROFILE_TIME_LIMIT_MS.reload);
   if (shared) {
     const status = confirmSignedOut(shared.status, own);
-    return { status, data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
+    return { status: statusAfterWait(status, overdue), data: shared.data, avatarUrl: shared.avatarUrl, reload: reloadShared };
   }
-  return { ...local, reload: loadLocal };
+  return { ...local, status: statusAfterWait(local.status, overdue), reload: loadLocal };
 }
 
 export function ProfileView() {
@@ -134,6 +153,10 @@ export function ProfileView() {
   const [editing, setEditing] = useState<SectionId | null>(null);
   const [notices, setNotices] = useState<Partial<Record<SectionId, SectionNotice>>>({});
   const [retrying, setRetrying] = useState(false);
+  const alertBox = useRef<HTMLDivElement>(null);
+  // Set by Try again, pressed or only focused (a load that lands late replaces the alert on its own); cleared once focus
+  // has been handed on, or is found outside the alert (where the member put it).
+  const retryFocus = useRef(false);
 
   // Back or Forward can bring Profile back from the browser's back/forward cache as it was when it was left, after
   // a Log out say: check the session and load again, so an ended session never shows the profile as signed in.
@@ -145,10 +168,36 @@ export function ProfileView() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, [reload]);
 
+  // Try again keeps focus while it works and when it fails (it stays, aria-disabled). When the alert it sat in gives way,
+  // to the profile or to Sign in, focus goes there instead of falling to the page (D5, profile-focus.ts).
+  useEffect(() => {
+    if (!retryFocus.current || retrying) return;
+    const target = focusAfterRetry(status);
+    if (target === "wait") return;
+    const active = document.activeElement;
+    if (active && active !== document.body) {
+      // Still on Try again (the retry failed): keep watching, for the alert may still give way. Anywhere else, the
+      // member moved it: leave it there.
+      if (!alertBox.current?.contains(active)) retryFocus.current = false;
+      return;
+    }
+    retryFocus.current = false;
+    const element = target === "heading" ? document.getElementById("profile-name-title")
+      : target === "action" ? alertBox.current?.querySelector<HTMLElement>("a, button")
+      : null;
+    element?.focus();
+  }, [status, retrying]);
+
   async function retry() {
+    if (retrying) return;
+    retryFocus.current = true;
     setRetrying(true);
-    await reload();
-    setRetrying(false);
+    try {
+      // Within the reload's limit, so "Trying again…" never stays up for good; a later answer still shows (profile-save.ts).
+      await waitWithin(reload);
+    } finally {
+      setRetrying(false);
+    }
   }
 
   if (status === "loading") {
@@ -167,10 +216,10 @@ export function ProfileView() {
     return (
       <div className="mx-auto max-w-5xl">
         <PageHeader title="Profile" />
-        <div role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
+        <div ref={alertBox} role="alert" className="fitx-alert fitx-alert-danger flex flex-wrap items-center gap-x-2">
           <span>{text}</span>
           {status === "error" && (
-            <button type="button" onClick={() => void retry()} disabled={retrying} className="fitx-alert-action inline-flex min-h-11 items-center gap-1">
+            <button type="button" onClick={() => void retry()} aria-disabled={retrying || undefined} onFocus={() => { retryFocus.current = true; }} className="fitx-alert-action inline-flex min-h-11 items-center gap-1 aria-disabled:cursor-progress aria-disabled:opacity-60">
               <RotateCcw size={14} aria-hidden="true" />{retrying ? "Trying again…" : "Try again"}
             </button>
           )}
@@ -192,14 +241,17 @@ export function ProfileView() {
     onEdit: () => open(id),
     onClose: () => setEditing((current) => (current === id ? null : current)),
     onSaved: async (notice) => {
-      await reload();
-      setNotices((current) => ({ ...current, [id]: notice }));
+      // The card shows the change once the profile has reloaded. Past the reload's limit the save still counts: the
+      // section says it is saved and how to see it (profile-save.ts).
+      const reloaded = await waitWithin(reload);
+      setNotices((current) => ({ ...current, [id]: noticeAfterReload(notice, reloaded) }));
     },
+    onNotice: (notice) => setNotices((current) => ({ ...current, [id]: notice })),
   });
 
   return (
     <div className="mx-auto max-w-5xl">
-      <ProfileHeader data={data} avatarUrl={avatarUrl} onSaved={async () => { await reload(); }} />
+      <ProfileHeader data={data} avatarUrl={avatarUrl} onSaved={() => waitWithin(reload)} />
       <TargetsStrip data={data} targets={targets} onEditBody={() => { open("body"); document.getElementById("body")?.scrollIntoView({ behavior: "smooth", block: "start" }); }} />
       <div className="mt-8 grid gap-6 lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-10">
         <nav aria-label="Profile sections" className="-mx-4 overflow-x-auto px-4 [scrollbar-width:none] lg:mx-0 lg:overflow-visible lg:px-0">
@@ -231,10 +283,16 @@ export function ProfileView() {
   );
 }
 
-function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: (message: string) => Promise<void> }) {
+/**
+ * `onSaved` reloads the profile after a name or photo save, within the reload's limit: true when it came back in time,
+ * so the header already shows the change.
+ */
+function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; avatarUrl: string | null; onSaved: () => Promise<boolean> }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const cameraButton = useRef<HTMLButtonElement>(null);
+  const editNameButton = useRef<HTMLButtonElement>(null);
   const [editingName, setEditingName] = useState(false);
+  const nameEditorWasOpen = useRef(editingName);
   const [name, setName] = useState(data.profile?.name ?? "");
   const [busy, setBusy] = useState<"" | "name" | "photo">("");
   const [error, setError] = useState("");
@@ -248,11 +306,21 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
   // A photo uploaded to FITX (not the Google picture, which is only a link) can be downloaded.
   const uploadedPhoto = isOwnPhoto(storedAvatar, data.userId);
   // The photo buttons stay focusable while a photo is being worked on (aria-disabled, not disabled), so keyboard
-  // focus isn't dropped to the page; a second press meanwhile does nothing.
+  // focus isn't dropped to the page; a second press meanwhile does nothing. So do the name editor's Save and Cancel
+  // while the name saves, so a failed save's message is read with focus still on Save.
   const photoBusy = busy === "photo";
+  const nameBusy = busy === "name";
+
+  // Saved, unchanged or cancelled, the name editor gives way to the name: focus goes back to Edit name, as a section's
+  // Edit does (ProfileParts SectionCard), instead of falling to the page (D5).
+  useEffect(() => {
+    if (nameEditorWasOpen.current && !editingName) editNameButton.current?.focus();
+    nameEditorWasOpen.current = editingName;
+  }, [editingName]);
 
   async function saveName(event: FormEvent) {
     event.preventDefault();
+    if (nameBusy) return;
     const value = name.replace(/\s+/g, " ").trim();
     if (!value) return setError("Add your name.");
     if (value.length > NAME_MAX_LENGTH) return setError(`Keep your name to ${NAME_MAX_LENGTH} characters.`);
@@ -265,13 +333,18 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     setBusy("name");
     setError("");
     setNotice("");
-    const saved = await updateProfileRow(supabase, data.userId, { name: value });
-    if (saved.error) {
+    // Within Profile's time limit, its request built with the save's signal (profile-save.ts). Past it, "Saving…" ends
+    // with a message, the name stays as typed and focus stays on Save.
+    const problem = await saveWithin(async (signal) => {
+      const saved = await updateProfileRow(withAbortSignal(supabase, signal), data.userId, { name: value });
+      return saved.error ? NAME_SAVE.failed : null;
+    }, NAME_SAVE);
+    if (problem) {
       setBusy("");
-      return setError("Your name couldn't be saved. Try again.");
+      return setError(problem);
     }
-    await onSaved("Name saved.");
-    setNotice("Name saved");
+    const reloaded = await onSaved();
+    setNotice(headerNotice("name", reloaded));
     setBusy("");
     setEditingName(false);
   }
@@ -304,24 +377,25 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     const supabase = createClient();
     if (!supabase) return stop("Your photo couldn't be uploaded right now.");
     const bucket = supabase.storage.from(MEDIA_BUCKET);
+    // Each step waits only so long (photo-file.ts): the upload as long as this file needs on a slow connection, the
+    // link to the stored copy and the profile's save (cancelled at its limit) Profile's 20 seconds.
     const outcome = await replacePhoto({
       // A Blob of the real type: storage takes the stored type from the Blob, not from the contentType option.
       upload: (path, type) => bucket.upload(path, file.slice(0, file.size, type), { contentType: type, upsert: false }),
       // The stored copy comes back in full however slow the connection (only a stalled download gives up), must be
       // exactly the picked file's size, and must open as a picture here.
       opens: async (path) => {
-        const signed = await bucket.createSignedUrl(path, 120);
-        const url = signed.data?.signedUrl;
-        if (!url) return false;
+        const url = await signedUrlWithin(bucket.createSignedUrl(path, 120));
+        if (!url || url === "timed_out") return false;
         const stored = await downloadUnlessStalled((signal) => fetch(url, { signal, cache: "no-store" }));
         return stored !== null && stored.size === file.size && fileOpens(stored);
       },
-      save: (path) => updateProfileRow(supabase, data.userId, { avatar: path }),
+      save: (path, signal) => updateProfileRow(withAbortSignal(supabase, signal), data.userId, { avatar: path }),
       remove: (paths) => bucket.remove(paths),
-    }, { userId: data.userId, type: check.type, previous: storedAvatar, now: Date.now() });
+    }, { userId: data.userId, type: check.type, previous: storedAvatar, now: Date.now(), limits: { upload: uploadLimitMs(file.size) } });
     if (!outcome.ok) return stop(outcome.message);
-    await onSaved("Photo updated.");
-    setNotice("Photo updated");
+    const reloaded = await onSaved();
+    setNotice(headerNotice("photo", reloaded));
     setBusy("");
   }
 
@@ -333,10 +407,12 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     setBusy("photo");
     setError("");
     const fileName = storedAvatar.split("/").pop() || "fitx-photo";
-    const signed = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(storedAvatar, 60, { download: fileName });
+    // Within Profile's time limit; a link that comes later is never followed.
+    const url = await signedUrlWithin(supabase.storage.from(MEDIA_BUCKET).createSignedUrl(storedAvatar, 60, { download: fileName }));
     setBusy("");
-    if (signed.error || !signed.data?.signedUrl) return setError("Your photo couldn't be downloaded. Try again.");
-    window.location.assign(signed.data.signedUrl);
+    if (url === "timed_out") return setError(PHOTO_LINK_TIMED_OUT);
+    if (!url) return setError("Your photo couldn't be downloaded. Try again.");
+    window.location.assign(url);
   }
 
   async function removePhoto() {
@@ -345,14 +421,20 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
     if (!supabase) return;
     setBusy("photo");
     setError("");
-    const saved = await updateProfileRow(supabase, data.userId, { avatar: null });
-    if (saved.error) {
+    // Within Profile's time limit, its request built with the save's signal (profile-save.ts).
+    const problem = await saveWithin(async (signal) => {
+      const saved = await updateProfileRow(withAbortSignal(supabase, signal), data.userId, { avatar: null });
+      return saved.error ? PHOTO_REMOVE.failed : null;
+    }, PHOTO_REMOVE);
+    if (problem) {
       setBusy("");
-      return setError("Your photo couldn't be removed. Try again.");
+      return setError(problem);
     }
-    if (isOwnPhoto(storedAvatar, data.userId)) await supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]);
-    await onSaved("Photo removed.");
-    setNotice("Photo removed");
+    // The stored file goes once the profile no longer points at it. A removal that doesn't answer in time is left to
+    // finish on its own: a leftover in the member's own folder is harmless.
+    if (isOwnPhoto(storedAvatar, data.userId)) await waitWithin(() => supabase.storage.from(MEDIA_BUCKET).remove([storedAvatar]));
+    const reloaded = await onSaved();
+    setNotice(headerNotice("removed", reloaded));
     setBusy("");
     // Remove photo and Download photo are gone now: keep the keyboard on the photo control, now "Add photo".
     cameraButton.current?.focus();
@@ -379,16 +461,17 @@ function ProfileHeader({ data, avatarUrl, onSaved }: { data: UserContextData; av
               <label htmlFor="profile-name" className="sr-only">Name</label>
               <input id="profile-name" className="fitx-field max-w-md" value={name} maxLength={NAME_MAX_LENGTH} autoComplete="name" autoFocus onChange={(event) => setName(event.target.value)} />
               <div className="flex gap-2">
-                <button type="submit" disabled={busy === "name"} className="fitx-button px-4">{busy === "name" ? "Saving…" : "Save"}</button>
-                <button type="button" onClick={() => { setEditingName(false); setName(data.profile?.name ?? ""); setError(""); }} className="fitx-button fitx-button-secondary px-4">Cancel</button>
+                <button type="submit" aria-disabled={nameBusy || undefined} className="fitx-button px-4 aria-disabled:opacity-60">{nameBusy ? "Saving…" : "Save"}</button>
+                <button type="button" onClick={() => { if (nameBusy) return; setEditingName(false); setName(data.profile?.name ?? ""); setError(""); }} aria-disabled={nameBusy || undefined} className="fitx-button fitx-button-secondary px-4 aria-disabled:opacity-60">Cancel</button>
               </div>
             </form>
           ) : (
             <div className="flex items-start gap-1">
-              <h1 id="profile-name-title" className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text sm:text-[40px]">
+              {/* tabIndex -1: Try again hands focus here when it brings the profile back (profile-focus.ts). */}
+              <h1 id="profile-name-title" tabIndex={-1} className="min-w-0 break-words font-heading text-[30px] font-bold leading-[1.05] tracking-[-.035em] text-fitx-text sm:text-[40px]">
                 {data.profile?.name || "Add your name"}
               </h1>
-              <button type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
+              <button ref={editNameButton} type="button" onClick={() => { setName(data.profile?.name ?? ""); setEditingName(true); setNotice(""); }} aria-label="Edit name"
                 className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text">
                 <Pencil size={16} aria-hidden="true" />
               </button>

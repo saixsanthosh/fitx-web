@@ -6,8 +6,15 @@
  * type it is stored with), the page also checks that the browser can open it as a picture, and the old photo is only
  * deleted once the new one is stored, opens from storage and is on the profile.
  *
+ * Every step that waits on the network has a time limit (fix round 3d, tests/profile/photo-time-limit.test.ts), so
+ * "Working…" never stays up for good: the upload's grows with the file, the profile's save is cancelled at its limit,
+ * and clean-ups are waited for only so long.
+ *
  * No React here, so node tests cover it (tests/profile/profile-photo.test.ts); ProfileView does the browser parts.
  */
+import { isTimeLimit, withTimeLimit } from "@/lib/auth/time-limit";
+import { SAVE_TIMED_OUT, saveWithinLimit } from "@/lib/onboarding/time-limit";
+import { PROFILE_TIME_LIMIT_MS } from "./profile-save";
 
 export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 /** Enough of the file to tell the three formats apart (WebP needs 12 bytes). */
@@ -21,6 +28,43 @@ export const PHOTO_TOO_BIG = "Choose an image under 5 MB.";
 export const PHOTO_UPLOAD_FAILED = "Your photo couldn't be uploaded. Try again.";
 export const PHOTO_DID_NOT_OPEN = "Your new photo couldn't be opened after uploading, so nothing changed. Try again, or choose another image.";
 export const PHOTO_SAVE_FAILED = "Your photo couldn't be saved. Try again.";
+/** The upload ran out of time; one that still lands is removed again, so nothing changes. */
+export const PHOTO_UPLOAD_TIMED_OUT = "Uploading your photo is taking too long, so we stopped waiting. Nothing changed. Check your connection and try again.";
+/** The profile's save ran out of time. It may still have gone through, so this doesn't say nothing changed. */
+export const PHOTO_SAVE_TIMED_OUT = "Saving your new photo is taking too long, so we stopped waiting. Check your connection and try again.";
+/** Download photo: storage's link didn't come in time. */
+export const PHOTO_LINK_TIMED_OUT = "Getting your photo is taking too long, so we stopped waiting. Check your connection and try again.";
+
+/**
+ * The slowest upload a photo is still given time for: 256 kbit/s. A connection that slow, or slower, is very likely
+ * stalled rather than busy.
+ */
+export const SLOWEST_UPLOAD_BYTES_PER_SECOND = 32_000;
+
+/**
+ * How long uploading `bytes` may take before Profile stops waiting: Profile's save limit, plus what the file needs at
+ * the slowest upload speed (about 50 s for 1 MB, about three minutes for 5 MB), so a slow connection that is still
+ * sending isn't cut off the way a fixed limit would (review home-2 was that mistake for the download).
+ */
+export function uploadLimitMs(bytes: number): number {
+  return PROFILE_TIME_LIMIT_MS.save + Math.ceil((Math.max(0, bytes) / SLOWEST_UPLOAD_BYTES_PER_SECOND) * 1000);
+}
+
+/** What a storage link request gives (createSignedUrl). */
+type SignedUrlAnswer = { data: { signedUrl: string } | null; error: unknown };
+
+/**
+ * A signed link from storage within Profile's limit: its URL, null when storage refused or broke off, or "timed_out".
+ * Storage's client can't cancel the request; a link that comes later is never used.
+ */
+export async function signedUrlWithin(request: PromiseLike<SignedUrlAnswer>, ms: number = PROFILE_TIME_LIMIT_MS.save): Promise<string | null | "timed_out"> {
+  try {
+    const { data, error } = await withTimeLimit(request, ms);
+    return error ? null : data?.signedUrl ?? null;
+  } catch (problem) {
+    return isTimeLimit(problem) ? "timed_out" : null;
+  }
+}
 
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -134,37 +178,51 @@ export function photoPath(userId: string, type: PhotoType, now: number): string 
 export type PhotoSteps = {
   /** Stores the picked file at `path` with `type` (never over an existing object). */
   upload(path: string, type: PhotoType): PromiseLike<{ error: unknown }>;
-  /** Whether the stored copy at `path` opens as a picture. */
+  /** Whether the stored copy at `path` opens as a picture. Its own limits apply (signedUrlWithin, downloadUnlessStalled). */
   opens(path: string): PromiseLike<boolean>;
-  /** Points the profile at `path`. */
-  save(path: string): PromiseLike<{ error: unknown }>;
+  /** Points the profile at `path`, with every request built from `signal`, which the save's limit aborts. */
+  save(path: string, signal: AbortSignal): PromiseLike<{ error: unknown }>;
   /** Deletes stored objects. */
   remove(paths: string[]): PromiseLike<unknown>;
 };
 
 export type ReplaceOutcome = { ok: true; path: string } | { ok: false; step: "upload" | "open" | "save"; message: string };
 
-async function quietly(work: () => PromiseLike<unknown>): Promise<void> {
+/** How long each step is waited for, in milliseconds. The check that the stored copy opens has its own limits. */
+export type PhotoLimits = { upload: number; save: number; cleanUp: number };
+
+const DEFAULT_LIMITS: PhotoLimits = { upload: uploadLimitMs(PHOTO_MAX_BYTES), save: PROFILE_TIME_LIMIT_MS.save, cleanUp: PROFILE_TIME_LIMIT_MS.save };
+
+async function quietly(work: () => PromiseLike<unknown>, ms: number): Promise<void> {
   try {
-    await work();
+    await withTimeLimit(work(), ms);
   } catch {
-    // Clean-up only: a leftover object in the member's own folder is harmless, the outcome is what matters.
+    // Clean-up only: a leftover object in the member's own folder is harmless, the outcome is what matters. A removal
+    // that doesn't answer in time is left to finish on its own.
   }
 }
 
 /**
  * Replaces the profile photo: upload, check the stored copy opens, save it on the profile, and only then delete the
  * previous upload. When any step fails the new upload is removed and the profile and the old photo stay as they were.
+ * A step that runs out of time stops the replacement (`limits`; ProfileView gives the upload its file's own limit).
  */
 export async function replacePhoto(
   steps: PhotoSteps,
-  { userId, type, previous, now }: { userId: string; type: PhotoType; previous: string | null; now: number },
+  { userId, type, previous, now, limits = {} }: { userId: string; type: PhotoType; previous: string | null; now: number; limits?: Partial<PhotoLimits> },
 ): Promise<ReplaceOutcome> {
+  const { upload: uploadMs, save: saveMs, cleanUp: cleanUpMs } = { ...DEFAULT_LIMITS, ...limits };
   const path = photoPath(userId, type, now);
+  const removeNew = () => quietly(() => steps.remove([path]), cleanUpMs);
   let uploaded: { error: unknown };
   try {
-    uploaded = await steps.upload(path, type);
+    // Storage's client can't cancel an upload. Past its limit Profile stops waiting, and an upload that still lands
+    // afterwards is removed again, so nothing changes and no copy is left behind while the page stays open.
+    uploaded = await withTimeLimit(steps.upload(path, type), uploadMs, (late) => {
+      if (!late.error) void removeNew();
+    });
   } catch (error) {
+    if (isTimeLimit(error)) return { ok: false, step: "upload", message: PHOTO_UPLOAD_TIMED_OUT };
     uploaded = { error };
   }
   if (uploaded.error) return { ok: false, step: "upload", message: PHOTO_UPLOAD_FAILED };
@@ -176,21 +234,22 @@ export async function replacePhoto(
     opens = false;
   }
   if (!opens) {
-    await quietly(() => steps.remove([path]));
+    await removeNew();
     return { ok: false, step: "open", message: PHOTO_DID_NOT_OPEN };
   }
 
-  let saved: { error: unknown };
-  try {
-    saved = await steps.save(path);
-  } catch (error) {
-    saved = { error };
+  // The profile's update carries the save's signal and is cancelled at the limit, as Profile's other saves are.
+  const problem = await saveWithinLimit(async (signal) => ((await steps.save(path, signal)).error ? PHOTO_SAVE_FAILED : null), { ms: saveMs });
+  if (problem === SAVE_TIMED_OUT.page) {
+    // The update may still have reached the database, so the new upload stays (removing it could leave the profile
+    // pointing at nothing), and so does the old photo.
+    return { ok: false, step: "save", message: PHOTO_SAVE_TIMED_OUT };
   }
-  if (saved.error) {
-    await quietly(() => steps.remove([path]));
+  if (problem) {
+    await removeNew();
     return { ok: false, step: "save", message: PHOTO_SAVE_FAILED };
   }
 
-  if (isOwnPhoto(previous, userId) && previous !== path) await quietly(() => steps.remove([previous]));
+  if (isOwnPhoto(previous, userId) && previous !== path) await quietly(() => steps.remove([previous]), cleanUpMs);
   return { ok: true, path };
 }
