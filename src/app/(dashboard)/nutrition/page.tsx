@@ -59,7 +59,7 @@ import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
 import { focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
-import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, listedFoods, noSearchReason, openingPortion, startView, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
+import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, foodCardKey, listedFoods, noSearchReason, openingPortion, startView, swapFocusTargets, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
 import styles from "./Nutrition.module.css";
@@ -136,6 +136,8 @@ export default function NutritionPage() {
   const searchGate = useRef(answerGate());
   const barcodeGate = useRef(answerGate());
   const [selected, setSelected] = useState<FoodResult | null>(null);
+  /** The entry of the sheet's lists the chosen food was picked from (its data-food-card), or null: Back to results focuses it. */
+  const chosenFrom = useRef<string | null>(null);
   const [amount, setAmount] = useState("100");
   const [unitKey, setUnitKey] = useState("g");
   /** A volume weight worked out from another USDA measure, such as 1 fl oz from the cup. */
@@ -406,12 +408,16 @@ export default function NutritionPage() {
     setAmountPrompt(null);
   }
 
-  /** Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. */
-  const chooseFood = useCallback((food: FoodResult, typed: ParsedFoodQuery = NO_AMOUNT) => {
+  /**
+   * Selects a food and fills the amount from what was typed: "3 idli" becomes 3 x USDA's 38 g idli. `from`: the entry
+   * of the sheet's lists it was picked from (foodCardKey), which takes the focus again after Back to results.
+   */
+  const chooseFood = useCallback((food: FoodResult, typed: ParsedFoodQuery = NO_AMOUNT, from: string | null = null) => {
     // Its own portions, then ml, cups and katori worked out from its USDA volume measure (when it has one).
     const own = food.portions ?? [];
     const portions = [...own, ...extraPortions(own, food.name, household)];
     const resolution = resolvePortion(typed, portions);
+    chosenFrom.current = from;
     setSelected(food);
     setDerived(null);
     setAmountPrompt(null);
@@ -575,6 +581,8 @@ export default function NutritionPage() {
     setLastSearch(view.lastSearch);
     setLastQuery(view.lastQuery);
     setSelected(null); setDerived(null); setAmountPrompt(null); setAmountTried(false); setPickHint("");
+    // A new list: the entry a food was picked from is gone with the old one.
+    chosenFrom.current = null;
     if (!keepMiss) setBarcodeMiss(null);
     // Waits only for the browse list, when it has never arrived.
     setSearchingFoods(false);
@@ -780,7 +788,7 @@ export default function NutritionPage() {
   function chooseFrequent(item: FrequentFood) {
     const food = foodFromEntry(item.entry);
     if (!food) return;
-    chooseFood(food);
+    chooseFood(food, NO_AMOUNT, foodCardKey("frequent", item.key));
     const usual = usualAmount(item.entry);
     if (usual) { setAmount(formatAmount(usual.amount)); setUnitKey(usual.unitKey); }
   }
@@ -849,6 +857,17 @@ export default function NutritionPage() {
     const timer = window.setTimeout(() => { document.getElementById(logFocus)?.focus(); setLogFocus(null); }, 80);
     return () => window.clearTimeout(timer);
   }, [logOpen, logFocus]);
+  // The Add to log panel and the list take each other's place in the sheet, and a search's answer can take away what
+  // was pressed (an example, Packaged), so the control that had the focus goes and it would fall to the page (D5): the
+  // chosen food's amount takes it, or, back on the list, the food just left (else the search or barcode box). Only
+  // when it fell: a control that is still there keeps it.
+  useEffect(() => {
+    if (!logOpen || !focusFellToPage(document.activeElement, document.body)) return;
+    for (const selector of swapFocusTargets({ panel: Boolean(selected), mode: logMode, from: chosenFrom.current }, CSS.escape)) {
+      const target = document.querySelector<HTMLElement>(selector);
+      if (target) { target.focus(); return; }
+    }
+  }, [logOpen, selected, logMode, lastSearch, searchMode, searchingFoods]);
   // After the day (or My foods, or Routines) reloads, focus what replaced the control that had it (an entry moved to
   // another meal is a new row, a removed one leaves its Undo), or the next choice when that is not there; or, when the
   // control that had it went with the reload, where it is now sensible (reloadFocusTargets).
@@ -1219,14 +1238,14 @@ export default function NutritionPage() {
         {showBrowse && shownRecent.length > 0 && <>
           <p className={styles.listLabel}>Recent</p>
           {shownRecent.map((food, index) => <div key={`recent-${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
-            <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+            <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} card={foodCardKey("recent", food.id, food.source)} onSelect={(chosen) => chooseFood(chosen, lastQuery, foodCardKey("recent", chosen.id, chosen.source))}/>
           </div>)}
         </>}
         {showBrowse && <p className={styles.listLabel}>Common foods</p>}
         {searchMode === "packaged" && <p className={ui.muted}>Packaged products from Open Food Facts, entered from labels by its community.</p>}
         {shownResults.some((food) => food.suggestion) && <p className={ui.muted}>No exact match. Closest spellings:</p>}
         {shownResults.map((food, index) => <div key={`${food.source}-${food.id}`} className={styles.listItem} style={{ "--i": Math.min(index, 10) } as CSSProperties}>
-          <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} onSelect={(chosen) => chooseFood(chosen, lastQuery)}/>
+          <FoodResultCard food={food} active={false} dietUnchecked={filtering && !food.dietType} card={foodCardKey("result", food.id, food.source)} onSelect={(chosen) => chooseFood(chosen, lastQuery, foodCardKey("result", chosen.id, chosen.source))}/>
         </div>)}
         {hiddenCount > 0 && <p className={ui.muted}>{hiddenCount} {hiddenCount === 1 ? "food" : "foods"} marked {dietFilter.nonVeg && dietFilter.egg ? "non-veg or egg" : dietFilter.egg ? "egg" : "non-veg"} {hiddenCount === 1 ? "is" : "are"} hidden.</p>}
         {filtering && shownResults.some((food) => !food.dietType) && <p className={ui.muted}>Foods without a diet label stay visible, marked “Diet not checked”.</p>}
@@ -1306,7 +1325,7 @@ export default function NutritionPage() {
             {logMode === "search" ? <>
               <form onSubmit={searchFoods} className={styles.search} role="search">
                 <Search size={17} aria-hidden="true" className={styles.searchIcon}/>
-                <input ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
+                <input id="log-search" ref={searchInput} className={styles.searchInput} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Food and amount, e.g. 3 idli" aria-label="Search foods" enterKeyHint="search"/>
                 <button className={styles.searchGo} aria-label="Search food"><ArrowRight size={17} aria-hidden="true"/></button>
               </form>
               {!lastSearch && <div className={styles.suggestions} aria-label="Examples">

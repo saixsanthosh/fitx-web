@@ -8,15 +8,16 @@ import styles from "./FoodUi.module.css";
 /**
  * One search result: name, where the values come from, raw or cooked, a typical piece, and kcal per 100 g.
  * `dietUnchecked` marks a food without a diet label while the diet filter is on, since the filter can't hide it.
+ * `card` names this entry of the list (data-food-card), so the focus can come back to it after Back to results.
  */
-export function FoodResultCard({ food, active, dietUnchecked = false, onSelect }: { food: FoodResult; active: boolean; dietUnchecked?: boolean; onSelect: (food: FoodResult) => void }) {
+export function FoodResultCard({ food, active, dietUnchecked = false, card, onSelect }: { food: FoodResult; active: boolean; dietUnchecked?: boolean; card?: string; onSelect: (food: FoodResult) => void }) {
   const piece = food.portions.find((portion) => portion.countDefault) ?? food.portions[0];
   // Who the values come from; the badge says how. A FITX recipe estimate is FITX's own, as a USDA food is "USDA".
   const meta = [food.brand, food.kind === "custom" ? "Your food" : food.source === "Open Food Facts" ? "Open Food Facts" : food.kind === "catalog" && food.source === "USDA FoodData Central" ? "USDA" : food.source === FITX_RECIPE_SOURCE ? "FITX" : food.source]
     .filter(Boolean)
     .join(" · ");
   return (
-    <button type="button" onClick={() => onSelect(food)} aria-pressed={active} className={`${styles.foodResult} ${active ? styles.foodResultActive : ""}`}>
+    <button type="button" onClick={() => onSelect(food)} aria-pressed={active} data-food-card={card} className={`${styles.foodResult} ${active ? styles.foodResultActive : ""}`}>
       {food.image && <Image src={food.image} alt="" width={44} height={44} className={styles.thumb} unoptimized loading="lazy"/>}
       <span className={styles.foodResultMain}>
         <span className={styles.foodName}>{food.name}</span>

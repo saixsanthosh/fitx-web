@@ -116,8 +116,9 @@ export function PortionPicker({ food, amount, unitKey, options, chosen, grams, m
       {hasVessel && onMeasures && <button type="button" id={`${idPrefix}-measures`} className={styles.textButton} onClick={onMeasures}>Set my katori and bowl sizes</button>}
       {prompt && <div className={styles.prompt} role="status">
         <p>{prompt.message}</p>
+        {/* An answer ("Use 150 g") takes the question and its buttons away: the amount it set takes the focus (D5). */}
         {prompt.actions.length > 0 && <div className={styles.promptActions}>
-          {prompt.actions.map((action) => <button key={action.label} type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={action.run}>{action.label}</button>)}
+          {prompt.actions.map((action) => <button key={action.label} type="button" className="fitx-button fitx-button-secondary min-h-10 px-3 text-xs" onClick={() => { action.run(); document.getElementById(`${idPrefix}-amount`)?.focus(); }}>{action.label}</button>)}
         </div>}
       </div>}
     </>
