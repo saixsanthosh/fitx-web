@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { Plus, Scale } from "lucide-react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { WeightLine } from "@/components/progress/WeightLine";
-import { weightView, type Period } from "@/components/progress/period";
+import { weightChange, weightView, type Period } from "@/components/progress/period";
 import styles from "@/components/progress/Progress.module.css";
 import { getSession, messageFor } from "@/components/tasks/session";
 import { Sheet } from "@/components/ui/Sheet";
@@ -38,6 +38,8 @@ export function BodySection({ rows, error, onReload, period }: {
   const [syncing, setSyncing] = useState(false);
 
   const weight = weightView(rows ?? [], period);
+  // In the unit shown, from the two weigh-ins as shown, so it agrees with the readout and the line.
+  const change = weightChange(weight.points, unit);
   const everWeighed = weightView(rows ?? [], { ...period, end: period.today }).latest;
   const measures = latestMeasurements(rows ?? []);
   const lastBodyFat = measures.find((line) => line.name === "body_fat")?.latest ?? null;
@@ -82,8 +84,8 @@ export function BodySection({ rows, error, onReload, period }: {
                 <div className={styles.weightHead}>
                   <p className={styles.weightNow}>{weightText(shownLatest.kg, unit)}<small>{`\u00a0${unit}`}</small></p>
                   <p className={styles.weightMeta}>
-                    {weight.changeKg !== null
-                      ? <><span className={styles.change}>{signed(weightIn(weight.changeKg, unit))} {unit}</span> {sinceLabel(weight.points[0].date, period.today)}</>
+                    {change !== null
+                      ? <><span className={styles.change}>{signed(change)} {unit}</span> {sinceLabel(weight.points[0].date, period.today)}</>
                       : `Logged ${dayLabel(shownLatest.date, { day: "numeric", month: "short", year: "numeric" })}`}
                   </p>
                 </div>

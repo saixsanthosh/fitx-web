@@ -16,6 +16,8 @@
 import { addDays, daysBetween, isDateKey, keyToLocalDate, mondayOf, weekdayIndex } from "@/lib/domain/day-keys";
 import { localDateKey } from "@/lib/domain/dates";
 import { knownTotal, type MealTotals } from "@/lib/domain/meal-totals";
+import type { WeightUnit } from "@/lib/domain/profile-options";
+import { weightIn } from "@/lib/domain/weight-display";
 import { isCountedSet, isCountedSession, type LoggedSession } from "@/lib/training/muscle-history";
 import { estimateOneRepMax } from "@/lib/training/one-rep-max";
 import { isLiftSet, isTimedPrescription } from "@/lib/training/sets";
@@ -431,12 +433,10 @@ export function yearMonths(period: Period, index: ReadonlyMap<string, DayFacts>,
 export type WeightPoint = { date: string; kg: number };
 
 export type WeightView = {
-  /** Weigh-ins inside the period, oldest first (the later one on a day with two). */
+  /** Weigh-ins inside the period, oldest first (the later one on a day with two), in kilograms as stored. */
   points: WeightPoint[];
   /** The newest weigh-in on or before the period's end. */
   latest: WeightPoint | null;
-  /** Last weigh-in in the period minus the first; null with fewer than two. */
-  changeKg: number | null;
 };
 
 /** Rows arrive newest first (as body_metrics is read); only positive weights count. */
@@ -450,7 +450,18 @@ export function weightView(rows: ReadonlyArray<{ date: string; weight: number | 
   const all = [...byDay.entries()].map(([date, kg]) => ({ date, kg })).sort((a, b) => a.date.localeCompare(b.date));
   const points = all.filter((point) => point.date >= period.from && point.date <= period.end);
   const latest = all.filter((point) => point.date <= period.end).at(-1) ?? null;
-  return { points, latest, changeKg: points.length >= 2 ? Math.round((points.at(-1)!.kg - points[0].kg) * 10) / 10 : null };
+  return { points, latest };
+}
+
+/**
+ * The change the Weight card states, in the unit it shows: the last weigh-in in the period minus the first, each
+ * as the card shows it (0.1 kg or 0.1 lb), so the change always agrees with the readout and the line beside it. Null
+ * with fewer than two weigh-ins. Weights typed in pounds are stored to 0.01 kg (bug 6), so a change rounded to 0.1 kg
+ * first and then converted read 150 then 150.1 lb as "±0.0 lb" (review R3X-1).
+ */
+export function weightChange(points: readonly WeightPoint[], unit: WeightUnit): number | null {
+  if (points.length < 2) return null;
+  return Math.round((weightIn(points.at(-1)!.kg, unit) - weightIn(points[0].kg, unit)) * 10) / 10;
 }
 
 // ---------------------------------------------------------------- strength
