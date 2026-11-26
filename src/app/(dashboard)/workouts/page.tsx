@@ -56,7 +56,7 @@ import { plannerEventForStart, startLinkFrom, type StartLink } from "@/lib/train
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { PLANNER_DAY_COLUMNS, PRESCRIPTION_TARGET_COLUMNS } from "./_lib/workout-columns";
 import { BUILDER_FIELD_IDS, builderSaveProblem, type BuilderProblem } from "./_lib/builder-save";
-import { builderSplit } from "./_lib/split-source";
+import { builderSplit, profileSplitAnswer } from "./_lib/split-source";
 import { MAX_PLAN_EXERCISES, focusAfterMove, focusAfterRemove, focusAfterSwap, moveNotice, moveRow, plannedFrom, removeNotice, removeRow, selectedIds, swapNotice, swapRow, toggleRow, type BuilderFocus, type PlannedExercise } from "./_lib/builder-rows";
 import { focusAfterPlanDelete, historyNote, moreNote, planCardNote, plansLineNote, type ListNote } from "./_lib/list-notes";
 import { deletePlanAndItsItem, itemLeftMessage } from "./_lib/plan-delete";
@@ -662,7 +662,8 @@ export default function WorkoutsPage() {
     const splitId = splitProgrammeId(preferences.workout_split, target, ownedFor(target).has("dumbbell"));
     return builderSplit({
       target, followed: followed && enrolment ? { programme: followed, nextDayIndex: enrolment.next_day_index } : null,
-      split: preferences.workout_split, splitId, programmes,
+      // Called the member's split only when Profile shows it as theirs, not FITX's starting assumption (bug 26).
+      split: profileSplitAnswer(Boolean(setup?.done), preferences), splitId, programmes,
     });
   }
   function autoProgramme(target: TrainingContext): Programme | undefined {

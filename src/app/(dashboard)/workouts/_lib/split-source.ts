@@ -2,10 +2,21 @@
  * Where "Your split" in the workout builder takes its days from, and how the builder says so (bug 51: it used the
  * Profile's training split even for a member following Push, Pull, Legs, and said only "From Full Body · 3 days").
  * The programme the member follows comes first when it is for the same place (gym or home); then, at the gym, the
- * training split saved in Profile; at home, FITX's home track for their equipment. Pure (type-only imports).
+ * training split saved in Profile; at home, FITX's home track for their equipment. Pure.
  */
+import { sessionDefaultsKept } from "@/lib/domain/profile-options";
 import type { Programme } from "@/lib/training/programmes";
 import type { TrainingContext } from "@/lib/training/taxonomy";
+
+/**
+ * The training split to name as the member's own ("From your training split in Profile: …"), or null while Profile
+ * doesn't show it as theirs: before the Workouts setup it reads "Not set", and while session length and split both hold
+ * their defaults "45 min · Full body, until you change it" (profile-answers.ts sessionAnswer, bug 26). The column always
+ * holds a split, so its presence alone can't tell. The builder's days come from that split either way.
+ */
+export function profileSplitAnswer(setupDone: boolean, preferences: { session_duration_minutes?: number | null; workout_split?: string | null }): string | null {
+  return setupDone && !sessionDefaultsKept(preferences) ? (preferences.workout_split ?? null) : null;
+}
 
 export type SplitSource = {
   programme: Programme;

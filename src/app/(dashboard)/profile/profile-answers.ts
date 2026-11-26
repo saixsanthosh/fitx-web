@@ -9,7 +9,7 @@
  *
  * No React here, so node tests cover it (tests/profile/day-one-answers.test.ts).
  */
-import { DEFAULT_SESSION_MINUTES, DEFAULT_SPLIT, EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, type DietType } from "@/lib/domain/profile-options";
+import { EXPERIENCE_OPTIONS, GOAL_OPTIONS, ACTIVITY_OPTIONS, SPLIT_OPTIONS, optionLabel, sessionDefaultsKept, type DietType } from "@/lib/domain/profile-options";
 import { trainingAnswersKnown, type UserContextData } from "@/lib/domain/user-context";
 import { initialSetupAnswers, setupDone, setupProblem } from "@/lib/food/setup";
 
@@ -60,7 +60,8 @@ export function sessionAnswer(data: TrainingData): SessionAnswer {
   if (!trainingAnswersKnown(data)) return { kind: "not_set" };
   const { session_duration_minutes: minutes, workout_split: split } = data.preferences;
   const text = [`${minutes} min`, optionLabel(SPLIT_OPTIONS, split)].filter(Boolean).join(" · ");
-  return minutes === DEFAULT_SESSION_MINUTES && split === DEFAULT_SPLIT ? { kind: "assumed", text } : { kind: "answer", text };
+  // The same rule the workout builder uses before it calls the split the member's own (profile-options.ts).
+  return sessionDefaultsKept(data.preferences) ? { kind: "assumed", text } : { kind: "answer", text };
 }
 
 /** Meals a day ("5+" for five or more) once the Nutrition setup is done; null (Not set) before. */

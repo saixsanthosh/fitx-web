@@ -183,6 +183,17 @@ export function normalizeEquipment(input: unknown): { keys: string[]; unknown: s
 
 export const SESSION_LENGTHS = [20, 30, 45, 60, 75, 90] as const;
 export const DEFAULT_SESSION_MINUTES = 45;
+
+/**
+ * Whether session length and split both still hold their column defaults (45 min, full body). No setup asks them now
+ * (the first onboarding did), so while both do they are FITX's starting assumption, not the member's answer: Profile
+ * shows "45 min · Full body, until you change it", and the workout builder doesn't call the split the member's own
+ * (bug 26). Either one changed makes both the member's.
+ */
+export function sessionDefaultsKept(preferences: { session_duration_minutes?: number | null; workout_split?: string | null }): boolean {
+  return preferences.session_duration_minutes === DEFAULT_SESSION_MINUTES && preferences.workout_split === DEFAULT_SPLIT;
+}
+
 export const DAYS_PER_WEEK = [1, 2, 3, 4, 5, 6, 7] as const;
 /** Weekly availability in setup: 2 to 7 days. */
 export const ONBOARDING_DAYS_PER_WEEK = [2, 3, 4, 5, 6, 7] as const;
