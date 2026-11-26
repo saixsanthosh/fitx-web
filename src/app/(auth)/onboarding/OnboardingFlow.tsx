@@ -57,6 +57,7 @@ import {
 } from "@/lib/onboarding/form";
 import type { MeasureText } from "@/lib/onboarding/measure-field";
 import { focusAfterFailedSave, focusAfterRetry } from "@/lib/onboarding/save-focus";
+import { SAVE_FAILED, saveWithinLimit, withAbortSignal } from "@/lib/onboarding/time-limit";
 import { createClient } from "@/lib/supabase/client";
 
 const GOAL_PHOTOS: Readonly<Record<string, keyof typeof ONBOARDING_MEDIA>> = {
@@ -227,12 +228,15 @@ export function OnboardingFlow() {
     return calculateNutritionTargets({ age, gender: form.gender, height: form.heightCm, weight: form.weightKg }, form.activity, form.goal, focus);
   }, [form, age, schema, context]);
 
-  async function savePage(current: OnboardingPage, values: OnboardingForm) {
-    const supabase = createClient();
-    if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
+  /** `signal` cancels the page's requests once its time limit has passed (saveWithinLimit). */
+  async function savePage(current: OnboardingPage, values: OnboardingForm, signal: AbortSignal) {
+    const client = createClient();
+    if (!client || !context) return "Your session has ended. Sign in again to continue.";
+    // Every request below, the shared helpers' too, is built with the signal.
+    const supabase = withAbortSignal(client, signal);
     const userId = context.userId;
     const fail = (error: { code?: string } | null) =>
-      error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : "We couldn't save this page. Check your connection and try again.";
+      error?.code === "23514" ? "One of these answers isn't accepted yet. Choose another for now." : SAVE_FAILED.page;
     const plan = pageSave(current, values, { schema, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC" });
     if (plan.profile) {
       let birthDateSent = "date_of_birth" in plan.profile;
@@ -268,11 +272,14 @@ export function OnboardingFlow() {
     return null;
   }
 
-  async function finish(values: OnboardingForm) {
-    const supabase = createClient();
-    if (!supabase || !context) return "Your session has ended. Sign in again to continue.";
+  /** `signal` cancels finishing's requests once the step's time limit has passed (saveWithinLimit). */
+  async function finish(values: OnboardingForm, signal: AbortSignal) {
+    const client = createClient();
+    if (!client || !context) return "Your session has ended. Sign in again to continue.";
+    // Every request below, the shared helpers' too, is built with the signal.
+    const supabase = withAbortSignal(client, signal);
     const done = await updateProfileRow(supabase, context.userId, { onboarded: true });
-    if (done.error) return "We couldn't finish setting up your account. Please try again.";
+    if (done.error) return SAVE_FAILED.finish;
     // The weight given here becomes the current weight: logged when there is no weigh-in yet, or when it
     // differs from the newest one (an older account's history), never twice for the same value.
     const prior = await supabase.from("body_metrics").select("weight").eq("user_id", context.userId).not("weight", "is", null)
@@ -297,7 +304,9 @@ export function OnboardingFlow() {
       return;
     }
     setSaving(true);
-    const problem = (await savePage(page, form)) ?? (isLast ? await finish(form) : null);
+    // A save that never answers stops at its time limit, cancels what it still has on its way and says so
+    // (time-limit.ts). "Saving…" ends, every answer stays as typed, and focus stays on the button or in its field.
+    const problem = await saveWithinLimit(async (signal) => (await savePage(page, form, signal)) ?? (isLast ? await finish(form, signal) : null), { finishing: isLast });
     if (problem) {
       setSaving(false);
       setSaveError(problem);
