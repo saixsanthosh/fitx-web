@@ -45,6 +45,7 @@ export interface OverviewView {
   source: string | null;
   energy: { label: string; percent: number; over: boolean; number: string; unit: string; line: OverviewLine };
   protein: { label: string; percent: number; number: string; grams: boolean; unit: string; line: OverviewLine | null };
+  /** Carbs and fat: `value` is the figure ("200", "unknown" or "–"), `goal` what follows it (macroGoalText). */
   macros: Array<{ key: "carbs" | "fat"; name: string; value: string; goal: string; progress: { percent: number; over: boolean; label: string } | null }>;
   /** The fine print: estimates included, and entries left out for lack of a value. */
   fine: string | null;
@@ -70,6 +71,20 @@ const SMALL_MACROS = [["carbs", "Carbs"], ["fat", "Fat"]] as const;
  */
 export function noValueText(entries: number, key: MacroKey): string {
   return entries === 1 ? `the food logged has no ${MACRO_LABEL[key]} value` : `none of the foods logged has a ${MACRO_LABEL[key]} value`;
+}
+
+/** A no-break space: the space shows, but a line never breaks there. */
+const NBSP = "\u00a0";
+
+/**
+ * What follows a carbs or fat figure in the overview: its target (" / 202 g"), or with no target just its unit (" g"
+ * after a number, nothing after "unknown"). Every space in it is a no-break space except the one before "/", so a
+ * value too wide for its half of a phone's row (DayOverview.module.css lets it wrap) breaks only between the figure
+ * and its target: "unknown" over "/ 202 g", never "/ 202" over "g", and never "70" over "g".
+ */
+export function macroGoalText(goal: number | null, unit: boolean): string {
+  if (goal) return ` /${NBSP}${goal}${NBSP}g`;
+  return unit ? `${NBSP}g` : "";
 }
 
 /**
@@ -140,12 +155,12 @@ export function overviewView(input: OverviewInput): OverviewView {
     macros: SMALL_MACROS.map(([key, name]) => {
       const macroGoal = target?.[key] ?? null;
       // No food logged gives it: "unknown", with no bar against the target.
-      if (knownMacro(totals, key) === null) return { key, name, value: "unknown", goal: macroGoal ? ` / ${macroGoal} g` : "", progress: null };
+      if (knownMacro(totals, key) === null) return { key, name, value: "unknown", goal: macroGoalText(macroGoal, false), progress: null };
       const macro = macroGoal ? goalProgress(totals[key], macroGoal) : null;
       return {
         key, name,
         value: String(Math.round(totals[key])),
-        goal: macroGoal ? ` / ${macroGoal} g` : " g",
+        goal: macroGoalText(macroGoal, true),
         progress: macro ? { percent: macro.percent, over: macro.isOver, label: `${name} against target` } : null,
       };
     }),

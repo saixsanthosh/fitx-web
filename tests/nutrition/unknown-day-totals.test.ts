@@ -38,7 +38,7 @@ test("the overview of a day whose only food has no protein, carbs or fat shows t
   assert.deepEqual([view.protein.number, view.protein.grams, view.protein.unit, view.protein.percent], ["–", false, "/ 120 g protein", 0]);
   assert.deepEqual(view.protein.line, { kind: "note", text: "Unknown: the food logged has no protein value." }, "never \"120 g protein left\"");
   assert.equal(view.protein.label, "Protein unknown: the food logged has no protein value. Target 120 grams");
-  assert.deepEqual(view.macros.map((macro) => [macro.name, macro.value, macro.goal, macro.progress]), [["Carbs", "unknown", " / 200 g", null], ["Fat", "unknown", " / 60 g", null]]);
+  assert.deepEqual(view.macros.map((macro) => [macro.name, macro.value, macro.goal, macro.progress]), [["Carbs", "unknown", " /\u00a0200\u00a0g", null], ["Fat", "unknown", " /\u00a060\u00a0g", null]]);
   assert.equal(view.fine, "1 without protein, 1 without carbs, 1 without fat", "the fine print still says which");
   assert.deepEqual([view.energy.number, view.energy.unit], ["90", "/ 2,000 kcal"], "calories are known");
   assert.equal(overviewView({ ...day([chai]), target: null }).macros[0].goal, "", "no \" g\" after unknown");

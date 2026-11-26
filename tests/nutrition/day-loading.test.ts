@@ -56,7 +56,8 @@ test("once the day is in, the overview says what it said before", () => {
   assert.deepEqual(view.energy.line, { kind: "amount", amount: "190", text: "kcal over your target", over: true });
   assert.deepEqual([view.protein.number, view.protein.unit], ["60", "/ 90 g protein"]);
   assert.deepEqual(view.protein.line, { kind: "amount", amount: "30", text: "g protein left", over: false });
-  assert.deepEqual(view.macros.map((macro) => [macro.name, macro.value, macro.goal, macro.progress?.percent ?? null]), [["Carbs", "200", " / 220 g", 91], ["Fat", "70", " g", null]]);
+  // No-break spaces keep "220 g" and "70 g" whole on a narrow phone (macro-row-narrow.test.ts).
+  assert.deepEqual(view.macros.map((macro) => [macro.name, macro.value, macro.goal, macro.progress?.percent ?? null]), [["Carbs", "200", " /\u00a0220\u00a0g", 91], ["Fat", "70", "\u00a0g", null]]);
   assert.equal(view.fine, "Includes 2 estimates. 1 without fat");
   assert.deepEqual(view.water, { amount: "0.8 L", target: " / 2.0 L", percent: 40, goalLink: false, acts: true });
   const bare = overviewView({ ...DAY, state: "ready", target: null, hasOwnTargets: false, estimateCount: 0, totals: { ...DAY.totals, unknown: { protein: 0, carbs: 0, fat: 0 } }, water: { ml: 0, target: null } });

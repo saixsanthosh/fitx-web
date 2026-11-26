@@ -27,13 +27,18 @@
 .noTarget { color: var(--fitx-text-secondary); font-size: .8rem; line-height: 1.4; }
 
 .macros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .9rem 1.25rem; margin: 0; padding: 0; list-style: none; }
-.macro { --macro: var(--fitx-macro-protein); display: grid; min-width: 0; gap: .4rem; }
+/* align-content: end keeps the two bars level when one half is taller (its value wrapped under its name). */
+.macro { --macro: var(--fitx-macro-protein); display: grid; min-width: 0; align-content: end; gap: .4rem; }
 .macro[data-macro="carbs"] { --macro: var(--fitx-macro-carbs); }
 .macro[data-macro="fat"] { --macro: var(--fitx-macro-fat); }
-.macroTop { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; }
+/* Name and value share a line while both fit. A value that doesn't fit beside its name ("unknown / 202 g" on a phone)
+   goes onto its own line under it, inside its half, never into the other column. Where even that line is too narrow
+   (a long target, larger text), the value breaks at its one ordinary space, before "/" (overviewView's macroGoalText
+   joins the rest with no-break spaces); overflow-wrap is the last resort for a single word wider than its half. */
+.macroTop { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .1rem .5rem; }
 .macroName { display: inline-flex; align-items: center; gap: .35rem; color: var(--fitx-text-secondary); font-size: .72rem; font-weight: 600; }
 .macroName i { width: .5rem; height: .5rem; border-radius: 999px; background: var(--macro); }
-.macroValue { color: var(--fitx-text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.macroValue { color: var(--fitx-text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .macroValue strong { color: var(--fitx-text); font-size: .95rem; font-weight: 700; letter-spacing: -.02em; }
 .track { height: 6px; overflow: hidden; border-radius: 999px; background: var(--fitx-track); }
 .track > span { display: block; height: 100%; border-radius: inherit; background: var(--macro); transform-origin: left; transition: transform .6s cubic-bezier(.22, 1, .36, 1); animation: fitx-macro-grow .9s cubic-bezier(.22, 1, .36, 1) both; }
