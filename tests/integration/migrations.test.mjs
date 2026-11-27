@@ -94,18 +94,18 @@ const FIRST_PENDING = "20261115100000";
 const SEPTEMBER = MIGRATIONS.filter((name) => name < FIRST_PENDING);
 const PENDING = MIGRATIONS.filter((name) => name >= FIRST_PENDING);
 /**
- * The newest file production has applied since its copy was made (2026-11-25; tests/integration/applied-migrations
+ * The newest file production has applied since its copy was made (2026-11-27; tests/integration/applied-migrations
  * .test.mjs pins those files). The runbook's earlier sittings applied the pending files up to it and recorded them
- * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest: #56, 20261126100000
- * (release 3: members' own foods may keep protein, carbs or fat unknown), not applied anywhere yet, so THIS_SITTING is
- * that one file and the runbook names it as pending. With nothing pending (as from 2026-11-25, when #55 was applied,
- * until #56 was written) THIS_SITTING is empty and the runbook says nothing is pending.
+ * under their own numbers; its current sitting (Start 1 and 2, History 0 to 2) applies the rest. There is no rest now:
+ * #56, 20261126100000 (release 3: members' own foods may keep protein, carbs or fat unknown), was applied on
+ * 2026-11-27, so THIS_SITTING is empty and the runbook says nothing is pending. When a new file is written,
+ * THIS_SITTING is that file and the runbook names it as pending (as #56 was from its writing until 2026-11-27).
  */
-const LAST_APPLIED = "20261125100000";
+const LAST_APPLIED = "20261126100000";
 const APPLIED_SINCE = PENDING.filter((name) => name.slice(0, 14) <= LAST_APPLIED);
 const THIS_SITTING = PENDING.filter((name) => name.slice(0, 14) > LAST_APPLIED);
-/** The first file of production's latest sitting (2026-11-25: #55 alone; before it, 2026-11-24: #52 to #54). */
-const LATEST_SITTING_FROM = "20261125100000";
+/** The first file of production's latest sitting (2026-11-27: #56 alone; before it, 2026-11-25: #55 alone). */
+const LATEST_SITTING_FROM = "20261126100000";
 /**
  * The files Start 2 is for: this sitting's or, with nothing pending, the latest sitting's, whose list the runbook keeps
  * as its record. Start 2 runs before the first of them and again after the last file (section 6.1), as on that day.
@@ -626,8 +626,8 @@ const RUNBOOK_PINNED = {
   "Start 1": [byVersion([...PRODUCTION_ROWS, ...APPLIED_SINCE.map(historyRow)]), (rows, { cron }) =>
     // After section 5; #27's undo needs pg_cron, so without it its file keeps its row.
     byVersion([...PRODUCTION_ROWS, ...[...KEPT_BY_SECTION_5, ...(cron ? [] : [27])].map((number) => historyRow(PENDING[number - 1]))])],
-  // Before the first file of its sitting (#56) its Expect line holds ("no rows"); after the last file (section 6.1) it
-  // lists every row.
+  // Before the first file of its sitting (#56, kept as the 2026-11-27 sitting's record) its Expect line holds ("no
+  // rows"); after the last file (section 6.1) it lists every row.
   "Start 2": [undefined, START_2_LIST],
   // The local cluster's postgres is a superuser; production's is not.
   "Start 3": [[{ applying_role: "postgres", rolsuper: true, rolbypassrls: true, owner_of_existing_tables: "postgres" }]],
@@ -707,10 +707,10 @@ const APPLY_DAY = (() => {
 })();
 
 /**
- * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #55): the
+ * Production's migration history, then what the runbook's sittings do to it. The earlier sittings (#1 to #56): the
  * connector records each file it applies under the time it ran, the six SQL editor files are recorded with their
- * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 72 rows, the
- * connector records this sitting's files under their times (#56's one row), then History 0 to 2. `ask`
+ * Record queries, then History 1 gives each its number. This sitting: Start 1 and Start 8 read those 73 rows, the
+ * connector records this sitting's files under their times (none: nothing is pending), then History 0 to 2. `ask`
  * runs a runbook query and keeps its result; returns whether History 1 ran both times, and how many rows each run
  * gave their file's number.
  */
@@ -1276,8 +1276,8 @@ describe("every pending migration on a copy of production's database", { skip },
     runbook.catalogue.today = rowDigests(pg, catalogue);
     // Section 1 on the day: the Start queries (Start 1 and 8 read the history table, which this copy only gets
     // with the history steps below), and what they and the Before queries for #1 and #2 catch, rolled back.
-    // Start 2 runs before the first file of its sitting (START_2_SITTING: this sitting's, #56; with nothing pending,
-    // the latest sitting's).
+    // Start 2 runs before the first file of its sitting (START_2_SITTING: with nothing pending, the latest sitting's,
+    // #56).
     for (const block of RUNBOOK_BLOCKS) if (/^Start \d+$/.test(block.key) && !["Start 1", "Start 2", "Start 8"].includes(block.key)) ask(block, "before #1");
     runbook.dayOf = whatTheDayOfQueriesCatch(pg);
     // Each file with its Before queries first and its Checks and Smoke after; the optional backup copy before #12.
@@ -1562,7 +1562,7 @@ describe("every pending migration on a copy of production's database", { skip },
     if (run.failure) return t.skip(notChecked());
     assert.equal(runbook.history1.outcome, "applied", "History 1 gives every pending file its own number (Start 1, History 0 and 2 are compared above)");
     // It renumbers only the rows the connector recorded under a time: the earlier sittings' (the SQL editor's six files
-    // are recorded under their own numbers), then this sitting's: #56's one row (none while nothing is pending; 6.3).
+    // are recorded under their own numbers), then this sitting's, none while nothing is pending (section 6.3).
     assert.equal(runbook.history1.earlier, APPLIED_SINCE.filter((name) => !inSqlEditor(name)).length, "after the earlier sittings");
     assert.equal(runbook.history1.thisSitting, THIS_SITTING.filter((name) => !inSqlEditor(name)).length, "after this sitting");
   });

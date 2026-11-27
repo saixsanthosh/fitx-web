@@ -5,37 +5,40 @@ time. It is written for the FITX owner. You do not need to know SQL. "The sessio
 session that has the Supabase connector: it runs the queries and applies the files, and it never applies
 anything without your OK for that file.
 
-- **Where production stands (2026-11-26):** it has the 14 files from September 2026, the three changes applied
-  to it by hand that have no file in `supabase/migrations` (section 1.8), and #1 to #55 of section 2
-  (`20261115100000` to `20261125100000`), applied on 2026-11-17, 2026-11-18, 2026-11-20, 2026-11-21, 2026-11-23,
-  2026-11-24 and 2026-11-25 and recorded under their own numbers: 72 rows in its history. Those 55 are done; never
-  apply one again. One file is pending: #56, below. The 2026-11-23 sitting applied #46 to #51 (the "next level"
-  job's wave 1) and the 2026-11-24 sitting #52 to #54 (wave 2: Explore part 2 core, Explore's groups and Admin's
-  Explore section, before release 2a was deployed), both with the staged, md5-checked method of section 0.1 (#52 to
-  #54 in 26 parts): every Check gave its Expect line and Final 1 to 3 passed, and on 2026-11-24 the hourly jobs
-  `fitx-social-hourly` and `fitx-challenge-hourly` were scheduled. #49 and #50 ran without their standalone
-  `begin;` and `commit;` lines, which that method leaves out; #52 to #54 have none, so they ran exactly as written.
-  The history rows of both sittings hold each file's full text. The 2026-11-25 sitting applied #55 (release 2c:
-  members still read their own Explore reports, but no longer the evidence FITX stores with them) whole, with the
-  connector's `apply_migration` (section 0, step 3): its history row holds the file's full text
-  (`md5(statements[1])` is the md5 in section 3, #55), its Check gave its Expect line, History 0 gave no rows,
-  History 1 gave the row #55's number, Final 1 to 3 passed, and Start 2 then listed its one row.
-- **What is pending:** the one file #56, `20261126100000` (release 3: members' own foods can keep protein, carbs or
-  fat unknown instead of 0 g), in `supabase/migrations` on `master` once release 3 is merged (it was written on the
-  branch `claude/nx3-nutrition` and is merged into `claude/next3`). That folder is the source of truth. It is not
-  applied anywhere yet and needs only the September table `custom_foods` (`20260924170604`). Sections 2 and 3 list
-  all 56 files, so each summary, Check and Undo block stays next to its file.
-- **This sitting:** section 1 (Start 1 to 4, and 1.1's backup), then #56 (section 3), then section 6.3 and 6.1,
-  before the release 3 deploy (section 6.4): release 3's food form saves a protein, carbs or fat value left blank as
-  unknown, which production refuses until #56 is in. Until then the form refuses such a save with a plain message
-  and asks for a number, so nothing breaks, but members cannot leave a value blank. The app before release 3 always
-  saves numbers there, so it works the same with #56 in place. #56 schedules no job, so Start 5 is not needed. Start
-  6 to 10 belong to the first sitting, before #1; they are kept as its record and need not be run again.
-- **Later sittings:** a later change to the database is always a new file, numbered after #56, never an edit to an
+- **Where production stands (2026-11-27):** it has the 14 files from September 2026, the three changes applied
+  to it by hand that have no file in `supabase/migrations` (section 1.8), and all 56 files of section 2, #1 to #56
+  (`20261115100000` to `20261126100000`), applied on 2026-11-17, 2026-11-18, 2026-11-20, 2026-11-21, 2026-11-23,
+  2026-11-24, 2026-11-25 and 2026-11-27 and recorded under their own numbers: 73 rows in its history. Those 56 are
+  done; never apply one again. The 2026-11-23 sitting applied #46 to #51 (the "next level" job's wave 1) and the
+  2026-11-24 sitting #52 to #54 (wave 2: Explore part 2 core, Explore's groups and Admin's Explore section, before
+  release 2a was deployed), both with the staged, md5-checked method of section 0.1 (#52 to #54 in 26 parts): every
+  Check gave its Expect line and Final 1 to 3 passed, and on 2026-11-24 the hourly jobs `fitx-social-hourly` and
+  `fitx-challenge-hourly` were scheduled. #49 and #50 ran without their standalone `begin;` and `commit;` lines,
+  which that method leaves out; #52 to #54 have none, so they ran exactly as written. The history rows of both
+  sittings hold each file's full text. The 2026-11-25 sitting applied #55 (release 2c: members still read their own
+  Explore reports, but no longer the evidence FITX stores with them) whole, with the connector's `apply_migration`
+  (section 0, step 3): its history row holds the file's full text (`md5(statements[1])` is the md5 in section 3,
+  #55), its Check gave its Expect line, History 0 gave no rows, History 1 gave the row #55's number, Final 1 to 3
+  passed, and Start 2 then listed its one row. The 2026-11-27 sitting applied #56 (release 3: members' own foods
+  can keep protein, carbs or fat unknown instead of 0 g) the same way, before the release 3 deploy. Section 1 came
+  first: Start 1 gave 72 rows, up to `20261125100000 fitx_social_reports_column_privileges`, with no row for #56;
+  Start 2 gave no rows; Start 3 and 4 gave their Expect lines. 1.1's backup is yours to make (the Free plan has no
+  daily backups, and `pg_dump` needs your database password), so the session did not take one, as at the earlier
+  sittings. #56's Check, run before #56, gave `NO, NO, NO, 0, 0, 0, 3, 0`, as section 3 (#56) says. The connector
+  recorded #56 as `fitx_custom_food_unknown_macros` under the time it ran, `20261127101630`, and that row holds the
+  file's full text as its one statement (`md5(statements[1])` is the md5 in section 3, #56). Then #56's Check gave
+  its Expect line, History 0 gave no rows, History 1 gave that row #56's number (the one row it changed), History 2
+  listed the 73 rows, the last `20261126100000 fitx_custom_food_unknown_macros`, Final 1 to 3 passed, and Start 2
+  then listed its one row.
+- **What is pending:** nothing. Every file in `supabase/migrations` is applied in production; that folder, on
+  `master`, is the source of truth (#56's file reaches `master` with release 3). Sections 2 and 3 still list all
+  56 files, so each summary, Check and Undo block stays next to its file.
+- **The next sitting:** a later change to the database is always a new file, numbered after #56, never an edit to an
   applied one (`tests/integration/applied-migrations.test.mjs` holds each applied file's md5). It gets its row in
   section 2 and in History 1 (6.3), its section in section 3 with its md5, and its object in Start 2, which until
-  then keeps the latest sitting's list as its record. The sitting is then section 1 (Start 1 to 4, 1.1's backup,
-  and Start 5 when a file schedules a job: 1.5), its files in order (section 3), then section 6.3 and 6.1.
+  then keeps the 2026-11-27 sitting's list as its record. The sitting is then section 1 (Start 1 to 4, 1.1's backup,
+  and Start 5 when a file schedules a job: 1.5), its files in order (section 3), then section 6.3 and 6.1. Start 6
+  to 10 belong to the first sitting, before #1; they are kept as its record and need not be run again.
 - **Other runbook:** `docs/runbooks/billing-razorpay.md` covers Razorpay after #36.
 
 ## 0. How each step works
@@ -61,13 +64,12 @@ For each file, in the order of section 2:
 ### 0.1 Rules
 
 - One file per step. Never two files in one call, never part of a file.
-- Only the pending file, #56, and only from `master` (or, before release 3 is merged, from the branch that carries
-  it, `claude/next3`). Never #1 to #55 again: production has them, and #7 must never run a second time. #51 must
-  never run again either, except as the last step of #52's undo (section 5); #55 is undone before #52, so nothing
-  runs again after #51 there. Run by mistake while #52 and #55 are in place, #51 would put back part 1's Explore
-  functions and read policies over #52's, and members' read of every column of their reports over #55's (#52 and
-  then #55, run again after it, restore both). Never #42 or #43 again: they would put back the 21-permission role
-  table and the five-switch settings save (#54, run again, restores both).
+- Only pending files (none now), and only from `master`. Never #1 to #56 again: production has them, and #7 must
+  never run a second time. #51 must never run again either, except as the last step of #52's undo (section 5); #55
+  is undone before #52, so nothing runs again after #51 there. Run by mistake while #52 and #55 are in place, #51
+  would put back part 1's Explore functions and read policies over #52's, and members' read of every column of
+  their reports over #55's (#52 and then #55, run again after it, restore both). Never #42 or #43 again: they would
+  put back the 21-permission role table and the five-switch settings save (#54, run again, restores both).
   Never a copy from another
   branch or worktree, never the old Admin draft `admin/supabase/migrations/20261116000000_…` (it is gone from the
   repository), and never the files in `tests/integration/fixtures/production-drift`: they are test copies of the three changes
@@ -78,22 +80,22 @@ For each file, in the order of section 2:
   themselves and the steps marked "writes", and each of those needs your OK too.
 - Pick a quiet time. Apply a sitting's files, then deploy the app that needs them (section 6.4) the same day, as on
   2026-11-24: #52, #53 and #54, then release 2a. #55 (2026-11-25) needed no deploy: the app works the same before
-  and after it. #56 goes the same way as #52 to #54: apply it, then deploy release 3.
+  and after it. #56 (2026-11-27) went the same way as #52 to #54: it was applied before the release 3 deploy.
 - The live app keeps working throughout. On 2026-11-24, #52 added Explore part 2's tables and columns and rewrote part
   1's Explore functions and three read policies in place, under the same names and arguments, so wave 1's Explore
   (live since 2026-11-23) kept working after it; it deleted no row. #53 and #54 added only functions and two indexes
   (and, on production, the hourly challenge job); they changed no row. On 2026-11-25, #55 took away only members'
-  read of two columns of their reports, which the app never reads; it changed no row. #56 only lets three columns of
-  members' own foods hold no value, which the app before release 3 never saves (it always saves a number there); it
-  changes no row. The app checks for each file and works without the ones not applied yet.
+  read of two columns of their reports, which the app never reads; it changed no row. On 2026-11-27, #56 only let
+  three columns of members' own foods hold no value, which the app before release 3 never saves (it always saves a
+  number there); it changed no row. The app checks for each file and works without the ones not applied yet.
 - #52 (149 KB), #53 (70 KB) and #54 (47 KB) were larger than the files the connector took reliably. The session sent
   each with the staged, md5-checked method it used for #42 to #51 (each part stored and compared, then the whole file
   checked against its md5, run once and recorded under its own number; section 3 gives each file's md5). A large file
   in a later sitting goes the same way, or through the SQL editor (section 0.2), recorded with the same Record query
   as #12, with that file's number and name. #55 was small (3 KB): the connector's `apply_migration` took it whole
   (section 0, step 3), the session checked its history row against the md5 in section 3 (#55), and History 1 gave
-  the row its number. A small file in a later sitting goes the same way: #56 is small too (2 KB), and its md5 is in
-  section 3 (#56).
+  the row its number. #56 (2 KB) went the same way on 2026-11-27, its row checked against the md5 in section 3
+  (#56). A small file in a later sitting goes the same way.
 
 ### 0.2 The six large files: SQL editor
 
@@ -117,7 +119,7 @@ connector reliably. For each of them:
 
 ### 1.1 Take or confirm a backup
 
-Do this on the day, before the first file of the sitting (in this sitting, before #56; on 2026-11-25, before #55;
+Do this on the day, before the first file of the sitting (on 2026-11-27, before #56; on 2026-11-25, before #55;
 on 2026-11-24, before #52).
 
 - Supabase Dashboard → Database → Backups. If it lists daily backups, note the time of the newest one. If it
@@ -138,23 +140,23 @@ on 2026-11-24, before #52).
 ### 1.2 What is already applied
 
 ```sql
--- Start 1: the migration history. Expect: 72 rows, from 20260924162506 initial_fitx_schema to 20261125100000 fitx_social_reports_column_privileges
+-- Start 1: the migration history. Expect: 73 rows, from 20260924162506 initial_fitx_schema to 20261126100000 fitx_custom_food_unknown_macros
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
 Expected rows, in version order: the 14 September files (`20260924162506` to `20260930180717`), the three
 changes applied by hand (section 1.8: `20261002172610 fitx_experience_2_0`, `20261002172706
 fitx_share_access_and_index` and `20261116093902 fitx_admin_control_plane`, which comes between #2 and #3), and #1
-to #55 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #54
+to #56 of section 2, each under its file's number and name (History 1 ran after each earlier sitting; #42 to #54
 were recorded under their own numbers when they were applied, and History 1 gave #55's row its number on
-2026-11-25). The last row is `20261125100000 fitx_social_reports_column_privileges`. If there are other rows, a
-row with a time instead of a file's number, or a row for a file of the sitting about to start (in this sitting,
-`fitx_custom_food_unknown_macros`, #56), stop and compare them with section 2 first.
+2026-11-25 and #56's on 2026-11-27). The last row is `20261126100000 fitx_custom_food_unknown_macros`. If there
+are other rows, a row with a time instead of a file's number, or a row for a file of the sitting about to start,
+stop and compare them with section 2 first.
 
 ### 1.3 What from these files is in the database already
 
 ```sql
--- Start 2: changes from the sitting's files that are already there. Expect (before #56): no rows
+-- Start 2: changes from the sitting's files that are already there. Expect (before #56, on 2026-11-27): no rows
 select m.file, m.object
 from (values
   ('20261126100000', 'nullable', 'custom_foods.protein_per_100g')
@@ -181,12 +183,13 @@ foods (#56). A `revoked` row is a read members no longer have (the 2026-11-25 si
 `social_reports`, #55). (Before #1, on 2026-11-17, this query listed all 45 files and showed the two that
 production's hand-applied changes had made, section 1.8; #2 and #29 were written for them.)
 
-The list above is this sitting's: #56's one change. Run before #56 it gives no rows; after it (section 6.1) it lists
-that row. The 2026-11-25 sitting's list, kept as its record, was #55's `revoked` row for `social_reports.evidence`:
-it gave no rows before #55 and listed that row after it. The 2026-11-24 sitting's list was #52's table
-`social_stories`, #53's function `fitx_social_send_message(uuid,text,uuid,uuid)` and #54's function
-`fitx_admin_explore_meter()`, and it gave no rows before #52. Before a later sitting the session replaces the list
-with one object from each of that sitting's files.
+The list above is the 2026-11-27 sitting's, #56's one change, kept as its record: it gave no rows before #56, and
+after it (section 6.1) it listed that row, as it does when run today, because #56 is applied. The 2026-11-25
+sitting's list was #55's `revoked` row for `social_reports.evidence`: it gave no rows before #55 and listed that
+row after it. The 2026-11-24 sitting's list was #52's table `social_stories`, #53's function
+`fitx_social_send_message(uuid,text,uuid,uuid)` and #54's function `fitx_admin_explore_meter()`, and it gave no
+rows before #52. Before the next sitting the session replaces the list with one object from each of that sitting's
+files.
 
 ### 1.4 What the Admin files need (Phase 10 checks)
 
@@ -2500,7 +2503,7 @@ from pg_proc p where p.pronamespace = 'public'::regnamespace and p.prosecdef
 Before #45 it listed experience 2.0's `get_activity_share`, which #45 locks down (section 1.8). Any row: tell the
 session.
 
-Then run Start 2 again: now it lists every object on its list (in this sitting, after #56, its one row; on
+Then run Start 2 again: now it lists every object on its list (on 2026-11-27, after #56, its one row; on
 2026-11-25, after #55, its one row; on 2026-11-24, after #54, its three rows).
 
 The thirteen tables in Final 2 are reached only by database functions or the server key, which is why they have
@@ -2520,12 +2523,11 @@ The connector records each file under the time it ran, not under the file's numb
 the repository already carry the numbers production recorded. The three changes of section 1.8 have their own
 numbers and no file; the queries below leave their rows alone. One of them, the old Admin draft, has the same
 name as #29, `fitx_admin_control_plane`, which is why they leave those three out. Give each new row its file's
-number once, after the last file. It writes to the history table only. #1 to #55 already carry their numbers
-(History 1 ran after each earlier sitting, the staged method recorded #42 to #54 under their own numbers, and on
-2026-11-25 History 1 gave #55's row, which the connector had recorded under a time, its number). #56 is pending
-(not applied yet): its row is on the list below already, and in this sitting History 1 changes only #56's row, if
-the connector recorded it under a time: one row at most. In a later sitting it changes only the rows of that
-sitting's files that the connector recorded under a time, once their rows are added to its list.
+number once, after the last file. It writes to the history table only. #1 to #56 already carry their numbers
+(History 1 ran after each earlier sitting, and the staged method recorded #42 to #54 under their own numbers; the
+connector recorded #55 and #56 under a time, and History 1 gave #55's row its number on 2026-11-25 and #56's on
+2026-11-27), so run today it changes no row. In a later sitting it changes only the rows of that sitting's files
+that the connector recorded under a time, once their rows are added to its list.
 
 ```sql
 -- History 0: files recorded twice. Expect: no rows
@@ -2603,9 +2605,9 @@ app checks for each of them and works without the ones not applied yet (both don
 deploying `claude/next2` (release 2a) and Admin; wave 1's app and Admin keep working with them in place (both done
 on 2026-11-24). #55 needed no deploy (applied on 2026-11-25), and release 2c needs nothing from it; the app and
 Admin work the same with and without it. For release 3, apply #56 first, then deploy `claude/next3` merged into
-`master`: release 3's food form saves a protein, carbs or fat value left blank as unknown, which production refuses
-until #56 is in (the form then asks for a number instead, so nothing breaks). The app before release 3 and Admin
-work the same with #56 in place.
+`master` (#56 was applied on 2026-11-27, before that deploy): release 3's food form saves a protein, carbs or fat
+value left blank as unknown, which production refuses until #56 is in (the form then asks for a number instead, so
+nothing breaks). The app before release 3 and Admin work the same with #56 in place.
 
 ### 6.5 First super-admin
 

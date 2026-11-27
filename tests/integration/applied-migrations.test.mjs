@@ -1,12 +1,12 @@
-// Production has every migration up to 20261125100000_fitx_social_reports_column_privileges.sql applied (#1 to #41
-// from master b13134b on 2026-11-20; #42 to #45 from master 25a2836 on 2026-11-21; #46 to #51 from master 8db1bc9 on
-// 2026-11-23; #52 to #54 from master 71d75b9 on 2026-11-24; #55, release 2c's, from claude/next2 on 2026-11-25).
+// Production has every migration up to 20261126100000_fitx_custom_food_unknown_macros.sql applied (#1 to #41 from
+// master b13134b on 2026-11-20; #42 to #45 from master 25a2836 on 2026-11-21; #46 to #51 from master 8db1bc9 on
+// 2026-11-23; #52 to #54 from master 71d75b9 on 2026-11-24; #55, release 2c's, from claude/next2 on 2026-11-25; #56,
+// release 3's, from claude/next3 on 2026-11-27).
 // Those files are history: editing one changes nothing in production, but a new project, the tests and the runbook
 // would then build a database production does not have. A fix to an applied file is always a new migration.
 // This pins the md5 of each one, taken from `git show <that commit>:<path> | md5 -q` (the file's bytes), and fails when a
 // file is changed, renamed or removed. Add a file here only once production has it applied, from the commit that
-// shipped it. 20261126100000_fitx_custom_food_unknown_macros.sql (#56, release 3) is pending: it is not pinned, and
-// LAST_APPLIED stays at #55, until production has it applied.
+// shipped it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 const MIGRATIONS_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "supabase", "migrations");
 /** The newest migration production has applied; every file up to it is pinned below. */
-const LAST_APPLIED = "20261125100000_fitx_social_reports_column_privileges.sql";
+const LAST_APPLIED = "20261126100000_fitx_custom_food_unknown_macros.sql";
 
 const APPLIED = {
   "20260924162506_initial_fitx_schema.sql": "e7ccf0adbbd1960315320eac64fdcfee",
@@ -96,6 +96,10 @@ const APPLIED = {
   // md5(statements[1]) is this md5, the file's at 791e046 and at claude/next2 0c08633; History 1 then gave the row its
   // number.
   "20261125100000_fitx_social_reports_column_privileges.sql": "16b1603f1e40c02cc21eb18cde948d88",
+  // Applied on 2026-11-27, for release 3, whole with the connector's apply_migration: its history row's
+  // md5(statements[1]) is this md5, the file's at f1fdcf5 and at claude/next3 ae33556; History 1 then gave the row its
+  // number.
+  "20261126100000_fitx_custom_food_unknown_macros.sql": "1fd189968127bb60992eb191982d6ffd",
 };
 
 const md5 = (name) => createHash("md5").update(readFileSync(path.join(MIGRATIONS_DIR, name))).digest("hex");
@@ -103,7 +107,7 @@ const md5 = (name) => createHash("md5").update(readFileSync(path.join(MIGRATIONS
 test("every migration production has applied is still here, byte for byte", () => {
   const problems = [];
   for (const [name, pinned] of Object.entries(APPLIED)) {
-    if (!existsSync(path.join(MIGRATIONS_DIR, name))) problems.push(`${name} is missing: production has it applied; put it back unchanged (git show 0c08633:supabase/migrations/${name})`);
+    if (!existsSync(path.join(MIGRATIONS_DIR, name))) problems.push(`${name} is missing: production has it applied; put it back unchanged (git show ae33556:supabase/migrations/${name})`);
     else if (md5(name) !== pinned) {
       problems.push(`${name} was edited (md5 ${md5(name)}, production's file is ${pinned}): production already ran it, so restore it and put the change in a new migration`);
     }
@@ -115,6 +119,6 @@ test("every file up to the last applied one is pinned, so none can slip in among
   const files = readdirSync(MIGRATIONS_DIR).filter((name) => name.endsWith(".sql") && name <= LAST_APPLIED).sort();
   const unpinned = files.filter((name) => !(name in APPLIED));
   assert.deepEqual(unpinned, [], `these files sort among the applied ones but production never ran them; give them a version after ${LAST_APPLIED.slice(0, 14)}`);
-  assert.equal(Object.keys(APPLIED).length, 69, "14 September migrations and the 55 files of 20261115100000 to 20261125100000");
+  assert.equal(Object.keys(APPLIED).length, 70, "14 September migrations and the 56 files of 20261115100000 to 20261126100000");
   assert.equal(Object.keys(APPLIED).sort().at(-1), LAST_APPLIED);
 });
