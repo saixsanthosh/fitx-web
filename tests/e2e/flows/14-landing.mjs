@@ -273,6 +273,15 @@ export const flow = {
     await t.step("a returning device gets the short loader, gone within about a second", async () => {
       await page.context().addCookies([{ name: "fitx_intro", value: "seen", url: t.appUrl }]);
       await t.goto("/features", { label: "loader" });
+      // The head script takes the attribute away 180 ms after "leaving", and a quick page can be idle before that: read
+      // the log once the loader has gone, or 1.5 s after it came if it hasn't (the budget below stays 1.2 s).
+      await page.waitForFunction(() => {
+        const entries = window.__e2eRootLog ?? [];
+        const shown = entries.find((entry) => entry.name === "data-fitx-loader" && entry.value === "on");
+        if (!shown) return true;
+        const gone = entries.some((entry) => entry.name === "data-fitx-loader" && entry.value === null && entry.t >= shown.t);
+        return gone || performance.now() - shown.t >= 1500;
+      }, null, { polling: 50, timeout: 3000 }).catch(() => undefined);
       const log = await t.rootLog();
       const on = log.find((entry) => entry.name === "data-fitx-loader" && entry.value === "on");
       const off = log.findLast((entry) => entry.name === "data-fitx-loader" && entry.value === null);
