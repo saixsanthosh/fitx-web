@@ -55,6 +55,7 @@ import {
 } from "./_lib/library-state";
 import { listsLoadNote } from "./_lib/equipment-lists";
 import { LIBRARY_MARKS, findMarked, libraryFocusAfter, waitsForResults, type LibraryFocus, type LibraryPress } from "./_lib/library-focus";
+import { bookmarkTakesFocusBack, type CardPlace, type SaveProblem } from "./_lib/saved-toggle";
 import { replaceSearch, useCatalogue, useLibraryAccount, useSavedExercises, useUrlSearch } from "./_lib/use-library";
 
 const PAGE_SIZE = 24;
@@ -79,6 +80,11 @@ function readSections(): Sections {
   } catch {
     return { focus: true, equipment: true };
   }
+}
+
+/** The bookmark of the card for exercise `id` in a grid of cards, found by its exact mark (ids are not selectors). */
+function bookmarkIn(grid: ParentNode | null, id: string): HTMLElement | null {
+  return findMarked(grid?.querySelectorAll<HTMLElement>(`[${LIBRARY_MARKS.card}]`) ?? [], LIBRARY_MARKS.card, id)?.querySelector<HTMLElement>("button[aria-pressed]") ?? null;
 }
 
 function writeSections(sections: Sections) {
@@ -120,9 +126,19 @@ export default function ExerciseLibraryPage() {
   // changed. "Show more exercises" goes once every result is shown: the first card it brought takes focus.
   const [libraryFocus, setLibraryFocus] = useState<{ target: LibraryFocus; seq: number } | null>(null);
   const handledLibraryFocus = useRef(0);
-  const focusAfter = (press: LibraryPress) => setLibraryFocus((current) => ({ target: libraryFocusAfter(press), seq: (current?.seq ?? 0) + 1 }));
+  const focusAfter = (press: LibraryPress): LibraryFocus => {
+    const target = libraryFocusAfter(press);
+    setLibraryFocus((current) => ({ target, seq: (current?.seq ?? 0) + 1 }));
+    return target;
+  };
   const filtersButton = useRef<HTMLButtonElement>(null);
   const resultsGrid = useRef<HTMLDivElement>(null);
+  const recentGrid = useRef<HTMLDivElement>(null);
+  // A save or unsave that fails says why in the card whose bookmark was pressed (D6: saved-toggle.ts); in the Saved
+  // view that card comes back, and its bookmark takes focus again from where the press sent it (D5).
+  const [saveProblem, setSaveProblem] = useState<SaveProblem | null>(null);
+  const saveProblemSeq = useRef(0);
+  const handledSaveProblem = useRef(0);
   const [moreFocus, setMoreFocus] = useState<{ shown: string[]; seq: number } | null>(null);
   const handledMoreFocus = useRef(0);
 
@@ -314,7 +330,19 @@ export default function ExerciseLibraryPage() {
   const cataloguePhase: ReloadPhase = catalogue.status === "error" ? "failed" : catalogue.status === "ready" && result ? "ready" : "loading";
   const retryingCatalogue = useRetryFocus(cataloguePhase, CATALOGUE_FOCUS, { keepScroll: true });
 
-  const renderCard = (item: RankedExercise, index = 0) => (
+  // A failed save or unsave: its card (back in the list, in the Saved view) says why beside the bookmark, and the
+  // bookmark takes focus back if focus is still where the press sent it, or was lost; never from where the member has
+  // put it since (saved-toggle.ts).
+  useEffect(() => {
+    if (!saveProblem || saveProblem.seq === handledSaveProblem.current) return;
+    handledSaveProblem.current = saveProblem.seq;
+    const { id, place, movedTo } = saveProblem;
+    const bookmark = bookmarkIn(place === "recent" ? recentGrid.current : resultsGrid.current, id);
+    const sentTo = movedTo?.to === "results" ? document.getElementById(RESULTS_TITLE) : movedTo?.to === "card-save" ? bookmarkIn(resultsGrid.current, movedTo.id) : null;
+    if (bookmark && bookmarkTakesFocusBack(document, sentTo)) bookmark.focus();
+  }, [saveProblem]);
+
+  const renderCard = (item: RankedExercise, index = 0, place: CardPlace = "results") => (
     <ExerciseResultCard
       key={item.exercise.id}
       item={item}
@@ -322,10 +350,17 @@ export default function ExerciseLibraryPage() {
       highlight={item.match?.matched.length ? highlightRanges(item.exercise.name, item.match.matched) : undefined}
       saved={savedSet.has(item.exercise.id)}
       canSave={Boolean(userId) && saved.ready}
+      saveProblem={saveProblem?.id === item.exercise.id && saveProblem.place === place ? saveProblem.message : null}
       onToggleSave={() => {
+        const id = item.exercise.id;
         // In the Saved view a card the member unsaves leaves the list, bookmark and all: the next card's takes focus.
-        if (view.saved && savedSet.has(item.exercise.id)) focusAfter({ control: "unsave-card", cards: visible.map((entry) => entry.exercise.id), id: item.exercise.id });
-        void toggle(item.exercise.id);
+        const movedTo = view.saved && savedSet.has(id) ? focusAfter({ control: "unsave-card", cards: visible.map((entry) => entry.exercise.id), id }) : null;
+        setSaveProblem(null);
+        void toggle(id).then((outcome) => {
+          if (outcome.status !== "failed") return;
+          saveProblemSeq.current += 1;
+          setSaveProblem({ id, place, message: outcome.message, movedTo, seq: saveProblemSeq.current });
+        });
       }}
       alternative={alternatives.get(item.exercise.id) ?? null}
       listName={listName}
@@ -470,7 +505,7 @@ export default function ExerciseLibraryPage() {
       {recentMatches.length > 0 && (
         <section aria-labelledby="recent-matches" className="grid gap-3">
           <h2 id="recent-matches" className="m-0 text-xs font-semibold uppercase tracking-[.12em] text-fitx-text-secondary">Recent</h2>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">{recentMatches.map((item, index) => renderCard(item, index))}</div>
+          <div ref={recentGrid} className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">{recentMatches.map((item, index) => renderCard(item, index, "recent"))}</div>
         </section>
       )}
 

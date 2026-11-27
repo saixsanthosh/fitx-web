@@ -7,6 +7,7 @@ import { loadEquipmentProfiles, type EquipmentProfiles } from "@/lib/training/da
 import { LEVELS, type Level, type TrainingContext } from "@/lib/training/taxonomy";
 import { loadLightCatalogue } from "./catalogue";
 import { afterProfilesReload, withSavedList } from "./equipment-lists";
+import { savedToggleProblem, type SavedToggle } from "./saved-toggle";
 
 /**
  * Data hooks shared by the exercise library and Browse by muscle (client components): the page's URL, the light
@@ -135,7 +136,7 @@ export type SavedState = {
   ready: boolean;
   store: SavedStore;
   ids: string[];
-  /** A short message when the list could not be read or a change could not be saved. */
+  /** A short message when the list could not be read (a change that fails is said in its own card: toggle). */
   problem: string;
   /** How many exercises saved on this device were just moved into the account. */
   moved: number;
@@ -168,15 +169,20 @@ export function useSavedExercises(userId: string, knownIds: ReadonlySet<string> 
   // Exercises whose save or remove is still on its way: another tap on one waits, so requests never cross.
   const pending = useRef(new Set<string>());
 
-  const toggle = useCallback(async (exerciseId: string) => {
-    if (!userId || pending.current.has(exerciseId)) return;
+  // A change that fails is undone and its reason returned, for the card whose bookmark was pressed to show beside it
+  // (D6; saved-toggle.ts): the page-wide `problem` is only about reading the list.
+  const toggle = useCallback(async (exerciseId: string): Promise<SavedToggle> => {
+    if (!userId || pending.current.has(exerciseId)) return { status: "ignored" };
     pending.current.add(exerciseId);
     const wasSaved = savedSet.has(exerciseId);
-    setSaved((current) => ({ ...current, problem: "", ids: withExerciseSaved(current.ids, exerciseId, !wasSaved) }));
+    setSaved((current) => ({ ...current, ids: withExerciseSaved(current.ids, exerciseId, !wasSaved) }));
     try {
-      const { error } = await setExerciseSaved(createClient(), userId, saved.store, exerciseId, !wasSaved);
+      // A request that throws (rather than answering with an error) is a failure too: the bookmark never stays wrong.
+      const { error } = await setExerciseSaved(createClient(), userId, saved.store, exerciseId, !wasSaved).catch((caught: unknown) => ({ error: caught ?? new Error("save failed") }));
+      if (!error) return { status: "done" };
       // Only this exercise is undone; saves of other exercises made meanwhile stay as they are.
-      if (error) setSaved((current) => ({ ...current, ids: withExerciseSaved(current.ids, exerciseId, wasSaved), problem: wasSaved ? "That exercise could not be removed from your saved list. Try again." : "That exercise could not be saved. Try again." }));
+      setSaved((current) => ({ ...current, ids: withExerciseSaved(current.ids, exerciseId, wasSaved) }));
+      return { status: "failed", message: savedToggleProblem(wasSaved) };
     } finally {
       pending.current.delete(exerciseId);
     }

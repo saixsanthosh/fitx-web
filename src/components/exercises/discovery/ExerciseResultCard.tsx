@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
 import { ArrowRight, Bookmark, BookmarkCheck, Plus } from "lucide-react";
 import { EquipmentIcon } from "@/components/equipment/EquipmentIcon";
 import { ExerciseCover } from "@/components/exercises/ExerciseCover";
@@ -59,6 +59,8 @@ export type ExerciseResultCardProps = {
   /** False before the member's saved list is known (the button is hidden). */
   canSave: boolean;
   onToggleSave: () => void;
+  /** Why the last press of this card's bookmark did not go through, shown beside the bookmark (D6); null otherwise. */
+  saveProblem?: string | null;
   /** The best exercise for the same job that the member can do, for exercises they cannot. */
   alternative: CatalogExercise | null;
   /** Where the equipment list comes from, for "not in your Home list". */
@@ -77,8 +79,9 @@ const COVER_SIZES = "(min-width: 1280px) 280px, (min-width: 640px) 33vw, 50vw";
  * to do next. An exercise the member lacks equipment for is never offered as ready to do: it says what it needs,
  * offers the best alternative they can do, and keeps an explicit "Add anyway".
  */
-export function ExerciseResultCard({ item, thumbnail, highlight, saved, canSave, onToggleSave, alternative, listName, onOpen, index = 0 }: ExerciseResultCardProps) {
+export function ExerciseResultCard({ item, thumbnail, highlight, saved, canSave, onToggleSave, saveProblem = null, alternative, listName, onOpen, index = 0 }: ExerciseResultCardProps) {
   const { exercise, doable, missing } = item;
+  const problemId = useId();
   const href = `/exercises/${encodeURIComponent(exercise.id)}`;
   const addHref = `/workouts?exercise=${encodeURIComponent(exercise.id)}`;
   const equipment = exercise.required_equipment;
@@ -92,11 +95,15 @@ export function ExerciseResultCard({ item, thumbnail, highlight, saved, canSave,
       </Link>
       {canSave && (
         <button type="button" onClick={onToggleSave} aria-pressed={saved} aria-label={saved ? `Remove ${exercise.name} from saved exercises` : `Save ${exercise.name}`}
+          aria-describedby={saveProblem ? problemId : undefined}
           className={`${styles.save} absolute right-2 top-2 z-10 grid h-11 w-11 place-items-center rounded-full text-fitx-text hover:text-fitx-primary`}>
           {saved ? <BookmarkCheck size={18} aria-hidden="true" className="text-fitx-primary" /> : <Bookmark size={18} aria-hidden="true" />}
         </button>
       )}
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-3 sm:p-3.5">
+        {/* A press of the bookmark that failed says why right under it, in this card (D6); the bookmark carries it. Above
+            the card's link layer (z-10), so the reason can be read and selected without opening the exercise. */}
+        {saveProblem && <p id={problemId} role="alert" className="relative z-10 m-0 mb-1 rounded-lg border border-fitx-danger-border bg-fitx-danger-bg px-2.5 py-1.5 text-xs leading-5 text-fitx-danger">{saveProblem}</p>}
         <h3 className="m-0 text-[14px] font-semibold leading-snug tracking-tight sm:text-[15px]">
           {/* The whole card opens the exercise (the link's ::after covers it); the title row itself is a 44 px target too. */}
           <Link href={href} onClick={onOpen} className="flex min-h-11 items-center after:absolute after:inset-0 after:content-[''] hover:text-fitx-primary-text focus-visible:outline-none">

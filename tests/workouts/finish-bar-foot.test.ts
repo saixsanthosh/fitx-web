@@ -166,10 +166,16 @@ describe("the page: the reason right above the buttons, the bar brought clear (J
   });
 
   test("when Finish workout or Abandon gives a reason, the bar is brought clear of the rest timer and Previous and Next", () => {
-    assert.match(page, /import \{ browserFootPage, revealAboveFoot \} from "\.\/_lib\/foot-clearance";/);
-    assert.match(page, /useEffect\(\(\) => \{\n\s+if \(problem\?\.at === "finish" && finishBarRef\.current\) revealAboveFoot\(finishBarRef\.current, \[restDockRef\.current, stepBarRef\.current\], browserFootPage\(\)\);\n\s+\}, \[problem\]\);/);
-    assert.match(page, /\{resting && <RestDock ref=\{restDockRef\} /);
-    assert.match(page, /<div ref=\{stepBarRef\} className="fixed inset-x-3 bottom-\[[^\]]+\] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden">/);
+    // Since round 3f one effect brings every action's reason clear (revealReason): Finish's through its bar, as before
+    // (reasons-clear-of-foot.test.ts has the others).
+    assert.match(page, /import \{ browserFootPage, footBarRef, revealReason \} from "\.\/_lib\/foot-clearance";/);
+    assert.match(page, /const blocks = \{ finish: finishBarRef\.current, /);
+    assert.match(page, /revealReason\(problem, \{ blocks, set \}, \[restDockRef\.current, stepBarRef\.current\], browserFootPage\(\)\);\n\s+\}, \[problem\]\);/);
+    // Through refs that also keep html's scroll padding clear of the two bars (active-bars-scroll-padding.test.ts).
+    assert.match(page, /\{resting && <RestDock ref=\{restDockAttach\} /);
+    assert.match(page, /<div ref=\{stepBarAttach\} className="fixed inset-x-3 bottom-\[[^\]]+\] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden">/);
+    assert.match(page, /const restDockAttach = useMemo\(\(\) => footBarRef\(restDockRef, /);
+    assert.match(page, /const stepBarAttach = useMemo\(\(\) => footBarRef\(stepBarRef, /);
     // Both ways a reason arrives (a refusal or a failure of Finish workout, a failure of Abandon) set a new problem.
     assert.ok((page.match(/setProblem\(\{ at: "finish"/g) ?? []).length >= 4);
   });

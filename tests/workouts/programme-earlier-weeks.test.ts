@@ -14,12 +14,13 @@ const showEarlier = page.slice(page.indexOf("  async function showEarlier() {"),
 
 describe("a failed Show earlier weeks keeps the page and says why beside the button", () => {
   test("every failure of the load goes through one place: the unavailable state, or beside the button for earlier weeks", () => {
-    assert.match(load, /const load = useCallback\(async \(backTo\?: string\): Promise<boolean> => \{/);
-    assert.match(load, /const fail = \(text: string, earlier = text\) => \{\n\s+if \(backTo\) setEarlierError\(earlier\);\n\s+else \{ setMessage\(text\); setState\("error"\); \}\n\s+return false;\n\s+\};/);
+    // Since round 3f the load says how it ended ("ready", "none" or "failed"), not only whether it failed.
+    assert.match(load, /const load = useCallback\(async \(backTo\?: string\): Promise<LoadOutcome> => \{/);
+    assert.match(load, /const fail = \(text: string, earlier = text\): LoadOutcome => \{\n\s+if \(backTo\) setEarlierError\(earlier\);\n\s+else \{ setMessage\(text\); setState\("error"\); \}\n\s+return "failed";\n\s+\};/);
     assert.equal(load.match(/return fail\(/g)?.length, 5, "no Supabase, signed out, the enrolment, its days, the programme");
     assert.equal(load.match(/setState\("error"\)/g)?.length, 1, "only fail() sets the unavailable state");
-    assert.match(load, /setState\("ready"\);\n\s+return true;\n\s+\}, \[todayKey\]\);/);
-    assert.match(load, /if \(!current\.enrolment\) \{ setState\("none"\); return true; \}/);
+    assert.match(load, /setState\("ready"\);\n\s+return "ready";\n\s+\}, \[todayKey\]\);/);
+    assert.match(load, /if \(!current\.enrolment\) \{ setState\("none"\); return "none"; \}/);
   });
 
   test("the connection failures say so for earlier weeks; the others keep their own words", () => {
@@ -30,8 +31,8 @@ describe("a failed Show earlier weeks keeps the page and says why beside the but
   });
 
   test("Show earlier weeks clears the old reason, and hands focus to a week only when the weeks loaded", () => {
-    assert.match(showEarlier, /setLoadingEarlier\(true\);\n\s+setEarlierError\(""\);\n\s+const loadedEarlier = await load\(mondayOf\(addDays\(loaded\.fromKey, -7 \* WEEKS_BACK\)\)\);\n\s+setLoadingEarlier\(false\);/);
-    assert.match(showEarlier, /if \(loadedEarlier\) setWeekFocus\(\(current\) => \(\{ shown, seq: \(current\?\.seq \?\? 0\) \+ 1 \}\)\);/);
+    assert.match(showEarlier, /setLoadingEarlier\(true\);\n\s+setEarlierError\(""\);\n\s+const outcome = await load\(mondayOf\(addDays\(loaded\.fromKey, -7 \* WEEKS_BACK\)\)\);\n\s+setLoadingEarlier\(false\);/);
+    assert.match(showEarlier, /if \(outcome === "ready"\) setWeekFocus\(\(current\) => \(\{ shown, seq: \(current\?\.seq \?\? 0\) \+ 1 \}\)\);/);
   });
 
   test("the reason shows right under the button, which carries it; the button is never disabled while it loads", () => {

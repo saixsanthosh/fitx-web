@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowRightLeft, Check, ChevronLeft, ChevronRight, History, Info, Pause, Play, Plus, Smartphone, Square, Trophy, Volume2, VolumeX, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
+import { trackBottomInset } from "@/components/layout/bottom-inset";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { CountWithCamera, cameraFitsSet, cameraRuleFor, type CameraCountResult } from "@/components/form-coach";
 import { ExerciseDemo } from "@/components/session/ExerciseDemo";
@@ -37,10 +38,10 @@ import { PRESCRIPTION_TARGET_COLUMNS, SESSION_PAUSE_COLUMNS, SET_DURATION_COLUMN
 import { plannerEventToComplete } from "../_lib/plan-schedule";
 import { readWithOptional, recordHref, stripStats } from "../history/_lib/session-record";
 import { exerciseProblem, problemAfterExerciseChange, type ActionProblem } from "./_lib/action-problem";
-import { browserFootPage, revealAboveFoot } from "./_lib/foot-clearance";
+import { browserFootPage, footBarRef, revealReason } from "./_lib/foot-clearance";
 import { formatHistorySet, lastTimeForSet, summariseLastTime } from "./_lib/last-time";
 import { SESSION_NOT_FOUND, sessionLinkFrom, type SessionLink } from "./_lib/session-link";
-import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId } from "./_lib/set-entry";
+import { SET_LIMITS, readSetEntry, setEntryProblem, setInputId, setProblemId } from "./_lib/set-entry";
 import {
   adjustRest, describeNextStep, exerciseAfterTick, exerciseProgress, formatKg, formatRest, restRemaining, sessionProgress, setHeadline, setTarget, setsLeftLabel,
   sessionTally, startRest, stepAfterCurrentSet, stepAfterRest, stepValue, tickMovesOn, timerSecondsDone, updateSet, workTarget,
@@ -179,16 +180,6 @@ export default function ActiveWorkoutPage() {
   // action fails: the button then stays, with the problem beside it, and keeps focus.
   const [closedFocus, setClosedFocus] = useState<string | null>(null);
   useEffect(() => { if (closedFocus) focusHeading(document, closedFocus); }, [closedFocus]);
-  // When Finish workout or Abandon says why it did not work (right above the two buttons), their bar is brought into
-  // view clear of the rest timer and the phone's Previous and Next, fixed over the page's foot: on a desktop the reason
-  // lay under the floating rest timer (round 3d re-check). Focus stays on the button; the page stays put if focus has
-  // moved elsewhere meanwhile.
-  const finishBarRef = useRef<HTMLElement>(null);
-  const restDockRef = useRef<HTMLElement>(null);
-  const stepBarRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (problem?.at === "finish" && finishBarRef.current) revealAboveFoot(finishBarRef.current, [restDockRef.current, stepBarRef.current], browserFootPage());
-  }, [problem]);
   // The same when ticking an exercise's last open set moves the page on: the set list that held focus is replaced by
   // the next exercise's, whose name takes focus (a touch or mouse user's page does not scroll for it).
   const exerciseIndexRef = useRef(exerciseIndex);
@@ -212,6 +203,33 @@ export default function ActiveWorkoutPage() {
     const box = document.getElementById(focusBox.id);
     if (box instanceof HTMLInputElement && !box.disabled) { box.focus(); box.select(); }
   }, [focusBox]);
+  // When an action says why it did not work, beside the control that was used, the reason is brought into view clear of
+  // the rest timer and the phone's Previous and Next, fixed over the page's foot (revealReason): on a desktop Finish
+  // workout's lay under the floating rest timer (round 3d re-check), and Swap's, Add set's and a refused set's could on
+  // a tablet or phone while resting (round 3e open item). After the effect above, so a refused set's box has taken focus
+  // first. Focus stays where it is; the page stays put if focus has moved elsewhere meanwhile.
+  const finishBarRef = useRef<HTMLElement>(null);
+  const clockRef = useRef<HTMLElement>(null);
+  const pausedRef = useRef<HTMLDivElement>(null);
+  const swapAreaRef = useRef<HTMLDivElement>(null);
+  const addSetAreaRef = useRef<HTMLDivElement>(null);
+  const restDockRef = useRef<HTMLElement>(null);
+  const stepBarRef = useRef<HTMLDivElement>(null);
+  // While they show, the rest timer and the phone's Previous and Next set the shell's "foot" inset, which html's scroll
+  // padding reads (and nothing else): a control reached with Tab then stops above them, as it does above the phone's
+  // bar and the privacy banner (round 3e open item). With neither showing, nothing changes.
+  const restDockAttach = useMemo(() => footBarRef(restDockRef, (bar) => trackBottomInset(bar, "foot")), []);
+  const stepBarAttach = useMemo(() => footBarRef(stepBarRef, (bar) => trackBottomInset(bar, "foot")), []);
+  useEffect(() => {
+    if (!problem) return;
+    const blocks = { finish: finishBarRef.current, clock: clockRef.current, banner: pausedRef.current, swap: swapAreaRef.current, "add-set": addSetAreaRef.current };
+    const set = (setId: string) => {
+      const reason = document.getElementById(setProblemId(setId));
+      const row = reason?.closest("li");
+      return reason && row ? { reason, row } : null;
+    };
+    revealReason(problem, { blocks, set }, [restDockRef.current, stepBarRef.current], browserFootPage());
+  }, [problem]);
 
   const load = useCallback(async (link: SessionLink) => {
     // A malformed ?session= is a workout that cannot be found: no request is made for it.
@@ -770,7 +788,7 @@ export default function ActiveWorkoutPage() {
     <p role="status" className="sr-only">{timerNotice}</p>
     {fieldsNotice && <p role="status" className="flex items-start gap-2 rounded-lg border border-fitx-border bg-fitx-surface px-4 py-3 text-xs text-fitx-text-secondary"><Info size={15} aria-hidden="true" className="mt-px shrink-0 text-fitx-info" /><span>{fieldsNotice}</span></p>}
 
-    <section aria-label="Workout clock" className="fitx-panel grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:px-5">
+    <section ref={clockRef} aria-label="Workout clock" className="fitx-panel grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 p-4 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:px-5">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[.13em] text-fitx-text-secondary">Elapsed training time</p>
         <p className="mt-1 font-mono text-2xl font-semibold tabular-nums tracking-tight sm:text-[28px]">{formatClock(elapsedSeconds)}</p>
@@ -784,8 +802,11 @@ export default function ActiveWorkoutPage() {
       {problem?.at === "clock" && <p role="alert" className={`col-span-2 sm:col-span-3 ${PROBLEM_CLASS}`}>{problem.message}</p>}
     </section>
 
-    {paused && <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause("banner")} aria-disabled={clockSaving || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>}
-    {paused && problem?.at === "banner" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
+    {/* The paused banner and, under it, why Resume workout did not work: one block, brought clear of the foot's bars. */}
+    {paused && <div ref={pausedRef} className="space-y-4 sm:space-y-5">
+      <section role="status" className="flex flex-col gap-3 rounded-lg border border-fitx-primary/30 bg-fitx-primary/[.06] p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Session paused</p><p className="mt-1 text-xs text-fitx-text-secondary">Your training timer and rest are held. Resume when you’re ready.</p></div><button type="button" onClick={() => void togglePause("banner")} aria-disabled={clockSaving || undefined} className="fitx-button min-h-11 aria-disabled:opacity-60">{clockSaving ? "Saving…" : "Resume workout"}<Play size={14} aria-hidden="true" /></button></section>
+      {problem?.at === "banner" && <p role="alert" className={PROBLEM_CLASS}>{problem.message}</p>}
+    </div>}
 
     {exercises.length > 0 && <nav ref={chipsRef} aria-label="Workout exercises" className="relative -mx-1 flex gap-2 overflow-x-auto px-1 pb-1">{exercises.map((exercise, index) => {
       const chip = exerciseProgress(exercise);
@@ -814,17 +835,20 @@ export default function ActiveWorkoutPage() {
                 : <span className="text-fitx-text-secondary">No earlier sets logged for this exercise yet.</span>}</p>}
             {swapMissing.length > 0 && <p className="mt-2 text-xs text-fitx-warning">Needs {swapMissing.map(equipmentLabel).join(", ").toLowerCase()}, not on your {ownedContext} list. Swap it for something you can do.</p>}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button>
-            {survivor && <Link href={`/exercises/${encodeURIComponent(survivor)}`} target="_blank" rel="noopener noreferrer" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Info size={14} aria-hidden="true" />About<span className="sr-only"> {currentExercise.name} (opens in a new tab)</span></Link>}
-            <span className="ml-auto flex items-center gap-2">
-              {/* At the first or last exercise these stay focusable (aria-disabled): pressing Next onto the last exercise used to
-                  disable the button in the member's hand, and Chrome then drops focus to the page (D5). */}
-              <button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
-              <button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
-            </span>
+          {/* Swap's row and, under it, why Swap did not work: one block, brought clear of the foot's bars. */}
+          <div ref={swapAreaRef} className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setSwapOpen(true)} disabled={!swapTarget || paused || currentExercise.sets.some((set) => Boolean(set.completed_at))} title={currentExercise.sets.some((set) => Boolean(set.completed_at)) ? "Swap before logging sets" : undefined} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><ArrowRightLeft size={14} aria-hidden="true" />Swap</button>
+              {survivor && <Link href={`/exercises/${encodeURIComponent(survivor)}`} target="_blank" rel="noopener noreferrer" className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm"><Info size={14} aria-hidden="true" />About<span className="sr-only"> {currentExercise.name} (opens in a new tab)</span></Link>}
+              <span className="ml-auto flex items-center gap-2">
+                {/* At the first or last exercise these stay focusable (aria-disabled): pressing Next onto the last exercise used to
+                    disable the button in the member's hand, and Chrome then drops focus to the page (D5). */}
+                <button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} aria-label="Previous exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronLeft size={18} aria-hidden="true" /></button>
+                <button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} aria-label="Next exercise" className="grid h-11 w-11 place-items-center rounded-md border border-fitx-border aria-disabled:opacity-40"><ChevronRight size={18} aria-hidden="true" /></button>
+              </span>
+            </div>
+            {swapProblem && <p role="alert" className={PROBLEM_CLASS}>{swapProblem}</p>}
           </div>
-          {swapProblem && <p role="alert" className={PROBLEM_CLASS}>{swapProblem}</p>}
           <SessionRings target={target} setTimer={timerHere && setTimer ? { remaining: timerRemaining, total: setTimer.seconds } : null} rest={restRing} plannedRestSeconds={currentExercise.rest_seconds} setsDone={currentProgress.done} setsTotal={currentProgress.total} />
         </div>
       </div>
@@ -857,18 +881,21 @@ export default function ActiveWorkoutPage() {
           onToggle={(set) => void saveSet(currentExercise.id, set, !set.completed_at)}
         />
         <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={() => void addSet(currentExercise)} disabled={paused} className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm"><Plus size={14} aria-hidden="true" />Add set</button>
-          {currentSet && cameraRule && <CountWithCamera
-            exercise={{ id: currentExercise.exercise_id, name: currentExercise.name }}
-            target={cameraRule.motion.kind === "hold" ? currentExercise.target_duration_seconds : Math.round((currentExercise.reps_min + currentExercise.reps_max) / 2)}
-            setLabel={`Set ${currentSet.set_number}`}
-            disabled={paused}
-            onUse={(result) => applyCameraCount(currentExercise.id, currentSet.id, result)}
-          />}
+        {/* Add set's row and, under it, why Add set did not work: one block, brought clear of the foot's bars. */}
+        <div ref={addSetAreaRef} className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => void addSet(currentExercise)} disabled={paused} className="fitx-button fitx-button-secondary min-h-11 px-3 text-sm"><Plus size={14} aria-hidden="true" />Add set</button>
+            {currentSet && cameraRule && <CountWithCamera
+              exercise={{ id: currentExercise.exercise_id, name: currentExercise.name }}
+              target={cameraRule.motion.kind === "hold" ? currentExercise.target_duration_seconds : Math.round((currentExercise.reps_min + currentExercise.reps_max) / 2)}
+              setLabel={`Set ${currentSet.set_number}`}
+              disabled={paused}
+              onUse={(result) => applyCameraCount(currentExercise.id, currentSet.id, result)}
+            />}
+          </div>
+          {addSetProblem && <p role="alert" className={PROBLEM_CLASS}>{addSetProblem}</p>}
         </div>
-        {addSetProblem && <p role="alert" className={PROBLEM_CLASS}>{addSetProblem}</p>}
-        {upNext && <UpNext title={upNext.title} detail={upNext.detail} finish={nextAfterSet.kind === "finish"} exercise={upNextExercise ? { id: upNextId, name: upNextExercise.name, sourceRef: upNextId ? catalog.find((item) => item.id === upNextId)?.source_ref ?? null : null } : null} />}
+        {upNext &&<UpNext title={upNext.title} detail={upNext.detail} finish={nextAfterSet.kind === "finish"} exercise={upNextExercise ? { id: upNextId, name: upNextExercise.name, sourceRef: upNextId ? catalog.find((item) => item.id === upNextId)?.source_ref ?? null : null } : null} />}
         </div>
       </div>
     </section>}
@@ -887,10 +914,10 @@ export default function ActiveWorkoutPage() {
       {cues.keepAwake && wakeLock !== "off" && <span role="status" className="text-fitx-text-secondary">{wakeLock === "on" ? "The screen stays on while you train." : wakeLock === "unsupported" ? "This browser can’t keep the screen on." : "The screen couldn’t be kept on; battery saver can block it."}</span>}
     </div>
 
-    {resting && <RestDock ref={restDockRef} remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
+    {resting && <RestDock ref={restDockAttach} remaining={restLeft} total={Math.max(restTotal, restLeft)} upNext={afterRest ? [afterRest.title, afterRest.detail].filter(Boolean).join(" · ") : null} onAdjust={adjustRestBy} onSkip={skipRest} />}
     {/* Phones: Previous and Next at the window's foot, 8 px above the privacy banner while it is open (--fitx-inset-consent);
-        RestDock rises with them. */}
-    <div ref={stepBarRef} className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
+        RestDock rises with them. Both keep html's scroll padding clear of them while they show ("foot", above). */}
+    <div ref={stepBarAttach} className="fixed inset-x-3 bottom-[max(calc(env(safe-area-inset-bottom)+.75rem),calc(var(--fitx-inset-consent,0px)+8px))] z-30 mx-auto grid max-w-md grid-cols-2 gap-2 sm:hidden"><button type="button" onClick={() => { if (!atFirst) showExercise((index) => Math.max(0, index - 1)); }} aria-disabled={atFirst || undefined} className="fitx-button fitx-button-secondary min-h-12 aria-disabled:opacity-60"><ArrowLeft size={15} aria-hidden="true" />Previous</button><button type="button" onClick={() => { if (!atLast) showExercise((index) => Math.min(exercises.length - 1, index + 1)); }} aria-disabled={atLast || undefined} className="fitx-button min-h-12 aria-disabled:opacity-60">Next exercise<ArrowRight size={15} aria-hidden="true" /></button></div>
     {swapOpen && swapTarget && <SwapSheet target={swapTarget} catalog={catalog} owned={owned} level={level} exclude={new Set(exercises.flatMap((exercise) => (exercise.exercise_id ? [exercise.exercise_id] : [])))} contextLabel={ownedContext} onPick={(exercise) => void swapExercise(exercise)} onClose={() => setSwapOpen(false)} />}
   </div>;
 }

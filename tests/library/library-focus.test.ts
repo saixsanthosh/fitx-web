@@ -111,7 +111,8 @@ describe("the library page carries the decision out", () => {
     assert.match(page, /onSpelling=\{\(text\) => \{ update\(\{ q: text \}\); focusAfter\(\{ control: "spelling" \}\); \}\}/);
     assert.match(page, /navigate\(facet === "environment" && haveKeys \? \{ \.\.\.next, have: \[\.\.\.haveKeys\] \} : next\);\n\s+focusAfter\(\{ control: "relax" \}\);/);
     assert.match(page, /onClick=\{\(\) => \{ navigate\(wordFilter\.next\); focusAfter\(\{ control: "word-filter" \}\); \}\}/);
-    assert.match(page, /if \(view\.saved && savedSet\.has\(item\.exercise\.id\)\) focusAfter\(\{ control: "unsave-card", cards: visible\.map\(\(entry\) => entry\.exercise\.id\), id: item\.exercise\.id \}\);\n\s+void toggle\(item\.exercise\.id\);/);
+    // Round 3f: the press keeps where it sent focus, for a failed unsave to bring it back (saved-toggle-place.test.ts).
+    assert.match(page, /const movedTo = view\.saved && savedSet\.has\(id\) \? focusAfter\(\{ control: "unsave-card", cards: visible\.map\(\(entry\) => entry\.exercise\.id\), id \}\) : null;\n\s+setSaveProblem\(null\);\n\s+void toggle\(id\)\.then\(/);
     for (const control of ["clear-search", "pick-recent", "forget-recent", "clear-recent", "remove-chip", "clear-all", "show-all", "clear-search-and-filters", "spelling", "relax", "word-filter", "unsave-card"]) assert.match(page, press(control), control);
   });
 

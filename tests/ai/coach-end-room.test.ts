@@ -51,7 +51,9 @@ describe("the coach's end marker and the page's bottom room", () => {
     const parsed = [DOCK_PHONE, BANNER_GAP_PHONE, DOCK_DESKTOP, BANNER_GAP_DESKTOP, END_GAP];
     assert.ok(parsed.every(Number.isFinite), parsed.join(", "));
     assert.deepEqual(parsed, [76, 8, 16, 8, 12]);
-    assert.match(globals, /html \{[^}]*--fitx-scroll-room-bottom: calc\(max\(var\(--fitx-inset-bottom-bar, 0px\), var\(--fitx-inset-consent, 0px\)\) \+ 12px\);[^}]*scroll-padding-bottom: var\(--fitx-scroll-room-bottom\);/);
+    // The third inset (a page's own bars over its foot) is set only on the live workout, where the coach is hidden
+    // (LAUNCHER_HIDDEN_ON), so pageRoom leaves it out.
+    assert.match(globals, /html \{[^}]*--fitx-scroll-room-bottom: calc\(max\(var\(--fitx-inset-bottom-bar, 0px\), var\(--fitx-inset-consent, 0px\), var\(--fitx-inset-page-foot, 0px\)\) \+ 12px\);[^}]*scroll-padding-bottom: var\(--fitx-scroll-room-bottom\);/);
     // The composer and the marker read one place; nothing else moves either of them.
     assert.match(phone, /\.composerDock \{ position: sticky; bottom: var\(--coach-dock-bottom\); z-index: 20;/);
     assert.equal((coach.match(/\.composerDock \{[^}]*bottom:/g) ?? []).length, 1, "one bottom for the composer");
