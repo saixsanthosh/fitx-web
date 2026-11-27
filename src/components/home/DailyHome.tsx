@@ -50,7 +50,7 @@ export function DailyHome({ today }: { today: string }) {
   const reduced = useReducedMotionSafe();
   const hour = useHour();
   // The shared profile normally gives the member's id. When it gives none (it failed, or says "signed out"), Home asks
-  // the session itself and goes by that answer (src/lib/home/quote-area.ts).
+  // the session itself, within 20 s, and goes by that answer (src/lib/home/quote-area.ts).
   const shared = context ? { status: context.status, userId: context.data?.userId ?? null } : null;
   const checkNeeded = needsOwnCheck(shared);
   const [own, setOwn] = useState<OwnCheck | null>(null);
@@ -89,7 +89,8 @@ export function DailyHome({ today }: { today: string }) {
 
   const quote = loaded && loaded.key === key ? loaded.quote : null;
   // An ended session says so and offers sign-in; a check that failed never claims one (it shows this device's quote
-  // for the member, or says the quote couldn't be loaded); nothing loads for ever.
+  // for the member, or says the quote couldn't be loaded); nothing loads for ever: the session check and the quote's
+  // load each end within 20 s (checkSessionKeepingMember, getDailyQuote).
   const area = quoteArea(member, !loaded || loaded.key !== key ? "loading" : quote ? "shown" : "missing");
   const scene = quote ? sceneFor(quote.scene) : null;
   const hello = hour === null ? null : greeting(hour, context?.status === "ready" ? name : null);

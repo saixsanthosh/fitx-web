@@ -8,10 +8,17 @@
  * quote this device last showed that day, with its scene, instead of a different one. Only when this device has no
  * quote for the day yet (before the migration, or the day's first visit falls in an outage) does it pick one itself
  * (`stored` is false); quotes picked that way are passed to the database when it next answers, so they are avoided
- * there too.
+ * there too. A database that gives no answer within DAILY_QUOTE_TIME_LIMIT_MS (a stalled connection, a captive portal,
+ * a server that hangs) counts as one that can't be reached: its request is cancelled and this device's quote shows,
+ * instead of Home's loading lines for good (fix round 3f).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { QUOTES, quoteById, type Quote, type QuoteTheme } from "@/data/quotes";
+import { isTimeLimit, withTimeLimit } from "@/lib/auth/time-limit";
+import { withAbortSignal } from "@/lib/onboarding/time-limit";
+
+/** How long Home waits for the database's quote, in milliseconds: the shared user context's 20 s. */
+export const DAILY_QUOTE_TIME_LIMIT_MS = 20_000;
 
 /** FNV-1a, 32 bits: a small, stable hash so the same member and day always give the same pick. */
 export function hashKey(text: string): number {
@@ -179,17 +186,20 @@ function browserStorage(): Storage | null {
 
 /**
  * The member's quote for `localDate`. `stored: true` when the database picked and keeps it; otherwise it comes
- * from this browser's history (before the migration, or when the database could not be reached).
+ * from this browser's history (before the migration, or when the database could not be reached or gave no answer
+ * within `ms`).
  */
 export async function getDailyQuote(
   supabase: Pick<SupabaseClient, "rpc"> | null,
-  { userId, localDate, storage = browserStorage() }: { userId: string; localDate: string; storage?: Pick<Storage, "getItem" | "setItem"> | null },
+  { userId, localDate, storage = browserStorage(), ms = DAILY_QUOTE_TIME_LIMIT_MS }: { userId: string; localDate: string; storage?: Pick<Storage, "getItem" | "setItem"> | null; ms?: number },
 ): Promise<{ quote: Quote; stored: boolean }> {
   if (supabase && isDayKey(localDate)) {
     // Only the quotes this device picked itself: the database already knows its own.
     const avoid = localOnlyQuotes(readHistory(storage, userId)).slice(-HISTORY_LIMIT);
+    // The request carries this signal, aborted once the limit passes, so nothing of it is left waiting.
+    const controller = new AbortController();
     try {
-      const { data, error } = await supabase.rpc("fitx_daily_quote", { p_local_date: localDate, p_avoid: avoid });
+      const { data, error } = await withTimeLimit(withAbortSignal(supabase, controller.signal).rpc("fitx_daily_quote", { p_local_date: localDate, p_avoid: avoid }), ms);
       // A missing function (before the migration) or any other error: the browser's history keeps Home working.
       if (!error) {
         const row = Array.isArray(data) ? (data[0] as QuoteRow | undefined) : (data as QuoteRow | null);
@@ -200,8 +210,9 @@ export async function getDailyQuote(
           return { quote, stored: true };
         }
       }
-    } catch {
-      // Offline: fall through to the browser's history.
+    } catch (problem) {
+      // Offline, or no answer within the limit (then cancelled): fall through to the browser's history.
+      if (isTimeLimit(problem)) controller.abort();
     }
   }
   return { quote: localDailyQuote(storage, userId, localDate), stored: false };

@@ -10,7 +10,14 @@
  * still shows during an outage; with no member at all the area says the quote could not be loaded, never "loading"
  * for ever and never "signed out".
  *
- * No React here, so node tests cover it (tests/home/home-signed-out.test.ts); DailyHome does the browser parts.
+ * Every wait ends (fix round 3f). The shared context gives up after 20 s (user-context-refresh.ts); Home's own session
+ * check then waits 20 s at most and, with no answer, counts as a check that failed (checkSessionKeepingMember); the
+ * quote's load waits 20 s at most and then shows this device's quote (getDailyQuote). Even when every request hangs
+ * (a stalled connection, a captive portal), the loading lines give way to the device's quote, or to "could not be
+ * loaded" when this browser's session names nobody.
+ *
+ * No React here, so node tests cover it (tests/home/home-signed-out.test.ts, and the limits in
+ * tests/home/home-quote-time-limit.test.ts); DailyHome does the browser parts.
  */
 import type { SessionState } from "@/components/account/session-state";
 import type { UserContextStatus } from "@/components/app/UserContextProvider";
