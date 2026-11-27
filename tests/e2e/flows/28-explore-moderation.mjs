@@ -21,7 +21,16 @@ async function settled(standin, query, ok) {
   return row;
 }
 
+/**
+ * Signs in as `account` in the same tab. The open page (the last account's) finishes its reads and is left first, so
+ * none of its requests goes out once its cookies are gone: the database rightly refuses a read sent without a session,
+ * and the run would record an anonymous 401 that only the test causes.
+ */
 async function switchTo(t, account, next = "/explore") {
+  if (t.page.url() !== "about:blank") {
+    await t.settle();
+    await t.page.goto("about:blank");
+  }
   await t.context.clearCookies();
   await signInUi(t, account, { next, label: `sign in as ${account.name}` });
 }
@@ -78,6 +87,8 @@ export const flow = {
       await page.getByRole("button", { name: "Share post" }).click();
       await page.waitForURL(/\/explore\/p\/[0-9a-f-]{36}$/, { timeout: 30000 });
       postId = page.url().split("/").pop();
+      // The address changes before the new post page has read anything: let it show Ben's post first.
+      await page.locator("article").filter({ hasText: "Plank hold, day 12" }).first().waitFor({ timeout: 20000 });
       // Asha's report, as fitx_social_report stores it (the report flow itself is flow 21's).
       const report = await standin.one(`insert into public.social_reports (user_id, target_type, target_id, target_user_id, reason, evidence)
         values ('${asha.id}', 'post', '${postId}', '${ben.id}', 'spam', jsonb_build_object('caption', 'Plank hold, day 12', 'author', '${benName}'))
