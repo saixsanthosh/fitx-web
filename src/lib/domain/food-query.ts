@@ -315,6 +315,54 @@ export function portionFromLabel(label: string, grams: number): FoodPortion | nu
   return { label: label.trim(), unit, grams: round2(grams) };
 }
 
+/** A length in a measure's name ("10\" dia", "2-1/2\"", "1/4\" thick", "7 inch", "15 cm"): the size of one, not a count. */
+const LENGTH_IN_LABEL = /\d+(?:[.,]\d+)?(?:\s*-\s*\d+(?:\/\d+)?|\/\d+)?\s*(?:["”″]|''|(?:inch(?:es)?|in|cm|mm)\b)/gi;
+/** A price in a measure's name ("Rs 10", "₹20"): not a count either. */
+const PRICE_IN_LABEL = /(?:₹|\b(?:rs|inr)\b\.?)\s*\d+(?:[.,]\d+)?/gi;
+
+/**
+ * Whether a measure's name counts more than one of something anywhere in it, not only in its first amount: "1 plate
+ * (2 idli)", "1 serving (2 pcs)", "1 plate - 2 idli", "1 thali (3 roti, rice)". Sizes are not counts: a weight, a
+ * volume or a vessel ("1 bowl (250 g)", "1 cup (240 ml)", "1 thali (2 katori dal)"), a length ("1 naan (10\" dia)"),
+ * a price ("Rs 10"), a part of one ("1 piece (1/4 of a pizza)", "half"), or how many come in something bigger ("1
+ * slice (15 per 8 oz package)"). A range counts as its top ("19 to 21 lb" is a weight, "2-3 idli" is several). A
+ * member's saved serving that counts several never answers a bare count (saved-foods.ts): "3 idli" is not 3 plates
+ * of 2 idlis.
+ */
+export function countsSeveral(label: string): boolean {
+  const text = String(label ?? "")
+    .replace(LENGTH_IN_LABEL, " ")
+    .replace(PRICE_IN_LABEL, " ")
+    .replace(/~/g, " ")
+    // "1-1/2 cups" is 1 1/2 cups; a range is its top: "2-3 idli" and "2 or 3 idli" are 3 idli, "19 to 21 lb" is 21 lb.
+    .replace(/(\d)\s*-\s*(?=\d+\/\d+)/g, "$1 ")
+    .replace(/\d+(?:[.,]\d+)?\s*(?:[-–]|\bto\b|\bor\b)\s*(?=\d)/gi, " ");
+  const tokens = tokenizeWithSigns(text).map((item) => item.token);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const read = readAmount(tokens, index);
+    if (!read) continue;
+    index = read.next - 1;
+    let next = read.next;
+    if (tokens[next] === "x") next += 1;
+    if (SIZE_WORDS[tokens[next]]) next += 1;
+    const unit = UNIT_WORDS[tokens[next]];
+    const size = unit !== undefined && (isMassUnit(unit) || isVolumeUnit(unit) || HOUSEHOLD_UNITS.has(unit));
+    if (read.value > 1 && !size && !makesUpMore(tokens, unit === undefined ? next : next + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether the words at `index` say how many make up something bigger ("15 per 8 oz package", "3 per lb", "10 slices
+ * per pack") rather than how many this measure holds ("2 idli per plate").
+ */
+function makesUpMore(tokens: readonly string[], index: number): boolean {
+  const what = tokens[index] === "per" ? tokens[index + 1] : undefined;
+  if (what === undefined) return false;
+  const unit = UNIT_WORDS[what];
+  return parseNumberToken(what) !== null || (unit !== undefined && isMassUnit(unit)) || NOT_A_COUNT.test(what);
+}
+
 /**
  * Picks which piece portion a bare count uses when a source does not say: the only one, else a medium or regular
  * one. A container ("1 can", "1 pack") is never picked.

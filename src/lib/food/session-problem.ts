@@ -65,5 +65,25 @@ export function noMemberText(state: SessionState | null, what: string): string {
   return "Your session is still being checked, so nothing was saved. Try again in a moment.";
 }
 
+/** Who a save in a dialog is for: the member (`found` when this save's own check found them), or why nothing was saved. */
+export type SaveMember = { ok: true; uid: string; found: boolean } | { ok: false; refused: string; state: SessionState };
+
+/**
+ * The member a save in a dialog is for (fix round 3f). `known`: the member a day's load found. Until a load's sign-in
+ * check has found one (it failed, offline or in an auth outage, or hasn't answered), the save makes the check itself,
+ * as logging does, so pressing Save again in the dialog works once the check can be made, and its "Try again in a
+ * moment" is true: before, only the day's Try again, behind the dialog, could ever find the member. Nothing is kept
+ * from a check that gave no member, so every such save checks again.
+ */
+export async function memberForSave<U extends { id: string }>(
+  known: string | null,
+  check: () => PromiseLike<{ state: SessionState; user: U | null }>,
+  what: string,
+): Promise<SaveMember> {
+  if (known) return { ok: true, uid: known, found: false };
+  const { state, user } = await check();
+  return user ? { ok: true, uid: user.id, found: true } : { ok: false, refused: noMemberText(state, what), state };
+}
+
 /** Where Sign in brings the member back to. */
 export const NUTRITION_PATH = "/nutrition";

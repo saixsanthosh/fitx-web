@@ -13,14 +13,15 @@ export function amountProblem(grams: number): string | null {
 
 /**
  * The measure a food opens on when nothing was typed, as an index into its measures (-1: 100 g). Its default piece or
- * serving first; else the serving its own data gives: a package label's, or the one you saved for a food of your own,
- * even when that is only a weight ("Digestive biscuits", 45 g, opens at 1 × 45 g, not 100 g). Such a weight is the
- * opening amount only: it never answers a bare count, so "3 digestive biscuits" still asks for grams.
+ * serving first; else the serving its own data gives: a package label's, or the one you saved for a food of your own
+ * (always its first measure), whatever it is, even only a weight ("Digestive biscuits", 45 g, opens at 1 × 45 g, not
+ * 100 g) or a plate of several ("1 plate (2 idli)", 76 g). Such a serving is the opening amount only: it never answers
+ * a bare count, so "3 digestive biscuits" still asks for grams.
  */
 export function openingPortion(food: Pick<FoodResult, "kind">, portions: readonly FoodPortion[]): number {
   const usual = portions.findIndex((portion) => portion.countDefault);
   if (usual >= 0 || (food.kind !== "custom" && food.kind !== "packaged")) return usual;
-  return portions.findIndex((portion) => portion.unit === "serving" && portion.estimate === false);
+  return portions.findIndex((portion) => portion.estimate === false && (food.kind === "custom" || portion.unit === "serving"));
 }
 
 /** What the sheet lists before anything is searched: the staples (with Frequent and Recent above them). */

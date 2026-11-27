@@ -109,7 +109,7 @@ test("Nutrition asks once, honours Later, offers the edit, and sends the water g
   const sheet = readFileSync(new URL("../../src/components/nutrition/NutritionSetup.tsx", import.meta.url), "utf8");
   assert.match(page, /if \(!state\.done && !snoozed\(readSnooze\(uid\), localDateKey\(\)\)\) setSetup\(\{ open: true, mode: "first" \}\)/);
   assert.match(page, /writeSnooze\(userId, localDateKey\(\)\)/, "Later is remembered on this device");
-  assert.match(page, /writeSnooze\(userId, null\)/, "saving clears it");
+  assert.match(page, /writeSnooze\(member\.uid, null\)/, "saving clears it (for the member the save checked: saveMember, fix round 3f)");
   assert.match(page, />Food preferences</);
   assert.match(page, /WATER_GOAL_HREF = progressGoals\(\{ new: "water_day" \}\)/, "the shared route helper builds the water goal link");
   assert.equal(progressGoals({ new: "water_day" }), "/progress?panel=goals&new=water_day");

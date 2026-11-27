@@ -18,3 +18,17 @@ export function reloadFocusTargets(pending: readonly string[] | null, ifLost: re
 export function focusFellToPage(active: unknown, body: unknown): boolean {
   return !active || active === body;
 }
+
+/** The controls of the message for a day that didn't load (Sign in, Try again): the page marks their row data-day-actions. */
+export const DAY_ACTIONS = "[data-day-actions] a, [data-day-actions] button";
+
+/**
+ * Where the focus goes once the day's Try again has its answer (fix round 3f, D5). When the day failed again and the
+ * focus fell to the page, the button pressed went with the answer (a session that ended meanwhile offers only Sign
+ * in): the message's own first control takes it, else the tab's heading. Otherwise nowhere: a Try again that is still
+ * there keeps the focus, the member may have moved it on, and a day that loaded hands it to its heading itself
+ * (reloadFocusTargets, with the targets retryLoad sets).
+ */
+export function dayRetryFocusTargets(failed: boolean, focusLost: boolean): readonly string[] {
+  return failed && focusLost ? [DAY_ACTIONS, "#meals-title", "#routines-title", "[data-food-add]", "#history-title"] : [];
+}

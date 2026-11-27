@@ -240,9 +240,9 @@ export function customRowToFood(row: Row, recentCount = 0): RankableFood {
     basis: origin === "ai_coach" ? `${basisInfo("ai_suggested").label} · saved` : `Your food · ${basisInfo(valueBasis).label}`,
     state: null,
     dietType: null,
-    // The saved serving counts as the measure it names ("1 item", "1 cup"); the search adds the measures of the
-    // catalogue food it was copied from (search-route, withSourceFood).
-    portions: [customServingPortion(text(row.serving_size), num(row.serving_grams))],
+    // The saved serving counts as the measure it names ("1 item", "1 cup"), a package's as the package does; the
+    // search adds the measures of the catalogue food it was copied from (search-route, withSourceFood).
+    portions: [customServingPortion(text(row.serving_size), num(row.serving_grams), { origin, valueBasis })],
     barcode: text(row.barcode),
     origin,
     recentCount,

@@ -47,7 +47,7 @@ import { photoNotSavedText, shrinkPhoto, signedPhotoUrls } from "@/lib/food/food
 import { askFoodSearch, unansweredText } from "@/lib/food/food-request";
 import { loadHousehold, saveHousehold } from "@/lib/food/household-storage";
 import { searchOutcome } from "@/lib/food/search-outcome";
-import { dayReadProblem, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
+import { dayReadProblem, memberForSave, noMemberText, NUTRITION_PATH, sessionProblem, type SessionProblem } from "@/lib/food/session-problem";
 import { initialSetupAnswers, loadSetupState, readSnooze, saveSetup, snoozed, writeSnooze, type NutritionSetupAnswers } from "@/lib/food/setup";
 import { unsourcedFor } from "@/lib/food/unsourced";
 import {
@@ -59,7 +59,7 @@ import {
 import { servingToSave } from "@/lib/food/saved-foods";
 import { customFoodSaveProblem, type CustomFoodSaveProblem } from "@/lib/food/custom-food-form";
 import { addedUndoRegistry, neighbourAfterRemoval, RESTORE_COLUMNS, restoreRow, undoAddedMessage, type RemovedEntry } from "@/lib/food/meal-undo";
-import { focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
+import { dayRetryFocusTargets, focusFellToPage, reloadFocusTargets } from "@/lib/food/reload-focus";
 import { amountProblem, answerGate, barcodeMissFor, barcodeMissText, focusAfterRetry, foodCardKey, listedFoods, noSearchReason, openingPortion, startView, swapFocusTargets, type BarcodeMiss, type BrowseList } from "@/lib/food/log-sheet";
 import type { FoodResult, FoodSearchResponse, SourceStatus } from "@/lib/food/types";
 import { copyDayMessages, dayActionLabels, nutritionDayLabels } from "./day-labels";
@@ -77,6 +77,8 @@ async function loadPrefs(supabase: NonNullable<ReturnType<typeof createClient>>,
 }
 type Tab = "meals" | "foods" | "routines" | "history";
 type LogMode = "search" | "barcode";
+/** Who a dialog's save is for, with what the database has (saveMember), or why nothing was saved. */
+type DialogMember = { ok: true; uid: string; caps: NutritionCapabilities } | { ok: false; refused: string };
 type NamePrompt = { kind: "meal"; slot: string; initial: string } | { kind: "day"; initial: string } | { kind: "section"; then: "sheet" | "none" };
 
 const EXAMPLES = ["3 idli", "2 roti", "150 g rice", "1 cup dal", "2 eggs"];
@@ -178,6 +180,8 @@ export default function NutritionPage() {
   const pendingFocus = useRef<string[] | null>(null);
   /** Where it goes once the day has reloaded only if it fell to the page (an empty day's buttons go once it has food). */
   const focusIfLost = useRef<string[] | null>(null);
+  /** The day's Try again was pressed and its answer isn't drawn yet: an answer that takes the button away moves the focus on. */
+  const dayRetried = useRef(false);
   /** Foods removed from the day, each with an Undo in its place; and which "Added …" toast can still take back what. */
   const [removed, setRemoved] = useState<RemovedEntry[]>([]);
   const addedUndo = useRef(addedUndoRegistry());
@@ -323,6 +327,8 @@ export default function NutritionPage() {
 
   /** Whether the day shown at the top has its own figures yet; until then the overview and meals say they are loading. */
   const dayState = dayLoadState(shownKey, failedKey, dateKey);
+  /** Whether the day viewed failed to load, so its message (dayAlert) is shown under the tabs. */
+  const dayFailed = failedKey === dateKey && dayProblem !== null;
   /** This day's entries: none until they have loaded, so another day's never show under this day's date. */
   const dayEntries = useMemo(() => (dayState === "ready" ? entries : []), [dayState, entries]);
   const totals = useMemo(() => sumKnown(dayEntries), [dayEntries]);
@@ -569,9 +575,11 @@ export default function NutritionPage() {
    * Try again, after the day couldn't be read (its reads failed, or the sign-in check couldn't be made): the day, Recent
    * and (if it never came) the food list are read again. Once the day is in, the message and its button go, so the
    * focus moves to the tab's heading (or My foods' Add a food) instead of falling to the page; while it reads, the
-   * button stays (unavailable), so a failure again leaves the focus on it.
+   * button stays (unavailable), so a failure again leaves the focus on it, and a failure that takes it away (signed
+   * out meanwhile: Sign in only) hands the focus to the message's own control (dayRetried).
    */
   function retryLoad() {
+    dayRetried.current = true;
     focusIfLost.current = ["#meals-title", "#routines-title", "[data-food-add]", "#history-title"];
     void load();
     void refreshRecent();
@@ -895,6 +903,17 @@ export default function NutritionPage() {
       if (target) { target.focus(); return; }
     }
   }, [entries, customRows, templates]);
+  // Once the day's Try again has its answer: when the day failed again and took the button pressed with it (a session
+  // that ended meanwhile offers only Sign in), the message's own control takes the focus instead of it falling to the
+  // page (D5, dayRetryFocusTargets). A Try again still there keeps it; a day that loaded hands it on just above.
+  useEffect(() => {
+    if (!dayRetried.current || loading) return;
+    dayRetried.current = false;
+    for (const selector of dayRetryFocusTargets(dayFailed, focusFellToPage(document.activeElement, document.body))) {
+      const target = document.querySelector<HTMLElement>(selector);
+      if (target) { target.focus(); return; }
+    }
+  }, [loading, dayFailed]);
 
   /** "Type the number" from the scanner: the barcode field, ready to type in. */
   function typeBarcode() {
@@ -972,12 +991,32 @@ export default function NutritionPage() {
     void refreshRecent();
   }
 
+  /**
+   * Who a dialog's save is for (memberForSave): the member the day's load found, or, until a load's sign-in check has
+   * found one, the answer of a check the save makes itself, so pressing Save again in the dialog works once the check
+   * can be made. A member found this way is the page's from then on, and what the database has is read for them as the
+   * day's load does, so the save writes every column there is (a food copied from the catalogue keeps where it came
+   * from). The day itself is read again after the save, as after any save.
+   */
+  async function saveMember(supabase: NonNullable<ReturnType<typeof createClient>>, what: string): Promise<DialogMember> {
+    const member = await memberForSave(userId, () => checkSession<User>(() => supabase.auth.getUser()), what);
+    if (!member.ok) { setCheckedSession(member.state); return { ok: false, refused: member.refused }; }
+    if (!member.found) return { ok: true, uid: member.uid, caps: capabilities };
+    const caps = await detectCapabilities(supabase);
+    setCheckedSession("signed_in");
+    setUserId(member.uid);
+    setCapabilities(caps);
+    return { ok: true, uid: member.uid, caps };
+  }
+
   /** Saves an edited entry. A refusal is returned to the dialog, which stays open and shows it (the page's messages are behind it). */
   async function saveEntry(entry: MealEntry, change: EntryChange): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return noMemberText(checkedSession, "change your entries");
+    if (!supabase) return noMemberText(checkedSession, "change your entries");
     setBusy(true); setError("");
-    const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", userId);
+    const member = await saveMember(supabase, "change your entries");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = await supabase.from("meals").update(entryUpdate(entry, change)).eq("id", entry.id).eq("user_id", member.uid);
     setBusy(false);
     if (result.error) return "That entry could not be changed. Please try again.";
     setEditingEntry(null);
@@ -994,24 +1033,27 @@ export default function NutritionPage() {
    */
   async function saveFood(input: CustomFoodInput, photo: File | null, removePhoto: boolean): Promise<CustomFoodSaveProblem | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
+    if (!supabase) return { field: null, message: noMemberText(checkedSession, "save your own foods") };
     const editing = foodForm?.editing ?? null;
     setBusy(true); setError("");
-    const { row, error: saveError } = await saveCustomFood(supabase, userId, input, capabilities.customFoodsV2, editing?.id);
+    const member = await saveMember(supabase, "save your own foods");
+    if (!member.ok) { setBusy(false); return { field: null, message: member.refused }; }
+    const v2 = member.caps.customFoodsV2;
+    const { row, error: saveError } = await saveCustomFood(supabase, member.uid, input, v2, editing?.id);
     if (saveError || !row) {
       setBusy(false);
       return customFoodSaveProblem(saveError);
     }
     let photoProblem = "";
     let photoUrl: string | null = null;
-    if (removePhoto && !photo && editing && capabilities.customFoodsV2) {
-      const removed = await removeCustomFoodPhoto(supabase, userId, editing);
+    if (removePhoto && !photo && editing && v2) {
+      const removed = await removeCustomFoodPhoto(supabase, member.uid, editing);
       if (removed.error) photoProblem = " The photo could not be removed. Please try again.";
     }
-    if (photo && capabilities.customFoodsV2) {
+    if (photo && v2) {
       try {
         // The food points at the new photo before its old one goes, so a failed save keeps the old photo.
-        const path = await replaceCustomFoodPhoto(supabase, userId, row, await shrinkPhoto(photo));
+        const path = await replaceCustomFoodPhoto(supabase, member.uid, row, await shrinkPhoto(photo));
         // Saved: a link that can't be made now waits for the next load, and never reads "not saved".
         photoUrl = await signedPhotoUrls(supabase, [path]).then((urls) => urls.get(path) ?? null, () => null);
       } catch (cause) {
@@ -1076,10 +1118,12 @@ export default function NutritionPage() {
     const prompt = namePrompt;
     const supabase = createClient();
     if (prompt?.kind === "section") { addSection(name, prompt.then); return null; }
-    if (!prompt || !supabase || !userId) return noMemberText(checkedSession, "save meals and routines");
+    if (!prompt || !supabase) return noMemberText(checkedSession, "save meals and routines");
     const items = prompt.kind === "meal" ? entries.filter((entry) => sameMeal(entry.meal, prompt.slot)) : entries;
     setBusy(true); setError("");
-    const result = await saveTemplate(supabase, userId, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
+    const member = await saveMember(supabase, "save meals and routines");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = await saveTemplate(supabase, member.uid, name, prompt.kind, items, prompt.kind === "meal" ? prompt.slot : null);
     setBusy(false);
     if (result.error) return "That could not be saved. Please try again.";
     setNamePrompt(null);
@@ -1140,9 +1184,11 @@ export default function NutritionPage() {
   /** Saves the member's targets, or goes back to the estimate. A refusal is returned to the targets dialog. */
   async function updateTargets(next: ManualTargets | null): Promise<string | null> {
     const supabase = createClient();
-    if (!supabase || !userId) return noMemberText(checkedSession, "set your targets");
+    if (!supabase) return noMemberText(checkedSession, "set your targets");
     setBusy(true); setError("");
-    const result = next ? await saveTargets(supabase, userId, next) : await clearTargets(supabase, userId);
+    const member = await saveMember(supabase, "set your targets");
+    if (!member.ok) { setBusy(false); return member.refused; }
+    const result = next ? await saveTargets(supabase, member.uid, next) : await clearTargets(supabase, member.uid);
     setBusy(false);
     if (result.error) return next ? "Your targets could not be saved. Please try again." : "Your targets could not be cleared. Please try again.";
     setTargetsOpen(false);
@@ -1180,15 +1226,18 @@ export default function NutritionPage() {
   /** Saves the setup answers; the diet filter in Log food follows the new diet. */
   async function finishSetup(answers: NutritionSetupAnswers) {
     const supabase = createClient();
-    if (!supabase || !userId) return;
+    if (!supabase) return;
     setSetupBusy(true); setSetupError("");
     try {
-      const saved = await saveSetup(supabase, userId, answers, {
+      // As the other dialogs' saves (saveMember): with no member yet, Save here used to do nothing at all.
+      const member = await saveMember(supabase, "save your food preferences");
+      if (!member.ok) { setSetupError(member.refused); return; }
+      const saved = await saveSetup(supabase, member.uid, answers, {
         schema: context?.schema ?? { preferencesV2: true, onboardingV3: true },
         legacyDiet: context?.legacy.dietaryPreferences ?? [],
       });
       if (saved.error) { setSetupError("Your answers could not be saved. Please try again."); return; }
-      writeSnooze(userId, null);
+      writeSnooze(member.uid, null);
       setSetup((current) => ({ ...current, open: false }));
       notifyUserContextChanged();
       if (answers.diet) { dietFilterSet.current = true; setDietFilter(dietFilterFor(legacyDietaryPreferences(answers.diet, []))); }
@@ -1240,15 +1289,18 @@ export default function NutritionPage() {
   </>;
 
   /**
-   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. A new paragraph per failure,
-   * so a Try again that fails again is read out again; the button is the same one, unavailable while the day is read.
+   * Why this day didn't load, with Sign in or Try again, for as long as it stays failed. Only the words are the alert:
+   * a new paragraph per failure, so a Try again that fails again is read out again. The buttons sit outside it, so Try
+   * again's "Loading…" while the day is read changes nothing in the alert and never reads the old failure out again
+   * (fix round 3f). The button is the same one throughout, unavailable while the day is read.
    */
   const dayAlert = failedKey === dateKey && dayProblem && (() => {
     const { problem, attempt } = dayProblem;
     const said = typeof problem === "string" ? { text: problem, signIn: false, retry: false } : problem;
-    return <div role="alert" className={styles.alert}>
-      <p key={attempt}>{said.text}</p>
-      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2">
+    return <div className={styles.alert}>
+      <p key={attempt} role="alert">{said.text}</p>
+      {/* data-day-actions: after a Try again whose answer took the button pressed away, the focus goes to these (D5). */}
+      {(said.signIn || said.retry) && <div className="mt-2 flex flex-wrap gap-2" data-day-actions="">
         {said.signIn && <Link href={signInHref(NUTRITION_PATH)} className="fitx-button min-h-11 px-4 text-xs">Sign in</Link>}
         {said.retry && <button type="button" className={`fitx-button fitx-button-secondary min-h-11 px-4 text-xs ${ui.actionBusy}`} aria-disabled={loading || undefined} onClick={() => { if (!loading) retryLoad(); }}>{loading ? "Loading…" : "Try again"}</button>}
       </div>}

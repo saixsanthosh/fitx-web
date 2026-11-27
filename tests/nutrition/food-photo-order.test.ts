@@ -162,7 +162,8 @@ test("uploading stores a new file in the member's own folder and removes nothing
 test("Save in the food form goes the same way, and a saved photo is never called not saved", () => {
   const page = read("src/app/(dashboard)/nutrition/page.tsx");
   const save = page.slice(page.indexOf("async function saveFood("), page.indexOf("async function removeFood("));
-  assert.match(save, /const path = await replaceCustomFoodPhoto\(supabase, userId, row, await shrinkPhoto\(photo\)\);/);
+  // For the member the save checked (saveMember, fix round 3f).
+  assert.match(save, /const path = await replaceCustomFoodPhoto\(supabase, member\.uid, row, await shrinkPhoto\(photo\)\);/);
   assert.doesNotMatch(save, /uploadFoodPhoto\(/);
   assert.doesNotMatch(save, /update\(\{ image_path/, "only replaceCustomFoodPhoto points the food at a photo");
   assert.match(save, /photoUrl = await signedPhotoUrls\(supabase, \[path\]\)\.then\(\(urls\) => urls\.get\(path\) \?\? null, \(\) => null\);/, "a link that can't be made now is not a failed save");
