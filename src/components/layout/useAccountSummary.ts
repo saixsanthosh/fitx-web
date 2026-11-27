@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOptionalUserContext } from "@/components/app/UserContextProvider";
 import { createClient } from "@/lib/supabase/client";
+import { ACCOUNT_SUMMARY_MAX_AGE_MS, fetchAccountSummary, sharedSummaryRequest, summaryReader } from "./account-summary-request";
 import { preferSharedAccount, type AccountSummary } from "./accountSummary";
 
 export type { AccountSummary } from "./accountSummary";
@@ -10,37 +11,14 @@ export type { AccountSummary } from "./accountSummary";
 /** Fired by the Profile page after a save, so the shell shows the new name and photo at once. */
 export const PROFILE_UPDATED_EVENT = "fitx:profile-updated";
 
-/** The signed avatar link lasts an hour; refresh a little before it expires. */
-const MAX_AGE_MS = 50 * 60 * 1000;
-let request: Promise<AccountSummary | null> | null = null;
-let requestedAt = 0;
-
-async function fetchSummary(): Promise<AccountSummary | null> {
+/**
+ * The one request the header and the sidebar share: kept 50 minutes once it answers, and dropped when it has no answer
+ * within 20 s, so the next read asks again (account-summary-request.ts).
+ */
+const summary = sharedSummaryRequest(() => {
   const supabase = createClient();
-  if (!supabase) return null;
-  const { data: auth } = await supabase.auth.getUser();
-  const user = auth.user;
-  if (!user) return null;
-  const { data: profile } = await supabase.from("profiles").select("name, avatar").eq("id", user.id).maybeSingle();
-  let avatarUrl: string | null = profile?.avatar || null;
-  if (avatarUrl && !avatarUrl.startsWith("http")) {
-    const signed = await supabase.storage.from("fitx-user-media").createSignedUrl(avatarUrl, 3600);
-    avatarUrl = signed.data?.signedUrl || null;
-  }
-  return {
-    name: profile?.name || user.user_metadata?.name || user.email?.split("@")[0] || "",
-    email: user.email ?? null,
-    avatarUrl,
-  };
-}
-
-function summary(force = false) {
-  if (force || !request || Date.now() - requestedAt > MAX_AGE_MS) {
-    requestedAt = Date.now();
-    request = fetchSummary().catch(() => null);
-  }
-  return request;
-}
+  return supabase ? fetchAccountSummary(supabase) : Promise.resolve(null);
+});
 
 /**
  * Name, email and photo for the shell. Inside the dashboard layout the shared user context supplies
@@ -51,14 +29,14 @@ export function useAccountSummary() {
   const shared = useOptionalUserContext();
   const [value, setValue] = useState<AccountSummary | null>(null);
   useEffect(() => {
-    let live = true;
-    const load = (force = false) => { void summary(force).then((result) => { if (live) setValue(result); }); };
-    load();
-    const refresh = () => load(true);
+    // Each read's answer shows when it comes, even after the 20 s limit, unless a newer read's answer already shows.
+    const reader = summaryReader(summary, setValue);
+    reader.read();
+    const refresh = () => reader.read(true);
     window.addEventListener(PROFILE_UPDATED_EVENT, refresh);
-    const timer = window.setInterval(() => load(), MAX_AGE_MS);
+    const timer = window.setInterval(() => reader.read(), ACCOUNT_SUMMARY_MAX_AGE_MS);
     return () => {
-      live = false;
+      reader.stop();
       window.removeEventListener(PROFILE_UPDATED_EVENT, refresh);
       window.clearInterval(timer);
     };

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
+import { AVATAR_LINK_SECONDS, keepAvatarLink } from "@/components/app/avatar-link";
 import { refreshUserContext, type UserContextStatus } from "@/components/app/user-context-refresh";
 import { createClient } from "@/lib/supabase/client";
 import { syncProfileWeight, USER_CONTEXT_EVENT, type LoadPart, type UserContextData } from "@/lib/domain/user-context";
@@ -14,7 +15,8 @@ import { syncProfileWeight, USER_CONTEXT_EVENT, type LoadPart, type UserContextD
  * and Progress use. (The AI coach builds its own context on the server: src/lib/ai/context.ts.)
  *
  * Readers wait 20 s at most for a refresh (user-context-refresh.ts): past that, a context that has shown nothing yet
- * says its load failed ("error"), and an answer that comes later still lands.
+ * says its load failed ("error"), and an answer that comes later still lands. The photo's signed link waits 20 s at
+ * most too, and a link request that doesn't answer is made again after a pause (avatar-link.ts).
  */
 
 export type { UserContextStatus };
@@ -33,9 +35,6 @@ export type UserContextValue = {
   refresh: () => Promise<void>;
 };
 
-const AVATAR_LINK_SECONDS = 60 * 60;
-/** Renew the signed photo link ten minutes before it expires. */
-const AVATAR_RENEW_MS = (AVATAR_LINK_SECONDS - 10 * 60) * 1000;
 const MEDIA_BUCKET = "fitx-user-media";
 
 const Context = createContext<UserContextValue | null>(null);
@@ -108,23 +107,15 @@ export function UserContextProvider({ children }: { children: ReactNode }) {
 
   const avatarPath = data?.profile?.avatar ?? null;
   useEffect(() => {
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const sign = async () => {
-      if (!avatarPath) return setAvatarUrl(null);
-      if (/^https:\/\//.test(avatarPath)) return setAvatarUrl(avatarPath);
-      const supabase = createClient();
-      if (!supabase) return;
-      const { data: signed } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrl(avatarPath, AVATAR_LINK_SECONDS);
-      if (!live) return;
-      setAvatarUrl(signed?.signedUrl ?? null);
-      timer = setTimeout(() => void sign(), AVATAR_RENEW_MS);
-    };
-    void Promise.resolve().then(sign);
-    return () => {
-      live = false;
-      if (timer) clearTimeout(timer);
-    };
+    // A stored photo's signed link, renewed before it ends. A link request with no answer within 20 s is made again
+    // after a pause, and what the header shows stays meanwhile (its own link, or the link being renewed). A photo
+    // change or the provider going stops it all.
+    const supabase = createClient();
+    return keepAvatarLink(
+      avatarPath,
+      supabase ? (path) => supabase.storage.from(MEDIA_BUCKET).createSignedUrl(path, AVATAR_LINK_SECONDS) : null,
+      setAvatarUrl,
+    );
   }, [avatarPath]);
 
   const value = useMemo<UserContextValue>(() => ({ status, data, avatarUrl, failedPart, refresh }), [status, data, avatarUrl, failedPart, refresh]);
