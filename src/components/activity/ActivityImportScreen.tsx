@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type Ref } from "react";
 import { Check, ChevronDown, ChevronLeft, CircleAlert, CopyCheck, FileUp, Info, LoaderCircle, ShieldCheck, TriangleAlert, Watch, X } from "lucide-react";
 import { EmptyState } from "@/components/app/EmptyState";
 import { SPORT_LABEL, SPORT_NOUN } from "@/lib/activity/config";
-import { handsFocusOn } from "@/lib/activity/focus";
+import { focusDropped, handsFocusOn } from "@/lib/activity/focus";
 import { formatActivityDate, formatDistance, formatDuration, formatDurationWords } from "@/lib/activity/format";
 import { readActivityFile } from "@/lib/activity/import/detect";
 import { importClientId } from "@/lib/activity/import/fingerprint";
+import { canRemove, checkAlertShown, importFocusAfter, importFocusWitness, type ListedFile } from "@/lib/activity/import/focus";
 import { checkImport, fullestOfEachSession, importBarShown, knownKey, lookupWindow, mergeKnown, OVERLAP_TOLERANCE_MS, refillsSaved, saveFailure, settleRepeat, shouldCountPoints, summariseResults, type Candidate, type ImportCheck, type ImportResult, type KnownActivity, type RecordShape } from "@/lib/activity/import/plan";
 import { buildImportRecord, checkStartTime, FORMAT_LABEL, POINTS_KEPT_DAYS } from "@/lib/activity/import/to-record";
 import { IMPORT_LIMITS, ImportError, type ParsedImport } from "@/lib/activity/import/types";
@@ -81,6 +82,11 @@ function failureText(error: unknown): string {
 }
 
 const pointsIn = (parsed: ParsedImport) => parsed.segments.reduce((count, segment) => count + segment.length, 0);
+
+/** A file's Remove in the list, found again by the file's key once the list has been drawn. */
+function removeButton(list: HTMLElement | null, key: string): HTMLButtonElement | null {
+  return Array.from(list?.querySelectorAll<HTMLButtonElement>('[data-import-control="remove"]') ?? []).find((button) => button.dataset.importFile === key) ?? null;
+}
 
 /**
  * The per-file check against the account and the files before it. Files chosen together that are one session
@@ -210,7 +216,7 @@ function ResultLine({ result }: { result: ImportResult }) {
   return <p className="mt-3 flex gap-1.5 text-sm text-fitx-danger"><CircleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />Not imported: {result.reason}</p>;
 }
 
-function FileCard({ entry, check, names, onSport, onConfirm, onReplace, onRemove, busy, checking = false, unchecked = false, importSports }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; importSports: readonly Sport[]; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onReplace: (value: boolean) => void; onRemove: () => void; busy: boolean; checking?: boolean; unchecked?: boolean }) {
+function FileCard({ entry, check, names, onSport, onConfirm, onReplace, onRemove, removeRef, busy, checking = false, unchecked = false, importSports }: { entry: Entry; check: ImportCheck | undefined; names: Map<string, string>; importSports: readonly Sport[]; onSport: (sport: Sport) => void; onConfirm: (value: boolean) => void; onReplace: (value: boolean) => void; onRemove: () => void; removeRef: Ref<HTMLButtonElement>; busy: boolean; checking?: boolean; unchecked?: boolean }) {
   const parsed = entry.parsed;
   const preview = entry.preview;
   const deviceDiffers = preview && preview.deviceDistanceM !== null && Math.abs(preview.deviceDistanceM - preview.distanceM) > Math.max(50, preview.distanceM * 0.01);
@@ -231,8 +237,9 @@ function FileCard({ entry, check, names, onSport, onConfirm, onReplace, onRemove
             <p className="mt-0.5 text-xs text-fitx-text-secondary" role="status">Reading…</p>
           ) : null}
         </div>
-        {!busy && entry.phase !== "done" && entry.phase !== "importing" && (
-          <button type="button" onClick={onRemove} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label={`Remove ${entry.name}`}><X size={17} aria-hidden="true" /></button>
+        {/* Goes with its card; the next file's Remove, else the one before it, else Choose files takes focus (D5). */}
+        {canRemove(entry.phase, busy) && (
+          <button type="button" ref={removeRef} data-import-control="remove" data-import-file={entry.key} onClick={onRemove} className="grid min-h-11 min-w-11 shrink-0 place-items-center rounded-lg text-fitx-text-secondary hover:bg-fitx-hover hover:text-fitx-text" aria-label={`Remove ${entry.name}`}><X size={17} aria-hidden="true" /></button>
         )}
       </div>
 
@@ -288,6 +295,11 @@ export function ActivityImportScreen() {
   const [dragging, setDragging] = useState(false);
   // The account couldn't be checked for repeats and overlaps: nothing is imported until it has been.
   const [lookupFailed, setLookupFailed] = useState(false);
+  // Check again is checking: its alert stays meanwhile, so the button keeps focus (D5). Files chosen after a failure still
+  // hide it while they are read, as before. How many checks have failed: one that fails again draws the alert's message
+  // anew, so it is read out again.
+  const [checkingAgain, setCheckingAgain] = useState(false);
+  const [lookupFailures, setLookupFailures] = useState(0);
   const counter = useRef(0);
   // Import was pressed. Once every file has its result the bar goes with its button (nothing is left for it to do), so
   // the result ("2 imported.", partial results and failures too) takes focus if it fell to the page (D5).
@@ -431,14 +443,19 @@ export function ActivityImportScreen() {
     // After a failed check, the earlier files are checked again with the new ones.
     const ok = await lookUp(lookupFailed ? [...entries, ...readEntries] : readEntries).catch(() => false);
     setLookupFailed(!ok);
+    if (!ok) setLookupFailures((count) => count + 1);
     setReading(false);
   }
 
   async function checkAgain() {
+    // Check again says aria-disabled while it checks (disabled would drop keyboard focus; D5): a press then does nothing.
     if (reading || importing) return;
     setReading(true);
+    setCheckingAgain(true);
     const ok = await lookUp(entries).catch(() => false);
     setLookupFailed(!ok);
+    if (!ok) setLookupFailures((count) => count + 1);
+    setCheckingAgain(false);
     setReading(false);
   }
 
@@ -483,6 +500,31 @@ export function ActivityImportScreen() {
     return entry.phase === "ready" && !entry.result && !entry.sport && entry.parsed?.sport.kind === "unknown" && kind !== "incomplete" && kind !== "fuller";
   }).length;
   const barShown = importBarShown(entries.map((entry) => ({ phase: entry.phase, done: entry.result !== null, sport: sportOf(entry) })), importing);
+
+  // D5: a file's Remove goes with its card, Clear list with the whole list, Check again with its alert once a check
+  // works, and "Set them all to:" once every file has its sport; the browser dropped focus to the page. One ref sees
+  // which control went with focus (importFocusWitness), and once that draw is done focus moves to what is left in its
+  // place (importFocusAfter): only while the page has focus, so focus the member moved stays where it is. Import's own
+  // hand-off is importPressed's, above.
+  const [{ ref: controlRef, take: controlWent }] = useState(() => importFocusWitness<HTMLElement>());
+  const drawnFiles = useRef<readonly ListedFile[]>([]);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const chooseRef = useRef<HTMLInputElement | null>(null);
+  const filesTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const importButtonRef = useRef<HTMLButtonElement | null>(null);
+  const listed: ListedFile[] = entries.map((entry) => ({ key: entry.key, removable: canRemove(entry.phase, importing) }));
+  const importReady = gate === "ready" && barShown && toImport.length > 0;
+  useEffect(() => {
+    const before = drawnFiles.current;
+    drawnFiles.current = listed;
+    const went = controlWent();
+    if (!went || !focusDropped(document)) return;
+    const target = importFocusAfter(went, { before, after: listed, importReady });
+    if (target === "choose") chooseRef.current?.focus();
+    else if (target === "import") importButtonRef.current?.focus();
+    else if (target === "files") filesTitleRef.current?.focus();
+    else removeButton(listRef.current, target.remove)?.focus();
+  });
 
   async function importAll() {
     // The button says aria-disabled while it imports, and once nothing is left to import (disabled would drop keyboard
@@ -598,7 +640,7 @@ export function ActivityImportScreen() {
           <label className={cn("fitx-button mt-4 min-h-12 cursor-pointer px-6 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-fitx-primary", (reading || importing) && "pointer-events-none opacity-60")}>
             <FileUp size={17} aria-hidden="true" />Choose files
             {/* Not disabled while files are read or imported, so keyboard focus stays here (D5): the picker doesn't open meanwhile. */}
-            <input type="file" multiple accept={ACCEPT} className="sr-only" onChange={onPick} aria-disabled={reading || importing || undefined} onClick={(event) => { if (reading || importing) event.preventDefault(); }} />
+            <input ref={chooseRef} type="file" multiple accept={ACCEPT} className="sr-only" onChange={onPick} aria-disabled={reading || importing || undefined} onClick={(event) => { if (reading || importing) event.preventDefault(); }} />
           </label>
         </section>
       )}
@@ -608,28 +650,35 @@ export function ActivityImportScreen() {
       {entries.length > 0 && (
         <section aria-labelledby="files-title" className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="files-title" className="text-sm font-semibold text-fitx-text">{entries.length} {entries.length === 1 ? "file" : "files"}</h2>
-            {!importing && <button type="button" onClick={clearList} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Clear list</button>}
+            <h2 id="files-title" ref={filesTitleRef} tabIndex={-1} className="text-sm font-semibold text-fitx-text">{entries.length} {entries.length === 1 ? "file" : "files"}</h2>
+            {/* Goes with the list: Choose files takes focus (D5). */}
+            {!importing && <button type="button" ref={controlRef} data-import-control="clear" onClick={clearList} className="fitx-button fitx-button-quiet min-h-11 px-3 text-sm">Clear list</button>}
           </div>
-          {lookupFailed && !reading && (
-            <div role="alert" className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p>FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
-              <button type="button" onClick={() => void checkAgain()} className="fitx-button fitx-button-secondary min-h-11 shrink-0">Check again</button>
+          {/* Stays while Check again checks, so it keeps focus (aria-disabled meanwhile) and keeps it when the check fails
+              again, the message drawn anew to be read out again; once a check works it goes, and the Import button,
+              else the files' heading, takes focus (D5). */}
+          {checkAlertShown({ failed: lookupFailed, reading, checkingAgain }) && (
+            <div className="fitx-alert fitx-alert-danger flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p key={lookupFailures} role="alert">FITX couldn’t check your activities for these sessions, so nothing can be imported yet. Check your connection and try again.</p>
+              <button type="button" ref={controlRef} data-import-control="check" onClick={() => void checkAgain()} aria-disabled={reading || importing || undefined} className="fitx-button fitx-button-secondary min-h-11 shrink-0 aria-disabled:cursor-progress aria-disabled:opacity-60">
+                {checkingAgain ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Checking…</> : "Check again"}
+              </button>
             </div>
           )}
+          {/* Goes once every file has its sport: the Import button, else the files' heading, takes focus (D5). */}
           {unknownSport > 1 && !importing && (
             <div className="fitx-panel p-4">
               <p className="text-sm text-fitx-text">{unknownSport} files don’t say their sport. Set them all to:</p>
               <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5" role="group" aria-label="Sport for files that don’t say">
                 {importSports.map((sport) => (
-                  <button key={sport} type="button" onClick={() => chooseSportForUnknown(sport)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-fitx-border text-sm font-medium text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text">
+                  <button key={sport} type="button" ref={controlRef} data-import-control="set-all" onClick={() => chooseSportForUnknown(sport)} className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg border border-fitx-border text-sm font-medium text-fitx-text-secondary hover:border-fitx-primary/40 hover:text-fitx-text">
                     <SportIcon sport={sport} size={16} />{SPORT_LABEL[sport]}
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <ul className="space-y-3">
+          <ul ref={listRef} className="space-y-3">
             {entries.map((entry) => (
               <FileCard
                 key={entry.key}
@@ -644,6 +693,7 @@ export function ActivityImportScreen() {
                 onConfirm={(value) => update(entry.key, { confirmOverlap: value })}
                 onReplace={(value) => update(entry.key, { confirmReplace: value })}
                 onRemove={() => setEntries((list) => list.filter((item) => item.key !== entry.key))}
+                removeRef={controlRef}
               />
             ))}
           </ul>
@@ -651,7 +701,7 @@ export function ActivityImportScreen() {
               that is open (--fitx-inset-consent), so Import stays in reach on a long list. Shown the whole time it imports. */}
           {open && barShown && (
             <div data-coach-avoid="" className="sticky bottom-[max(5rem,calc(var(--fitx-inset-consent,0px)+8px))] z-10 rounded-xl border border-fitx-border bg-fitx-elevated p-3 shadow-lg md:bottom-[max(1rem,calc(var(--fitx-inset-consent,0px)+8px))]">
-              <button type="button" onClick={() => void importAll()} aria-disabled={importing || reading || toImport.length === 0 || undefined} className="fitx-button min-h-12 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
+              <button type="button" ref={importButtonRef} onClick={() => void importAll()} aria-disabled={importing || reading || toImport.length === 0 || undefined} className="fitx-button min-h-12 w-full aria-disabled:cursor-not-allowed aria-disabled:opacity-60">
                 {importing ? <><LoaderCircle size={17} aria-hidden="true" className="animate-spin" />Importing…</> : toImport.length ? `Import ${toImport.length} ${toImport.length === 1 ? "activity" : "activities"}` : "Nothing to import yet"}
               </button>
             </div>
